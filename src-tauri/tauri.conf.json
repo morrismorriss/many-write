@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Many Write",
+  "mainBinaryName": "many-write",
+  "version": "0.1.0",
+  "identifier": "app.manywrite.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:ui",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Many Write",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 560
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Write plays, screenplays, books, articles and poems.",
+    "longDescription": "A local-first writing app. Projects are plain markdown files in folders on your computer, with a live typeset preview and PDF export.",
+    "copyright": "Many Write contributors",
+    "license": "Apache-2.0",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "linux": { "deb": { "depends": [] } }
+  }
+}

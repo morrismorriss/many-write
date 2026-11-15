@@ -1,0 +1,15 @@
+[package]
+name = "manywrite-core"
+description = "Core of Many Write: project files on disk and the embedded Typst typesetting engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+typst = "0.15.1"
+typst-layout = "0.15.1"
+typst-pdf = "0.15.1"
+typst-svg = "0.15.1"
+typst-assets = { version = "0.15.1", features = ["fonts"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

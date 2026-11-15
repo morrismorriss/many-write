@@ -1,0 +1,45 @@
+{
+  "name": "many-write",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A local-first writing app for plays, screenplays, books, articles and poems.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n core,ui \"cargo run -q -p manywrite-devserver\" \"vite\"",
+    "dev:ui": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "e2e": "node e2e/smoke.mjs",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@fontsource/courier-prime": "5.2.8",
+    "@fontsource/inter": "5.2.8",
+    "@fontsource/literata": "5.2.8",
+    "@tauri-apps/api": "2.12.3",
+    "@tauri-apps/plugin-dialog": "2.8.3",
+    "@tiptap/core": "2.27.3",
+    "@tiptap/extension-bold": "2.27.3",
+    "@tiptap/extension-document": "2.27.3",
+    "@tiptap/extension-hard-break": "2.27.3",
+    "@tiptap/extension-history": "2.27.3",
+    "@tiptap/extension-italic": "2.27.3",
+    "@tiptap/extension-text": "2.27.3",
+    "@tiptap/extension-underline": "2.27.3",
+    "@tiptap/pm": "2.27.3",
+    "@tiptap/react": "2.27.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@vitejs/plugin-react": "5.1.0",
+    "concurrently": "9.2.1",
+    "typescript": "5.9.3",
+    "vite": "7.2.2",
+    "vitest": "3.2.4"
+  }
+}
