@@ -34,12 +34,11 @@ export const ArrowUp = base(<path d="M12 19V5M6 11l6-6 6 6" />);
 export const ArrowDown = base(<path d="M12 5v14M6 13l6 6 6-6" />);
 export const ArchiveIcon = base(<><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4" /></>);
 
-/** The pomodoro timer's tomato (in colour, like the real thing). */
-export const Tomato = (p: SVGProps<SVGSVGElement>) => (
-  <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" {...p}>
-    <path d="M12 6.2c-5 0-8.6 3.1-8.6 7.4 0 4.3 3.8 7.4 8.6 7.4s8.6-3.1 8.6-7.4c0-4.3-3.6-7.4-8.6-7.4z" fill="#e2483d" />
-    <path d="M7.4 10.4c.6-1 1.7-1.7 2.9-2" stroke="#ff8f84" strokeWidth="1.2" strokeLinecap="round" fill="none" />
-    <path d="M12 7.6 9.4 5.2l2-.3L12 3l.6 1.9 2-.3-1 2.3 2.6.9-2.9.9z" fill="#3c9a4d" />
-    <path d="M12 3.4V1.8" stroke="#3c9a4d" strokeWidth="1.6" strokeLinecap="round" />
-  </svg>
+/** The pomodoro timer's tomato: an outline like the other icons, with a stem, two leaves and a divot at the bottom. */
+export const Tomato = base(
+  <>
+    <path d="M12 8.2C7.2 6.8 3.3 9.6 3.3 14c0 4 3.3 6.8 7 6.7.8 0 1.1-.9 1.7-.9s.9.9 1.7.9c3.7.1 7-2.7 7-6.7 0-4.4-3.9-7.2-8.7-5.8z" />
+    <path d="M12 8.2V3.4" />
+    <path d="M12 5.9c-1.1-1.5-3-1.9-4.6-1.1M12 5.9c1.1-1.5 3-1.9 4.6-1.1" />
+  </>,
 );
