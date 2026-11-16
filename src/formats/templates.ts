@@ -16,21 +16,36 @@ export type ElementType =
   | "subheading"
   | "paragraph"
   | "quote"
-  | "scene_break";
+  | "scene_break"
+  // Notion-style blocks for notes, characters and research pages.
+  | "bullet"
+  | "numbered"
+  | "todo"
+  | "todo_done"
+  | "callout"
+  | "divider"
+  // Front/back matter: a centred paragraph (dedications, epigraphs).
+  | "centered"
+  // A picture from the project's assets folder.
+  | "image";
 
 export type TemplateId = "stage-play" | "screenplay" | "poem" | "book" | "article";
+/** Templates used outside the manuscript. */
+export type AuxTemplateId = "notes" | "matter";
 
 /** How a template's files are written to and read from markdown. */
-export type FileMode = "script" | "prose" | "poem";
+export type FileMode = "script" | "prose" | "poem" | "notes";
 
 export interface ElementDef {
   type: ElementType;
   label: string;
   placeholder: string;
+  /** Extra words the slash menu matches, e.g. "h1", "list". */
+  aliases?: string[];
 }
 
 export interface Template {
-  id: TemplateId;
+  id: TemplateId | AuxTemplateId;
   name: string;
   description: string;
   mode: FileMode;
@@ -43,6 +58,10 @@ export interface Template {
   emptyCycle: ElementType[];
   /** Tab / Shift-Tab cycle. Empty = Tab inserts indentation (poems). */
   tabCycle: ElementType[];
+  /** Enter on an empty line of these types turns it into the given type (leaving a list). */
+  emptyExit?: Partial<Record<ElementType, ElementType>>;
+  /** Backspace at the start of a line of these types turns it into the given type. */
+  backspaceTo?: Partial<Record<ElementType, ElementType>>;
   /** Typst template file inside the engine. */
   typst: string;
   /** Default typeface for the typeset page. */
@@ -67,12 +86,12 @@ export const TEMPLATES: Record<TemplateId, Template> = {
     description: "Character cues, dialogue and stage directions, typeset for the rehearsal room.",
     mode: "script",
     elements: [
-      { type: "character", label: "Character", placeholder: "CHARACTER" },
-      { type: "dialogue", label: "Dialogue", placeholder: "Dialogue" },
-      { type: "parenthetical", label: "Parenthetical", placeholder: "(beat)" },
-      { type: "direction", label: "Stage direction", placeholder: "Stage direction" },
-      { type: "scene_heading", label: "Scene heading", placeholder: "SCENE" },
-      { type: "transition", label: "Transition", placeholder: "BLACKOUT." },
+      { type: "character", label: "Character", placeholder: "CHARACTER", aliases: ["name", "cue", "speaker"] },
+      { type: "dialogue", label: "Dialogue", placeholder: "Dialogue", aliases: ["speech", "line"] },
+      { type: "parenthetical", label: "Parenthetical", placeholder: "(beat)", aliases: ["paren", "wryly"] },
+      { type: "direction", label: "Stage direction", placeholder: "Stage direction", aliases: ["action", "sd"] },
+      { type: "scene_heading", label: "Scene heading", placeholder: "SCENE", aliases: ["heading", "scene"] },
+      { type: "transition", label: "Transition", placeholder: "BLACKOUT.", aliases: ["blackout", "cut"] },
     ],
     firstElement: "scene_heading",
     afterEnter: {
@@ -157,6 +176,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       { type: "subheading", label: "Subheading", placeholder: "Subheading" },
       { type: "quote", label: "Quote", placeholder: "Quotation" },
       { type: "scene_break", label: "Scene break", placeholder: "* * *" },
+      { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
     ],
     firstElement: "paragraph",
     afterEnter: { paragraph: "paragraph", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph" },
@@ -181,6 +201,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       { type: "subheading", label: "Subheading", placeholder: "Subheading" },
       { type: "quote", label: "Quote", placeholder: "Quotation" },
       { type: "scene_break", label: "Section break", placeholder: "* * *" },
+      { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
     ],
     firstElement: "paragraph",
     afterEnter: { paragraph: "paragraph", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph" },
@@ -196,10 +217,115 @@ export const TEMPLATES: Record<TemplateId, Template> = {
   },
 };
 
+const NOTE_ELEMENTS: ElementDef[] = [
+  { type: "paragraph", label: "Text", placeholder: "Type '/' for blocks", aliases: ["paragraph", "plain"] },
+  { type: "title", label: "Heading 1", placeholder: "Heading 1", aliases: ["h1", "title"] },
+  { type: "heading", label: "Heading 2", placeholder: "Heading 2", aliases: ["h2"] },
+  { type: "subheading", label: "Heading 3", placeholder: "Heading 3", aliases: ["h3"] },
+  { type: "bullet", label: "Bulleted list", placeholder: "List", aliases: ["ul", "list", "-"] },
+  { type: "numbered", label: "Numbered list", placeholder: "List", aliases: ["ol", "1."] },
+  { type: "todo", label: "To-do", placeholder: "To-do", aliases: ["checkbox", "task", "[]"] },
+  { type: "quote", label: "Quote", placeholder: "Quote", aliases: [">"] },
+  { type: "callout", label: "Callout", placeholder: "Callout", aliases: ["note", "info", "tip"] },
+  { type: "divider", label: "Divider", placeholder: "", aliases: ["hr", "line", "---"] },
+  { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
+];
+
+const LIST_TYPES: ElementType[] = ["bullet", "numbered", "todo", "todo_done"];
+
+/** Notes, characters and research pages: Notion-style blocks, never typeset. */
+export const NOTES_TEMPLATE: Template = {
+  id: "notes",
+  name: "Notes",
+  description: "",
+  mode: "notes",
+  elements: NOTE_ELEMENTS,
+  firstElement: "paragraph",
+  afterEnter: {
+    paragraph: "paragraph",
+    title: "paragraph",
+    heading: "paragraph",
+    subheading: "paragraph",
+    bullet: "bullet",
+    numbered: "numbered",
+    todo: "todo",
+    todo_done: "todo",
+    quote: "paragraph",
+    callout: "paragraph",
+    divider: "paragraph",
+  },
+  emptyCycle: [],
+  tabCycle: [],
+  emptyExit: { bullet: "paragraph", numbered: "paragraph", todo: "paragraph", todo_done: "paragraph", quote: "paragraph", callout: "paragraph" },
+  backspaceTo: Object.fromEntries([...LIST_TYPES, "quote", "callout", "title", "heading", "subheading"].map((t) => [t, "paragraph"])),
+  typst: "",
+  pageFont: "",
+  docNoun: "Note",
+  folderNoun: "Folder",
+  starter: () => "",
+  exports: [],
+  titlePageDefault: false,
+};
+
+/** Front and back matter: typeset prose that sits before or after the manuscript. */
+export const MATTER_TEMPLATE: Template = {
+  id: "matter",
+  name: "Front & back matter",
+  description: "",
+  mode: "prose",
+  elements: [
+    { type: "paragraph", label: "Paragraph", placeholder: "Write…", aliases: ["text"] },
+    { type: "centered", label: "Centred", placeholder: "Centred text", aliases: ["center", "dedication"] },
+    { type: "heading", label: "Heading", placeholder: "Heading", aliases: ["h2"] },
+    { type: "subheading", label: "Subheading", placeholder: "Subheading", aliases: ["h3"] },
+    { type: "quote", label: "Quote", placeholder: "Quotation", aliases: ["epigraph"] },
+    { type: "scene_break", label: "Break", placeholder: "* * *", aliases: ["divider"] },
+    { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
+  ],
+  firstElement: "paragraph",
+  afterEnter: { paragraph: "paragraph", centered: "centered", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph" },
+  emptyCycle: [],
+  tabCycle: ["paragraph", "centered", "heading", "subheading", "quote", "scene_break"],
+  typst: "matter.typ",
+  pageFont: "",
+  docNoun: "Page",
+  folderNoun: "Folder",
+  starter: () => "",
+  exports: [],
+  titlePageDefault: false,
+};
+
+/** Ready-made front and back matter pages offered in the binder. */
+export interface MatterPreset {
+  title: string;
+  content: string;
+  where: "front" | "back";
+  forTemplates?: TemplateId[];
+}
+
+export const MATTER_PRESETS: MatterPreset[] = [
+  { title: "Dedication", where: "front", content: "-> For … <-\n" },
+  { title: "Epigraph", where: "front", content: "> A line that sets the tone.\n\n-> — Its author <-\n" },
+  { title: "Copyright", where: "front", content: "Copyright © 2026 by the author. All rights reserved.\n" },
+  { title: "Cast of characters", where: "front", forTemplates: ["stage-play", "screenplay"], content: "ANNA, thirties, a teacher.\n\nBEN, her brother.\n" },
+  { title: "Time and place", where: "front", forTemplates: ["stage-play"], content: "A kitchen in a small town. The present.\n" },
+  { title: "Production history", where: "front", forTemplates: ["stage-play"], content: "First performed at …\n" },
+  { title: "Preface", where: "front", forTemplates: ["book", "article"], content: "" },
+  { title: "Acknowledgements", where: "back", content: "" },
+  { title: "Afterword", where: "back", forTemplates: ["book"], content: "" },
+  { title: "About the author", where: "back", content: "" },
+  { title: "Notes", where: "back", content: "" },
+];
+
 export const TEMPLATE_ORDER: TemplateId[] = ["stage-play", "screenplay", "book", "article", "poem"];
 
 export function getTemplate(id: string | undefined): Template {
   return TEMPLATES[(id as TemplateId) ?? "stage-play"] ?? TEMPLATES["stage-play"];
+}
+
+/** Types that have a valid slash-menu / markdown-shortcut meaning in a template. */
+export function hasType(t: Template, type: ElementType): boolean {
+  return t.elements.some((e) => e.type === type) || (type === "todo_done" && t.elements.some((e) => e.type === "todo"));
 }
 
 export function elementLabel(t: Template, type: ElementType): string {

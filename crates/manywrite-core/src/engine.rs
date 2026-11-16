@@ -26,6 +26,7 @@ pub const TEMPLATES: &[(&str, &str)] = &[
     ("poem.typ", include_str!("templates/poem.typ")),
     ("book.typ", include_str!("templates/book.typ")),
     ("article.typ", include_str!("templates/article.typ")),
+    ("matter.typ", include_str!("templates/matter.typ")),
 ];
 
 const BUNDLED_FONTS: &[&[u8]] = &[
@@ -65,6 +66,9 @@ fn file_id(path: &str) -> FileId {
 struct MwWorld {
     main: Source,
     templates: Vec<Source>,
+    /// The open project's folder, for images the writer has added.
+    root: Option<std::path::PathBuf>,
+    files: std::sync::Mutex<std::collections::HashMap<FileId, Bytes>>,
 }
 
 impl MwWorld {
@@ -73,7 +77,12 @@ impl MwWorld {
             .iter()
             .map(|(name, text)| Source::new(file_id(&format!("/mw/{name}")), (*text).to_string()))
             .collect();
-        Self { main: Source::new(file_id("/main.typ"), String::new()), templates }
+        Self {
+            main: Source::new(file_id("/main.typ"), String::new()),
+            templates,
+            root: None,
+            files: Default::default(),
+        }
     }
 }
 
@@ -102,7 +111,23 @@ impl World for MwWorld {
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        self.source(id).map(|s| Bytes::from_string(s.text().to_string()))
+        if let Ok(s) = self.source(id) {
+            return Ok(Bytes::from_string(s.text().to_string()));
+        }
+        // Project files (images). Only plain paths inside the project folder.
+        let root = self.root.as_ref().ok_or_else(|| FileError::NotFound(Default::default()))?;
+        if let Some(b) = self.files.lock().unwrap().get(&id) {
+            return Ok(b.clone());
+        }
+        let rel = id.vpath().get_without_slash().to_string();
+        if rel.split('/').any(|s| s == ".." || s.is_empty()) {
+            return Err(FileError::AccessDenied);
+        }
+        let path = root.join(&rel);
+        let data = std::fs::read(&path).map_err(|e| FileError::from_io(e, &path))?;
+        let bytes = Bytes::new(data);
+        self.files.lock().unwrap().insert(id, bytes.clone());
+        Ok(bytes)
     }
 
     fn font(&self, index: usize) -> Option<Font> {
@@ -178,6 +203,8 @@ pub struct CompileReport {
     /// For each element (same order as the request), the 1-based page its
     /// first line landed on, or 0 when it produced no visible text.
     pub element_pages: Vec<usize>,
+    /// For each element, the 1-based page its last line landed on (0 = none).
+    pub element_last_pages: Vec<usize>,
     pub issues: Vec<LayoutIssue>,
     pub compile_ms: u64,
 }
@@ -206,6 +233,19 @@ impl Engine {
 
     /// Compile `source` and check the result against the layout rules.
     /// The laid-out document is kept for [`Engine::page_svg`] and [`Engine::pdf`].
+    /// Set the project folder that images are loaded from.
+    pub fn set_root(&mut self, root: Option<std::path::PathBuf>) {
+        if self.world.root != root {
+            self.world.root = root;
+            self.world.files.lock().unwrap().clear();
+        }
+    }
+
+    /// Forget cached project files (after an image is added or replaced).
+    pub fn clear_files(&mut self) {
+        self.world.files.lock().unwrap().clear();
+    }
+
     pub fn compile(&mut self, source: &str, elements: &[ElementSpan]) -> CompileReport {
         let started = std::time::Instant::now();
         self.world.main.replace(source);
@@ -222,8 +262,9 @@ impl Engine {
                     report.page_width = first.frame.width().to_pt();
                     report.page_height = first.frame.height().to_pt();
                 }
-                let (pages, issues) = check_layout(&self.world, &doc, elements);
+                let (pages, last_pages, issues) = check_layout(&self.world, &doc, elements);
                 report.element_pages = pages;
+                report.element_last_pages = last_pages;
                 report.issues = issues;
                 self.doc = Some(doc);
             }
@@ -287,7 +328,7 @@ fn check_layout(
     world: &MwWorld,
     doc: &PagedDocument,
     elements: &[ElementSpan],
-) -> (Vec<usize>, Vec<LayoutIssue>) {
+) -> (Vec<usize>, Vec<usize>, Vec<LayoutIssue>) {
     let mut placements: Vec<Placement> = vec![Placement::new(); elements.len()];
     let main = world.main.id();
     // Elements arrive in source order; make sure for the binary search.
@@ -325,6 +366,8 @@ fn check_layout(
 
     let first_pages: Vec<usize> =
         placements.iter().map(|p| p.keys().next().copied().unwrap_or(0)).collect();
+    let last_pages: Vec<usize> =
+        placements.iter().map(|p| p.keys().last().copied().unwrap_or(0)).collect();
 
     let mut issues = Vec::new();
     for (i, el) in elements.iter().enumerate() {
@@ -374,7 +417,7 @@ fn check_layout(
             }
         }
     }
-    (first_pages, issues)
+    (first_pages, last_pages, issues)
 }
 
 fn walk(frame: &Frame, offset: Point, f: &mut impl FnMut(Point, &FrameItem)) {

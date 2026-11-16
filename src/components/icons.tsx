@@ -25,3 +25,11 @@ export const Warning = base(<><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 0
 export const Crosshair = base(<><circle cx="12" cy="12" r="7" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></>);
 export const Book = base(<><path d="M4 19.5A2.5 2.5 0 016.5 17H20V3H6.5A2.5 2.5 0 004 5.5z" /><path d="M4 19.5A2.5 2.5 0 006.5 22H20v-5" /></>);
 export const NoteIcon = base(<><path d="M5 4h14v12l-4 4H5z" /><path d="M15 20v-4h4M9 9h6M9 13h4" /></>);
+export const Timer = base(<><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2.5M9 2h6" /></>);
+export const TargetIcon = base(<><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="4" /><circle cx="12" cy="12" r="0.8" fill="currentColor" /></>);
+export const BarChart = base(<path d="M5 20V11M12 20V5M19 20v-7M3 20h18" />);
+export const Search = base(<><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4.2-4.2" /></>);
+export const Lock = base(<><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 018 0v3" /></>);
+export const ArrowUp = base(<path d="M12 19V5M6 11l6-6 6 6" />);
+export const ArrowDown = base(<path d="M12 5v14M6 13l6 6 6-6" />);
+export const ArchiveIcon = base(<><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4" /></>);

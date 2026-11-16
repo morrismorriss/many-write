@@ -168,3 +168,62 @@ describe("poem", () => {
     expect(serializePoem(doc)).toBe(md);
   });
 });
+
+import { parseNotes, serializeNotes, parseProse as parseProse2, serializeProse as serializeProse2 } from "./markdown";
+
+describe("notes (Notion-style)", () => {
+  const md = `# Anna
+
+Role: lead.
+
+## Wants
+
+- the letter back
+- to leave town
+
+1. first
+2. second
+
+- [ ] find a surname
+- [x] decide her age
+
+> [!note] She never says the word "sorry".
+
+> Quote here.
+
+---
+
+1\\. not a list
+
+\\- not a bullet
+`;
+  it("round-trips lists, to-dos, callouts and dividers", () => {
+    const doc = parseNotes(md);
+    expect(types(doc.blocks)).toEqual([
+      "title:Anna",
+      "paragraph:Role: lead.",
+      "heading:Wants",
+      "bullet:the letter back",
+      "bullet:to leave town",
+      "numbered:first",
+      "numbered:second",
+      "todo:find a surname",
+      "todo_done:decide her age",
+      'callout:She never says the word "sorry".',
+      "quote:Quote here.",
+      "divider:",
+      "paragraph:1. not a list",
+      "paragraph:- not a bullet",
+    ]);
+    expect(serializeNotes(doc)).toBe(md);
+  });
+});
+
+describe("front matter pages", () => {
+  it("round-trips centred lines", () => {
+    const md = "-> For Anna <-\n\nA plain paragraph.\n";
+    const doc = parseProse2(md, false);
+    expect(types(doc.blocks)).toEqual(["centered:For Anna", "paragraph:A plain paragraph."]);
+    expect(serializeProse2(doc)).toBe(md);
+  });
+});

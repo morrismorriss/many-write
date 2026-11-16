@@ -18,3 +18,7 @@ serde_json = "1"
 [features]
 # Used by `tauri dev`; do not remove.
 custom-protocol = ["tauri/custom-protocol"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Same version Tauri uses; only to switch on WebKitGTK's spell checker.
+webkit2gtk = "2.0"

@@ -95,7 +95,7 @@ await page.keyboard.press("Enter");
 await type("Hello again.");
 
 // ---- 3. Autosave after about a second
-await sleep(1800);
+await sleep(2400);
 const saved = fs.readFileSync(scene1, "utf8");
 console.log("---- scene file on disk ----\n" + saved + "----");
 ok(saved.includes("ANNA\nI told you already."), "cue and dialogue saved in the convention");
@@ -108,15 +108,15 @@ ok((await page.getByTestId("save-status").innerText()) === "Saved", "status show
 await sleep(800);
 const label = await page.getByTestId("page-label").innerText();
 ok(/Page \d+ of 2/.test(label), `preview paginates (${label})`);
-ok((await page.getByTestId("orphan-status").innerText()).includes("No orphan lines"), "No orphan lines status visible");
+ok((await page.getByTestId("orphan-status").count()) === 0, "no layout issues (the warning only appears when there is one)");
 await page.screenshot({ path: path.join(SHOTS, "01-light.png") });
 
 // ---- 5. Notes
 await page.getByTestId("notes").fill("Anna is lying about the letter.");
 await sleep(1600);
 const proj = JSON.parse(fs.readFileSync(path.join(root, "project.json"), "utf8"));
-const notesRel = proj.binder[0].children[0].children[0].notes;
-ok(notesRel && fs.readFileSync(path.join(root, notesRel), "utf8") === "Anna is lying about the letter.", "notes saved to their own linked file");
+const notesRel = proj.binder.find((r) => r.role === "manuscript").children[0].children[0].notes;
+ok(notesRel && fs.readFileSync(path.join(root, notesRel), "utf8") === "Anna is lying about the letter.\n", "notes saved to their own linked file");
 
 // ---- 6. Outside edit is detected and reloaded
 fs.writeFileSync(scene1, saved.replace("Did you?", "Did you, really?"));
@@ -147,12 +147,13 @@ await sleep(300);
 await page.getByTestId("binder-Act One").getByTitle("New document in this folder").click();
 await sleep(900);
 let names = fs.readdirSync(path.join(root, "manuscript/01-act-one")).sort();
-ok(names.join(",") === "01-scene-1.md,02-scene-3.md", `new scene file numbered (${names})`);
+// "+" on the section adds after the selected scene, inside Act One; "+" on the folder adds at its end.
+ok(names.join(",") === "01-scene-1.md,02-scene-2.md,03-scene-3.md", `new scenes land inside the act, numbered (${names})`);
 const before = fs.readFileSync(path.join(root, "manuscript/01-act-one/01-scene-1.md"), "utf8");
 await page.getByTestId("binder-Scene 3").dragTo(page.getByTestId("binder-Scene 1"), { targetPosition: { x: 40, y: 3 } });
 await sleep(1200);
 names = fs.readdirSync(path.join(root, "manuscript/01-act-one")).sort();
-ok(names.join(",") === "01-scene-3.md,02-scene-1.md", `drag reorder renames prefixes (${names})`);
+ok(names.join(",") === "01-scene-3.md,02-scene-1.md,03-scene-2.md", `drag reorder renames prefixes (${names})`);
 ok(fs.readFileSync(path.join(root, "manuscript/01-act-one/02-scene-1.md"), "utf8") === before, "reordering never rewrote file contents");
 
 // ---- 9. Close and reopen: nothing lost

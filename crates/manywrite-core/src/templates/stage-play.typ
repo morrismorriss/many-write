@@ -1,5 +1,5 @@
 // Stage play: character cue, dialogue, stage direction, scene heading, transition.
-#import "common.typ": script-title-page
+#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start
 
 #let line-h = 12pt
 
@@ -7,6 +7,7 @@
   title: none, author: none, contact: none, date: none, title-page: true,
   font: "Courier Prime", paper: "us-letter",
   page-fill: white, text-fill: black,
+  revision: none,
   body,
 ) = {
   set document(title: if title != none { title } else { "Untitled" })
@@ -17,10 +18,8 @@
   set par(leading: 0pt, spacing: line-h, justify: false)
   set page(paper: paper, fill: page-fill,
     margin: (left: 1.5in, right: 1in, top: 1in, bottom: 1in),
-    header: context {
-      let n = counter(page).get().first()
-      if n > 1 { align(right)[#n.] }
-    })
+    header: script-header(revision),
+    foreground: rev-marks)
   if title-page and title != none {
     script-title-page(title, author, contact, date)
   }

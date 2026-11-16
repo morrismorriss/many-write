@@ -154,7 +154,14 @@ fn script_styles(screenplay: bool) -> Vec<Style> {
             Style { id: "dialogue", ppr: "<w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:left=\"1440\" w:right=\"2160\"/>", rpr: "" },
             Style { id: "transition", ppr: "<w:spacing w:before=\"240\" w:after=\"0\"/><w:jc w:val=\"right\"/>", rpr: "<w:caps/>" },
             Style { id: "folder_heading", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:after=\"480\"/>", rpr: "<w:b/><w:u w:val=\"single\"/><w:caps/>" },
+            Style { id: "matter_title", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"960\" w:after=\"480\"/>", rpr: "<w:b/><w:caps/>" },
+            Style { id: "matter_paragraph", ppr: "<w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
+            Style { id: "centered", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
             Style { id: "title", ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"2880\" w:after=\"480\"/>", rpr: "<w:b/><w:caps/>" },
+            Style { id: "heading", ppr: "<w:keepNext/><w:spacing w:before=\"360\" w:after=\"120\"/>", rpr: "<w:b/>" },
+            Style { id: "subheading", ppr: "<w:keepNext/><w:spacing w:before=\"240\" w:after=\"120\"/>", rpr: "<w:i/>" },
+            Style { id: "quote", ppr: "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"720\" w:right=\"720\"/>", rpr: "<w:i/>" },
+            Style { id: "scene_break", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"240\" w:after=\"240\"/>", rpr: "" },
         ]
     } else {
         vec![
@@ -166,13 +173,23 @@ fn script_styles(screenplay: bool) -> Vec<Style> {
             Style { id: "action", ppr: "<w:spacing w:before=\"240\" w:after=\"0\"/><w:ind w:left=\"3600\"/>", rpr: "<w:i/>" },
             Style { id: "transition", ppr: "<w:spacing w:before=\"240\" w:after=\"0\"/><w:jc w:val=\"right\"/>", rpr: "<w:caps/>" },
             Style { id: "folder_heading", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:after=\"480\"/>", rpr: "<w:b/><w:u w:val=\"single\"/><w:caps/>" },
+            Style { id: "matter_title", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"960\" w:after=\"480\"/>", rpr: "<w:b/><w:caps/>" },
+            Style { id: "matter_paragraph", ppr: "<w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
+            Style { id: "centered", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
             Style { id: "title", ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"2880\" w:after=\"480\"/>", rpr: "<w:b/><w:caps/>" },
+            Style { id: "heading", ppr: "<w:keepNext/><w:spacing w:before=\"360\" w:after=\"120\"/>", rpr: "<w:b/>" },
+            Style { id: "subheading", ppr: "<w:keepNext/><w:spacing w:before=\"240\" w:after=\"120\"/>", rpr: "<w:i/>" },
+            Style { id: "quote", ppr: "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"720\" w:right=\"720\"/>", rpr: "<w:i/>" },
+            Style { id: "scene_break", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"240\" w:after=\"240\"/>", rpr: "" },
         ]
     }
 }
 
 fn prose_styles(book: bool) -> Vec<Style> {
     vec![
+        Style { id: "matter_title", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"960\" w:after=\"480\"/>", rpr: "<w:b/><w:caps/>" },
+        Style { id: "matter_paragraph", ppr: "<w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
+        Style { id: "centered", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
         Style { id: "title", ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"1440\" w:after=\"480\"/>", rpr: "<w:sz w:val=\"40\"/>" },
         Style { id: "chapter", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"1440\" w:after=\"480\"/><w:outlineLvl w:val=\"0\"/>", rpr: "<w:sz w:val=\"32\"/>" },
         Style { id: "folder_heading", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"2880\" w:after=\"480\"/>", rpr: "<w:smallCaps/><w:sz w:val=\"36\"/>" },
@@ -354,7 +371,7 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let mut current: Option<(String, String)> = None;
     let mut prev_kind = String::new();
     for b in &doc.blocks {
-        let starts_chapter = matches!(b.kind.as_str(), "chapter" | "folder_heading")
+        let starts_chapter = matches!(b.kind.as_str(), "chapter" | "folder_heading" | "matter_title")
             || (poem && b.kind == "title");
         if starts_chapter || current.is_none() {
             if let Some(c) = current.take() {
@@ -366,7 +383,9 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         let html = &mut current.as_mut().unwrap().1;
         let inline = epub_inline(&b.runs, poem);
         match b.kind.as_str() {
-            "chapter" | "title" => html.push_str(&format!("<h1>{inline}</h1>\n")),
+            "chapter" | "title" | "matter_title" => html.push_str(&format!("<h1>{inline}</h1>\n")),
+            "centered" => html.push_str(&format!("<p class=\"first\" style=\"text-align:center\">{inline}</p>\n")),
+            "matter_paragraph" => html.push_str(&format!("<p class=\"article\">{inline}</p>\n")),
             "folder_heading" => html.push_str(&format!("<h1 class=\"part\">{inline}</h1>\n")),
             "heading" | "scene_heading" => html.push_str(&format!("<h2>{inline}</h2>\n")),
             "subheading" => html.push_str(&format!("<h3>{inline}</h3>\n")),

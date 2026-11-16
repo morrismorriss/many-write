@@ -14,6 +14,7 @@ export function toFountain(template: Template, meta: ProjectMeta, items: Manuscr
   if (meta.contact) tp.push(`Contact: ${meta.contact.replace(/\n/g, "\n    ")}`);
   out.push(tp.join("\n"), "");
   for (const item of items) {
+    if (item.kind === "matter") continue; // front/back matter is not part of a Fountain script
     if (item.kind === "folder") {
       out.push(`${"#".repeat(Math.min(item.depth, 3))} ${item.title}`, "");
       continue;
@@ -67,6 +68,7 @@ function fdxText(runs: Run[], upper = false): string {
 export function toFdx(meta: ProjectMeta, items: ManuscriptItem[]): string {
   const paras: string[] = [];
   for (const item of items) {
+    if (item.kind === "matter") continue;
     if (item.kind === "folder") {
       paras.push(`    <Paragraph Type="New Act"><Text>${xml(item.title.toUpperCase())}</Text></Paragraph>`);
       continue;
@@ -127,6 +129,11 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
   for (const item of items) {
     if (item.kind === "folder") {
       blocks.push({ kind: "folder_heading", runs: [{ text: item.title }] });
+      continue;
+    }
+    if (item.kind === "matter") {
+      blocks.push({ kind: "matter_title", runs: [{ text: item.title }] });
+      for (const b of item.blocks) if (blockText(b).trim() || b.type === "scene_break") blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: b.runs });
       continue;
     }
     if (template.id === "book") blocks.push({ kind: "chapter", runs: [{ text: item.title }] });

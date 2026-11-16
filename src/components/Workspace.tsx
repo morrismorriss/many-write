@@ -4,12 +4,15 @@ import { useStore } from "../lib/useStore";
 import { Binder, NotesPanel } from "./Binder";
 import { Preview, type CompileReport } from "./Preview";
 import { EditorPane } from "../editor/EditorPane";
+import type { SearchHighlight } from "../editor/extensions";
 import { ExportMenu, ProjectSettingsDialog, ThemeMenu } from "./Menus";
-import { ChevronLeft, ChevronRight, Close, FileIcon, FolderIcon, Settings, Warning } from "./icons";
+import { FileMenu, FindBar, GoalsWidget, Pomodoro, ProductionMenu, type FindScope } from "./Widgets";
+import { ChevronLeft, ChevronRight, FileIcon, FolderIcon, Search, Warning } from "./icons";
 import type { AppSettings, Theme } from "../themes/themes";
-import { manuscriptOrder, roleOf, type BinderNode } from "../project/model";
+import { roleOf, type BinderNode } from "../project/model";
 import { wordCount } from "../formats/exporters";
 import { blockText } from "../formats/markdown";
+import type { Match } from "../formats/search";
 
 interface Props {
   store: ProjectStore;
@@ -21,32 +24,46 @@ interface Props {
   onBuildTheme: (base: Theme) => void;
   onDeleteTheme: (t: Theme) => void;
   onClose: () => void;
+  onNewProject: () => void;
+  onOpenFolder: () => void;
+  onOpenProject: (root: string) => void;
 }
 
 export function Workspace(p: Props) {
   const { store, settings, setSettings } = p;
   useStore(store);
   const [cursor, setCursor] = useState<{ docId: string; index: number } | null>(null);
-  const [focusReq, setFocusReq] = useState<{ docId: string; index: number; n: number } | null>(null);
+  const [focusReq, setFocusReq] = useState<{ docId: string; index: number; n: number; from?: number; to?: number } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [find, setFind] = useState<FindScope | null>(null);
+  const [highlight, setHighlight] = useState<SearchHighlight | null>(null);
+  const last = useRef<{ report: CompileReport | null; ids: string[] }>({ report: null, ids: [] });
   const [pages, setPages] = useState(0);
   const dragging = useRef(false);
 
   const sel = store.selectedId ? store.node(store.selectedId) : null;
   const onCursor = useCallback((docId: string, index: number) => setCursor({ docId, index }), []);
-  const onReport = useCallback((r: CompileReport) => r.ok && setPages(r.pageCount), []);
+  const onReport = useCallback((r: CompileReport, ids: string[]) => {
+    last.current = { report: r, ids };
+    if (r.ok) setPages(r.pageCount);
+  }, []);
 
-  // Keyboard: Mod-\ toggles the binder, Mod-Shift-\ the preview.
+  // Keyboard: Mod-\ binder, Mod-Shift-\ preview, Mod-F find, Mod-Shift-F find in the whole script.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === "\\") {
         e.preventDefault();
         if (e.shiftKey) setSettings({ previewOpen: !settings.previewOpen });
         else setSettings({ binderOpen: !settings.binderOpen });
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+      if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void store.flushAll();
+      }
+      if (mod && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setFind(e.shiftKey ? "script" : "doc");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -74,10 +91,23 @@ export function Workspace(p: Props) {
 
   const jump = (elementId: string) => {
     const [docId, idx] = elementId.split("#");
+    if (Number(idx) < 0) return void store.select(docId);
     void store.select(docId).then(() => setFocusReq({ docId, index: Number(idx), n: Date.now() }));
   };
+  const jumpToMatch = (m: Match) => {
+    void store.select(m.docId).then(() => setFocusReq({ docId: m.docId, index: m.index, from: m.from, to: m.to, n: Date.now() }));
+  };
 
-  const totalWords = manuscriptOrder(store.data).reduce((n, x) => n + (x.node.kind === "doc" ? wordCount(store.docState(x.node.id)?.blocks ?? []) : 0), 0);
+  const lock = (revision: string) => {
+    const { report, ids } = last.current;
+    if (!report?.ok) {
+      store.toast("Wait for the preview to finish typesetting, then lock again.", "warn");
+      return;
+    }
+    void store.lockPages(ids, report.elementPages, report.elementLastPages, report.pageCount, revision);
+  };
+
+  const totalWords = store.manuscriptWords();
   const docWords = sel?.kind === "doc" ? wordCount(store.docState(sel.id)?.blocks ?? []) : 0;
   const binderW = settings.binderOpen ? 268 : 0;
   const previewW = settings.previewOpen ? settings.previewWidth : 0;
@@ -92,17 +122,11 @@ export function Workspace(p: Props) {
               <span className="project-title" title={store.root}>
                 {store.data.title}
               </span>
-              <button className="icon-btn" onClick={() => setShowSettings(true)} title="Project settings" data-testid="project-settings">
-                <Settings />
-              </button>
-              <button className="icon-btn" onClick={p.onClose} title="Close project">
-                <Close />
-              </button>
             </div>
             <div className="binder-scroll">
               <Binder store={store} />
             </div>
-            <NotesPanel store={store} />
+            <NotesPanel store={store} spellcheck={settings.spellcheck} />
           </>
         )}
       </aside>
@@ -120,25 +144,50 @@ export function Workspace(p: Props) {
       {/* Editor */}
       <main className="main">
         <div className="topbar">
-          <div className="crumbs">
-            {sel ? breadcrumb(store, sel).map((t, i, a) => (
-              <span key={i} className={i === a.length - 1 ? "crumb last" : "crumb"}>
-                {t}
-              </span>
-            )) : <span className="crumb">{store.data.title}</span>}
+          <div className="topbar-left">
+            <FileMenu
+              onNew={p.onNewProject}
+              onOpenFolder={p.onOpenFolder}
+              onOpen={p.onOpenProject}
+              onClose={p.onClose}
+              onSettings={() => setShowSettings(true)}
+              spellcheck={settings.spellcheck}
+              onToggleSpellcheck={() => setSettings({ spellcheck: !settings.spellcheck })}
+              currentRoot={store.root}
+            />
+            <ProductionMenu store={store} onLock={lock} />
+            <div className="crumbs">
+              {sel ? (
+                breadcrumb(store, sel).map((t, i, a) => (
+                  <span key={i} className={i === a.length - 1 ? "crumb last" : "crumb"}>
+                    {t}
+                  </span>
+                ))
+              ) : (
+                <span className="crumb">{store.data.title}</span>
+              )}
+            </div>
           </div>
           <div className="topbar-right">
-            <span className="muted small-text" data-testid="word-count">
+            <span className="muted small-text" data-testid="word-count" title="Words in this document / in the whole manuscript">
               {sel?.kind === "doc" && roleOf(store.data, sel.id) === "manuscript" ? `${docWords.toLocaleString()} / ` : ""}
               {totalWords.toLocaleString()} words{pages ? ` · ${pages} pages` : ""}
             </span>
             <span className={`save-status ${store.saveStatus}`} data-testid="save-status">
               {store.saveStatus === "saving" ? "Saving…" : store.saveStatus === "error" ? "Not saved" : store.isDirty() ? "Edited" : "Saved"}
             </span>
+            <GoalsWidget store={store} />
+            <Pomodoro settings={settings.pomodoro} onChange={(pomodoro) => setSettings({ pomodoro })} notify={(t) => store.toast(t)} />
+            <button className="icon-btn" onClick={() => setFind(find ? null : "doc")} title="Find and replace (⌘F)" data-testid="find-btn">
+              <Search />
+            </button>
             <ThemeMenu themes={p.themes} current={p.theme} onPick={p.onPickTheme} onBuild={p.onBuildTheme} onDelete={p.onDeleteTheme} />
             <ExportMenu store={store} />
           </div>
         </div>
+        {find && (
+          <FindBar store={store} docId={sel?.kind === "doc" ? sel.id : null} initialScope={find} onClose={() => setFind(null)} onJump={jumpToMatch} onHighlight={setHighlight} />
+        )}
         {store.conflict && (
           <div className="banner warn conflict" role="alert" data-testid="conflict-banner">
             <Warning />
@@ -162,6 +211,8 @@ export function Workspace(p: Props) {
             template={store.templateFor(sel.id)}
             onCursor={onCursor}
             focusReq={focusReq?.docId === sel.id ? focusReq : null}
+            search={highlight}
+            spellcheck={settings.spellcheck}
             header={<DocTitle store={store} node={sel} />}
           />
         ) : sel?.kind === "folder" ? (
@@ -182,15 +233,7 @@ export function Workspace(p: Props) {
                 document.body.classList.add("resizing");
               }}
             />
-            <Preview
-              store={store}
-              theme={p.theme}
-              cursor={cursor}
-              follow={settings.followCursor}
-              onToggleFollow={() => setSettings({ followCursor: !settings.followCursor })}
-              onJump={jump}
-              onReport={onReport}
-            />
+            <Preview store={store} theme={p.theme} cursor={cursor} follow={settings.followCursor} onJump={jump} onReport={onReport} />
           </>
         )}
       </aside>
@@ -247,7 +290,7 @@ function DocTitle({ store, node }: { store: ProjectStore; node: BinderNode }) {
         if (e.key === "Enter") {
           e.preventDefault();
           (e.target as HTMLInputElement).blur();
-          (document.querySelector(".ProseMirror") as HTMLElement | null)?.focus();
+          (document.querySelector(".editor-column .ProseMirror") as HTMLElement | null)?.focus();
         }
       }}
       onBlur={() => {

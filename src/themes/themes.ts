@@ -194,9 +194,19 @@ export interface AppSettings {
   previewOpen: boolean;
   previewWidth: number;
   followCursor: boolean;
+  spellcheck: boolean;
+  pomodoro: { focus: number; short: number; long: number; every: number };
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { theme: "light", binderOpen: true, previewOpen: true, previewWidth: 520, followCursor: true };
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: "light",
+  binderOpen: true,
+  previewOpen: true,
+  previewWidth: 520,
+  followCursor: true,
+  spellcheck: true,
+  pomodoro: { focus: 25, short: 5, long: 15, every: 4 },
+};
 
 export async function loadSettings(): Promise<AppSettings> {
   try {

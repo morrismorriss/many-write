@@ -106,3 +106,45 @@ export async function revealInFolder(path: string): Promise<void> {
     }
   }
 }
+
+/** Ask for an image file. Desktop: a native dialog (returns its path). Browser: a file input (returns its data). */
+export async function pickImage(): Promise<{ name: string; path?: string; data?: string } | null> {
+  if (isTauri) {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const r = await open({ title: "Add an image", filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }] });
+    if (typeof r !== "string") return null;
+    return { name: r.split(/[\\/]/).pop() ?? "image.png", path: r };
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/gif,image/webp,image/svg+xml";
+    input.dataset.testid = "image-input";
+    input.style.display = "none";
+    input.onchange = () => {
+      const f = input.files?.[0];
+      input.remove();
+      if (!f) return resolve(null);
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: f.name, data: String(reader.result) });
+      reader.readAsDataURL(f);
+    };
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+const imageCache = new Map<string, Promise<string>>();
+const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
+
+/** A data: URL for an image in a project, for showing it in the editor. */
+export function imageUrl(absPath: string): Promise<string> {
+  let p = imageCache.get(absPath);
+  if (!p) {
+    const ext = absPath.split(".").pop()?.toLowerCase() ?? "png";
+    p = call<string>("fs.readBase64", { path: absPath }).then((b64) => `data:${MIME[ext] ?? "image/png"};base64,${b64}`);
+    p.catch(() => imageCache.delete(absPath));
+    imageCache.set(absPath, p);
+  }
+  return p;
+}

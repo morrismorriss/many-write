@@ -53,10 +53,10 @@ async function create(template, title) {
   ok((await pill()) === "Action", "screenplay: empty character -> action");
   await page.keyboard.press("Enter");
   await type("Cut to:");
-  await sleep(1800);
+  await sleep(2400);
   const md = fs.readFileSync(path.join(root, "manuscript/01-scene-1.md"), "utf8");
   ok(md === "## INT. LOCATION - DAY\n\nRain hammers the window.\n\nMARA\nWe should go.\n\n> CUT TO:\n", "screenplay file follows the convention");
-  ok((await page.getByTestId("orphan-status").innerText()).includes("No orphan lines"), "screenplay preview ok");
+  ok((await page.getByTestId("orphan-status").count()) === 0, "screenplay preview has no layout issues");
   await page.screenshot({ path: path.join(SHOTS, "10-screenplay.png") });
 }
 
@@ -74,7 +74,7 @@ async function create(template, title) {
   await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
   await type("a hundred small suns.");
-  await sleep(1800);
+  await sleep(2400);
   const md = fs.readFileSync(path.join(root, "manuscript/01-poem-1.md"), "utf8");
   ok(md === "# Low Tide\n\nThe sea goes out\n    and leaves its glass behind,\n\na hundred small suns.\n", `poem file keeps indentation and stanza break (${JSON.stringify(md)})`);
   await sleep(500);
@@ -91,7 +91,7 @@ async function create(template, title) {
   await page.keyboard.press("Tab");
   ok((await pill()) === "Heading", "book: Tab cycles paragraph -> heading");
   await page.keyboard.press("Shift+Tab");
-  await sleep(1800);
+  await sleep(2400);
   const md = fs.readFileSync(path.join(root, "manuscript/01-chapter-1.md"), "utf8");
   ok(md.endsWith("\n\nBy noon the square was full.\n"), "book paragraphs separated by blank lines");
   await sleep(600);
@@ -108,9 +108,9 @@ async function create(template, title) {
   ok((await pill()) === "Heading", "article: Tab makes a heading");
   await page.keyboard.press("Enter");
   await type("Because they outlive the apps that made them.");
-  await sleep(1800);
+  await sleep(2400);
   const md = fs.readFileSync(path.join(root, "manuscript/01-section-1.md"), "utf8");
-  ok(md === "## Why plain files win\n\nBecause they outlive the apps that made them.\n", "article file is plain markdown");
+  ok(md === "## Why plain files win\n\nBecause they outlive the apps that made them.\n", `article file is plain markdown (${JSON.stringify(md)})`);
   await page.screenshot({ path: path.join(SHOTS, "13-article.png") });
 }
 

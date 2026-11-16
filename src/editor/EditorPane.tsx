@@ -6,13 +6,45 @@ import Italic from "@tiptap/extension-italic";
 import Underline from "@tiptap/extension-underline";
 import HardBreak from "@tiptap/extension-hard-break";
 import History from "@tiptap/extension-history";
-import { ElementNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, setLineType } from "./extensions";
+import { ElementNode, ImageNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, setLineType, type SearchHighlight } from "./extensions";
 import { elementLabel, type ElementType, type Template } from "../formats/templates";
+import { parseDoc, serializeDoc } from "../formats/markdown";
 import type { ProjectStore } from "../project/store";
+import { imageUrl, pickImage } from "../lib/backend";
 import { ChevronDown } from "../components/icons";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘⌥" : "Ctrl+Alt+";
+
+/** The editor extensions every editor in the app shares. */
+function extensions(store: ProjectStore, opts: { template: () => Template; names: () => string[]; search: () => SearchHighlight | null }) {
+  return [
+    ScriptDocument,
+    Text,
+    ElementNode,
+    ImageNode.configure({ getRoot: () => store.root, loadUrl: imageUrl }),
+    Bold,
+    Italic,
+    Underline,
+    HardBreak,
+    History,
+    ScriptKeys.configure({
+      getTemplate: opts.template,
+      getNames: opts.names,
+      getSearch: opts.search,
+      pickImage: async () => {
+        const f = await pickImage();
+        if (!f) return null;
+        try {
+          return await store.addImage(f.name, f);
+        } catch (e) {
+          store.toast(`Could not add the image: ${(e as Error).message}`, "error");
+          return null;
+        }
+      },
+    }),
+  ];
+}
 
 interface Props {
   store: ProjectStore;
@@ -20,37 +52,31 @@ interface Props {
   template: Template;
   onCursor: (docId: string, index: number) => void;
   header?: React.ReactNode;
-  /** Put the cursor at the start of this line (used to jump to layout issues). */
-  focusReq?: { index: number; n: number } | null;
+  /** Put the cursor on this line (jump to a layout issue or a search result). */
+  focusReq?: { index: number; n: number; from?: number; to?: number } | null;
+  search?: SearchHighlight | null;
+  spellcheck: boolean;
 }
 
-export function EditorPane({ store, docId, template, onCursor, header, focusReq }: Props) {
+export function EditorPane({ store, docId, template, onCursor, header, focusReq, search, spellcheck }: Props) {
   const doc = store.docState(docId)!;
   const templateRef = useRef(template);
   templateRef.current = template;
   const namesRef = useRef<string[]>([]);
+  const searchRef = useRef<SearchHighlight | null>(null);
+  searchRef.current = search ?? null;
   const [lineType, setType] = useState<ElementType>(template.firstElement);
   const [menuOpen, setMenuOpen] = useState(false);
   const extRev = useRef(doc.externalRev);
 
   const editor = useEditor({
-    extensions: [
-      ScriptDocument,
-      Text,
-      ElementNode,
-      Bold,
-      Italic,
-      Underline,
-      HardBreak,
-      History,
-      ScriptKeys.configure({ getTemplate: () => templateRef.current, getNames: () => namesRef.current }),
-    ],
+    extensions: extensions(store, { template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current }),
     content: blocksToContent(doc.blocks, template),
     autofocus: "end",
     editorProps: {
       attributes: {
         class: `mw-editor mode-${template.mode} tmpl-${template.id}`,
-        spellcheck: "true",
+        spellcheck: String(spellcheck),
         "data-testid": "editor",
       },
     },
@@ -69,10 +95,19 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq 
     },
   });
 
-  // Character names for autocomplete, refreshed as the manuscript changes.
+  // Character names for the picker, refreshed as the manuscript changes.
   namesRef.current = template.mode === "script" ? store.characterNames() : [];
 
-  // Reload when the file changed on disk (outside edit, or "use disk version").
+  useEffect(() => {
+    editor?.view.dom.setAttribute("spellcheck", String(spellcheck));
+  }, [editor, spellcheck]);
+
+  // Redraw search highlights when the search changes.
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta("mw-search", true));
+  }, [editor, search]);
+
+  // Reload when the file changed on disk, or after find & replace.
   useEffect(() => {
     if (!editor || doc.externalRev === extRev.current) return;
     extRev.current = doc.externalRev;
@@ -84,12 +119,13 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq 
 
   useEffect(() => {
     if (!editor || !focusReq) return;
-    const doc = editor.state.doc;
     let pos = 1;
-    doc.forEach((_n, offset, i) => {
+    editor.state.doc.forEach((_n, offset, i) => {
       if (i === focusReq.index) pos = offset + 1;
     });
-    editor.chain().focus().setTextSelection(pos).scrollIntoView().run();
+    const from = pos + (focusReq.from ?? 0);
+    const to = focusReq.to !== undefined ? pos + focusReq.to : from;
+    editor.chain().focus().setTextSelection({ from, to }).scrollIntoView().run();
   }, [editor, focusReq?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const choose = (type: ElementType) => {
@@ -103,7 +139,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq 
     <div className="editor-wrap">
       <div className="editor-toolbar">
         <div className="type-menu">
-          <button className="type-pill" data-testid="type-pill" onClick={() => setMenuOpen((v) => !v)} title="Element type (Tab cycles, Enter moves on)">
+          <button className="type-pill" data-testid="type-pill" onClick={() => setMenuOpen((v) => !v)} title="Line type: Tab cycles, Enter moves on, / opens the block menu">
             {elementLabel(template, lineType)} <ChevronDown width={13} height={13} />
           </button>
           {menuOpen && (
@@ -111,11 +147,11 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq 
               {template.elements.map((el, i) => (
                 <button key={el.type} className={el.type === lineType ? "menu-item active" : "menu-item"} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(el.type)}>
                   <span>{el.label}</span>
-                  <kbd>{MOD}{i + 1}</kbd>
+                  {i < 9 && <kbd>{MOD}{i + 1}</kbd>}
                 </button>
               ))}
               <div className="menu-hint">
-                {template.tabCycle.length ? "Tab cycles types · Enter on an empty line switches type" : "Tab indents · Shift-Tab outdents"}
+                {template.tabCycle.length ? "Tab cycles types · Enter on an empty line switches type · / for the menu" : "Type / for blocks · Tab indents"}
               </div>
             </div>
           )}
@@ -129,4 +165,28 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq 
       </div>
     </div>
   );
+}
+
+/** A compact Notion-style editor for the notes panel under the binder. */
+export function NotesEditor({ store, nodeId, markdown, template, spellcheck, onChange }: { store: ProjectStore; nodeId: string; markdown: string; template: Template; spellcheck: boolean; onChange: (md: string) => void }) {
+  const templateRef = useRef(template);
+  const last = useRef(markdown);
+  const editor = useEditor({
+    extensions: extensions(store, { template: () => templateRef.current, names: () => [], search: () => null }),
+    content: blocksToContent(parseDoc(markdown, "notes").blocks, template),
+    editorProps: { attributes: { class: "mw-editor mode-notes notes-editor", spellcheck: String(spellcheck), "data-testid": "notes" } },
+    onUpdate: ({ editor }) => {
+      const md = serializeDoc({ blocks: docToBlocks(editor.state.doc), frontMatter: null }, "notes");
+      last.current = md;
+      onChange(md);
+    },
+  });
+  // Outside edits to the notes file.
+  useEffect(() => {
+    if (!editor || markdown === last.current) return;
+    last.current = markdown;
+    editor.commands.setContent(blocksToContent(parseDoc(markdown, "notes").blocks, template), false);
+  }, [editor, markdown, template]);
+  void nodeId;
+  return <EditorContent editor={editor} className="notes-scroll" />;
 }

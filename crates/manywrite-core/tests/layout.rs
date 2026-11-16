@@ -126,3 +126,59 @@ fn numbering_starts_after_title_page() {
     assert!(!p2.contains("1."), "first script page is unnumbered: {}", &p2[..60]);
     assert!(p3.starts_with("2."), "second script page shows 2.: {}", &p3[..60]);
 }
+
+/// Production mode: after locking, a longer page 2 spills onto 2A and page 3 keeps its number.
+#[test]
+fn locked_pages_produce_a_pages_and_revision_marks() {
+    let header = "#import \"/mw/stage-play.typ\": *\n#show: conf.with(title: \"T\", revision: \"Blue Rev. 16/11/2026\")\n";
+    let items = play_items();
+    let (src, els) = build(header, &items);
+    let mut engine = Engine::new();
+    let r = engine.compile(&src, &els);
+    assert!(r.ok);
+    // Lock: the first element starting on each physical page (skip the title page).
+    // A page that begins part-way through a speech gets a soft lock on that speech.
+    let mut locks: Vec<(usize, usize, bool)> = Vec::new(); // (element index, script page, hard)
+    for phys in 2..=r.page_count {
+        let carried = (0..els.len()).find(|&i| r.element_pages[i] < phys && r.element_last_pages[i] >= phys && r.element_pages[i] > 0);
+        if let Some(i) = carried {
+            locks.push((i, phys - 1, false));
+        } else if let Some(i) = r.element_pages.iter().position(|&p| p == phys) {
+            locks.push((i, phys - 1, true));
+        }
+    }
+    // Add a long speech inside page 2's region, then rebuild with lock markers.
+    let insert_at = locks[1].0 + 1;
+    let mut edited = items.clone();
+    for k in 0..12 {
+        edited.insert(insert_at + k, ("dialogue", "an added line of rewrite that goes on for a while to fill the page up nicely".to_string()));
+    }
+    let mut src2 = String::from(header);
+    let mut els2 = Vec::new();
+    let mut prev = "none".to_string();
+    for (i, (kind, text)) in edited.iter().enumerate() {
+        let orig = if i >= insert_at + 12 { i - 12 } else if i >= insert_at { usize::MAX } else { i };
+        if let Some(&(_, page, hard)) = locks.iter().find(|(e, _, _)| *e == orig) {
+            src2.push_str(&format!("#mw-lock({page}, hard: {hard})\n"));
+        }
+        let start = src2.len();
+        let p = if prev == "none" { "none".to_string() } else { format!("\"{prev}\"") };
+        let mark = if orig == usize::MAX { "#mw-rev()" } else { "" };
+        src2.push_str(&format!("#el(\"{kind}\", {p})[{mark}#\"{text}\"]\n"));
+        els2.push(ElementSpan { id: format!("e{i}"), kind: kind.to_string(), start, end: src2.len() });
+        prev = kind.to_string();
+    }
+    let r2 = engine.compile(&src2, &els2);
+    assert!(r2.ok, "{:?}", r2.errors);
+    assert!(r2.issues.is_empty(), "{:?}", r2.issues);
+    let labels: Vec<String> = (1..r2.page_count)
+        .map(|i| engine.page_text(i).unwrap().split(". ").next().unwrap_or("").to_string())
+        .collect();
+    let pages: Vec<String> = (1..r2.page_count).map(|i| engine.page_text(i).unwrap()).collect();
+    assert!(pages[0].starts_with("Blue Rev."), "revision header: {}", &pages[0][..40]);
+    assert!(pages[1].contains(" 2. "), "page 2: {}", &pages[1][..60]);
+    assert!(pages[2].contains(" 2A. "), "2A page: {}", &pages[2][..60]);
+    assert!(pages[3].contains(" 3. "), "page 3 keeps its number: {}", &pages[3][..60]);
+    assert!(pages[1].contains('*') || pages[2].contains('*'), "revision asterisk drawn");
+    let _ = labels;
+}

@@ -28,6 +28,8 @@ export interface Run {
 export interface Block {
   type: ElementType;
   runs: Run[];
+  /** Images: path of the file, relative to the project folder. Runs hold the caption. */
+  src?: string;
 }
 
 export interface ParsedDoc {
@@ -105,7 +107,7 @@ export function parseInline(src: string): Run[] {
   };
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
-    if (c === "\\" && i + 1 < src.length && /[\\*_`#>@!(\[\]]/.test(src[i + 1])) {
+    if (c === "\\" && i + 1 < src.length && /[\\*_`#>@!()\[\].+-]/.test(src[i + 1])) {
       buf += src[++i];
       continue;
     }
@@ -316,6 +318,18 @@ export function parseProse(text: string, hasTitle: boolean): ParsedDoc {
       i++;
       continue;
     }
+    const img = t.match(/^!\[(.*)\]\((.+?)\)$/);
+    if (img) {
+      blocks.push({ type: "image", runs: img[1] ? [{ text: img[1] }] : [], src: decodeURI(img[2]) });
+      i++;
+      continue;
+    }
+    const centered = t.match(/^->\s*(.*?)\s*<-$/);
+    if (centered) {
+      blocks.push({ type: "centered", runs: parseInline(centered[1]) });
+      i++;
+      continue;
+    }
     if (/^(\*\s*){3,}$|^(-\s*){3,}$|^(_\s*){3,}$/.test(t)) {
       blocks.push({ type: "scene_break", runs: [] });
       i++;
@@ -367,6 +381,12 @@ export function serializeProse(doc: ParsedDoc): string {
         break;
       case "scene_break":
         parts.push("* * *");
+        break;
+      case "centered":
+        if (text) parts.push(`-> ${text.replace(/\\\n/g, " ")} <-`);
+        break;
+      case "image":
+        if (b.src) parts.push(`![${blockText(b).replace(/[\[\]]/g, "")}](${encodeURI(b.src)})`);
         break;
       case "quote":
         if (text) parts.push(text.split("\n").map((l) => `> ${l}`).join("\n"));
@@ -428,17 +448,103 @@ export function serializePoem(doc: ParsedDoc): string {
   return (doc.frontMatter ?? "") + out.join("\n") + (out.length ? "\n" : "");
 }
 
+// ------------------------------------------------------------------ notes
+// Notion-style pages written as markdown that Obsidian also understands:
+// lists, "- [ ]" to-dos, "> [!note]" callouts and "---" dividers.
+
+const LIST_FAMILY: Partial<Record<ElementType, string>> = { bullet: "ul", numbered: "ol", todo: "todo", todo_done: "todo" };
+
+export function parseNotes(text: string): ParsedDoc {
+  const [frontMatter, body] = splitFrontMatter(text.replace(/\r\n?/g, "\n"));
+  const lines = body.split("\n");
+  const blocks: Block[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    let m: RegExpMatchArray | null;
+    if ((m = t.match(/^!\[(.*)\]\((.+?)\)$/))) {
+      blocks.push({ type: "image", runs: m[1] ? [{ text: m[1] }] : [], src: decodeURI(m[2]) });
+    } else if ((m = t.match(/^(#{1,6})\s+(.*)$/))) {
+      const lvl = m[1].length;
+      blocks.push({ type: lvl === 1 ? "title" : lvl === 2 ? "heading" : "subheading", runs: parseInline(m[2]) });
+    } else if ((m = t.match(/^[-*+]\s+\[([ xX])\]\s?(.*)$/))) {
+      blocks.push({ type: m[1] === " " ? "todo" : "todo_done", runs: parseInline(m[2]) });
+    } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(t.replace(/\s/g, ""))) {
+      blocks.push({ type: "divider", runs: [] });
+    } else if ((m = t.match(/^[-*+]\s+(.*)$/))) {
+      blocks.push({ type: "bullet", runs: parseInline(m[1]) });
+    } else if ((m = t.match(/^\d+[.)]\s+(.*)$/))) {
+      blocks.push({ type: "numbered", runs: parseInline(m[1]) });
+    } else if (t.startsWith(">")) {
+      const q: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith(">")) q.push(lines[i++].trim().replace(/^>\s?/, ""));
+      i--;
+      const call = q[0].match(/^\[!\w+\][-+]?\s*(.*)$/);
+      if (call) q[0] = call[1];
+      blocks.push({ type: call ? "callout" : "quote", runs: parseInline(q.filter((l, k) => l || k > 0).join("\n")) });
+    } else {
+      // A trailing backslash is a line break inside the same paragraph.
+      let p = t;
+      while (p.endsWith("\\") && i + 1 < lines.length && lines[i + 1].trim()) p = p.slice(0, -1) + "\n" + lines[++i].trim();
+      blocks.push({ type: "paragraph", runs: parseInline(p) });
+    }
+  }
+  return { blocks, frontMatter };
+}
+
+/** Stop a plain line from being read back as a list, heading, quote or divider. */
+function escapeNoteLine(l: string): string {
+  if (/^\d+[.)]\s/.test(l)) return l.replace(/^(\d+)([.)])/, "$1\\$2");
+  if (/^([-*+]\s|#|>|-{3,}$)/.test(l)) return "\\" + l;
+  return l;
+}
+
+export function serializeNotes(doc: ParsedDoc): string {
+  let out = "";
+  let prevFamily: string | undefined;
+  let n = 0;
+  for (const b of doc.blocks) {
+    const text = serializeRuns(b.runs).trim();
+    if (!text && b.type !== "divider" && b.type !== "image") continue;
+    const family = LIST_FAMILY[b.type];
+    n = b.type === "numbered" && prevFamily === "ol" ? n + 1 : 1;
+    let line: string;
+    switch (b.type) {
+      case "title": line = `# ${text}`; break;
+      case "heading": line = `## ${text}`; break;
+      case "subheading": line = `### ${text}`; break;
+      case "bullet": line = `- ${text}`; break;
+      case "numbered": line = `${n}. ${text}`; break;
+      case "todo": line = `- [ ] ${text}`; break;
+      case "todo_done": line = `- [x] ${text}`; break;
+      case "divider": line = "---"; break;
+      case "image": line = `![${blockText(b).replace(/[\[\]]/g, "")}](${encodeURI(b.src ?? "")})`; break;
+      case "quote": line = text.split("\n").map((l) => `> ${l}`).join("\n"); break;
+      case "callout": line = text.split("\n").map((l, k) => (k ? `> ${l}` : `> [!note] ${l}`)).join("\n"); break;
+      default:
+        line = text.split("\n").map(escapeNoteLine).join("\\\n");
+    }
+    // Items of one list sit on consecutive lines; everything else gets a blank line.
+    if (out) out += family && family === prevFamily ? "\n" : "\n\n";
+    out += line;
+    prevFamily = family;
+  }
+  return (doc.frontMatter ?? "") + out + (out ? "\n" : "");
+}
+
 // ---------------------------------------------------------------- dispatch
 
 export function parseDoc(text: string, mode: FileMode, hasTitle = false): ParsedDoc {
   if (mode === "script") return parseScript(text);
   if (mode === "poem") return parsePoem(text);
+  if (mode === "notes") return parseNotes(text);
   return parseProse(text, hasTitle);
 }
 
 export function serializeDoc(doc: ParsedDoc, mode: FileMode): string {
   if (mode === "script") return serializeScript(doc);
   if (mode === "poem") return serializePoem(doc);
+  if (mode === "notes") return serializeNotes(doc);
   return serializeProse(doc);
 }
 

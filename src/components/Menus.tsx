@@ -30,8 +30,8 @@ export async function exportProject(store: ProjectStore, fmt: ExportFormat) {
   const items = store.manuscriptItems();
   try {
     if (fmt === "pdf") {
-      const g = generateTypst(t, meta, items);
-      const r = await call<CompileReport>("export.pdf", { source: g.source, elements: g.elements, path });
+      const g = generateTypst(t, meta, items, { production: store.productionOptions() });
+      const r = await call<CompileReport>("export.pdf", { source: g.source, elements: g.elements, path, root: store.root });
       const extra = r.issues.length ? ` (${r.issues.length} layout issue${r.issues.length === 1 ? "" : "s"})` : ", no orphan lines";
       store.toast(`Exported ${r.pageCount} pages to ${path}${extra}.`, r.issues.length ? "warn" : "info");
       return;

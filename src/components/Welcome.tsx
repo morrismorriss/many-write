@@ -7,11 +7,13 @@ import { Close } from "./icons";
 interface Props {
   onOpen: (root: string) => void;
   error: string | null;
+  /** Open straight onto the new-project form (File > New project). */
+  startNew?: boolean;
 }
 
-export function Welcome({ onOpen, error }: Props) {
+export function Welcome({ onOpen, error, startNew }: Props) {
   const [recent, setRecent] = useState<RecentProject[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(!!startNew);
   const [template, setTemplate] = useState<TemplateId>("stage-play");
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");

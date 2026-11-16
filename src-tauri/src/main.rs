@@ -32,12 +32,32 @@ fn reveal(path: String) -> Result<(), String> {
     std::process::Command::new(program).arg(target).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// macOS and Windows webviews check spelling on their own. WebKitGTK (Linux)
+/// needs it switched on, with the system language's dictionary.
+#[cfg(target_os = "linux")]
+fn enable_spellcheck(app: &tauri::App) {
+    use webkit2gtk::{WebContextExt, WebViewExt};
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.with_webview(|wv| {
+            if let Some(ctx) = wv.inner().context() {
+                let lang = std::env::var("LANG").ok().and_then(|l| l.split('.').next().map(str::to_string)).filter(|l| !l.is_empty() && l != "C");
+                ctx.set_spell_checking_languages(&[lang.as_deref().unwrap_or("en_US")]);
+                ctx.set_spell_checking_enabled(true);
+            }
+        });
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn enable_spellcheck(_app: &tauri::App) {}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config = app.path().app_config_dir().expect("no config directory");
             app.manage(Arc::new(Core::new(config)));
+            enable_spellcheck(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![mw_call, reveal])

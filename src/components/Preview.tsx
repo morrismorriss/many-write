@@ -4,7 +4,8 @@ import { generateTypst, elementId } from "../formats/typst";
 import type { ProjectStore } from "../project/store";
 import type { Theme } from "../themes/themes";
 import { useStore } from "../lib/useStore";
-import { Check, ChevronLeft, ChevronRight, Crosshair, Warning } from "./icons";
+import { ChevronLeft, ChevronRight, Warning } from "./icons";
+import { StatsPanel } from "./Widgets";
 
 export interface CompileReport {
   ok: boolean;
@@ -14,6 +15,7 @@ export interface CompileReport {
   errors: { message: string }[];
   warnings: { message: string }[];
   elementPages: number[];
+  elementLastPages: number[];
   issues: { id: string; kind: string; page: number; problem: string; message: string }[];
   compileMs: number;
 }
@@ -22,15 +24,15 @@ interface Props {
   store: ProjectStore;
   theme: Theme;
   cursor: { docId: string; index: number } | null;
+  /** Show the page the cursor is on as you write. */
   follow: boolean;
-  onToggleFollow: () => void;
   onJump: (elementId: string) => void;
-  onReport?: (r: CompileReport) => void;
+  onReport?: (r: CompileReport, ids: string[]) => void;
 }
 
 const DEBOUNCE_MS = 250;
 
-export function Preview({ store, theme, cursor, follow, onToggleFollow, onJump, onReport }: Props) {
+export function Preview({ store, theme, cursor, follow, onJump, onReport }: Props) {
   const version = useStore(store);
   const [report, setReport] = useState<CompileReport | null>(null);
   const [ids, setIds] = useState<string[]>([]);
@@ -56,16 +58,16 @@ export function Preview({ store, theme, cursor, follow, onToggleFollow, onJump, 
     }
     busy.current = true;
     try {
-      const g = generateTypst(store.template, store.meta(), store.manuscriptItems(), fills);
-      const r = await call<CompileReport>("typst.compile", { source: g.source, elements: g.elements });
+      const g = generateTypst(store.template, store.meta(), store.manuscriptItems(), { ...fills, production: store.productionOptions() });
+      const r = await call<CompileReport>("typst.compile", { source: g.source, elements: g.elements, root: store.root });
       setReport(r);
-      onReport?.(r);
+      onReport?.(r, g.elements.map((e) => e.id));
       if (r.ok) {
         setIds(g.elements.map((e) => e.id));
         setGen((x) => x + 1);
       }
     } catch (e) {
-      setReport({ ok: false, pageCount: 0, pageWidth: 0, pageHeight: 0, errors: [{ message: String(e) }], warnings: [], elementPages: [], issues: [], compileMs: 0 });
+      setReport({ ok: false, pageCount: 0, pageWidth: 0, pageHeight: 0, errors: [{ message: String(e) }], warnings: [], elementPages: [], elementLastPages: [], issues: [], compileMs: 0 });
     } finally {
       busy.current = false;
       if (pending.current) {
@@ -129,24 +131,20 @@ export function Preview({ store, theme, cursor, follow, onToggleFollow, onJump, 
           <button className="icon-btn" onClick={() => go(clampedPage + 1)} disabled={clampedPage >= pageCount - 1} aria-label="Next page">
             <ChevronRight />
           </button>
-          <button className={follow ? "icon-btn on" : "icon-btn"} onClick={onToggleFollow} title={follow ? "Following the cursor" : "Follow the cursor"} aria-pressed={follow}>
-            <Crosshair />
-          </button>
+
         </div>
         <div className="layout-status">
+          {store.inProduction && <span className="status prod" title="Page numbers are locked">Locked</span>}
           {report && !report.ok ? (
             <span className="status warn" title={report.errors.map((e) => e.message).join("\n")}>
               <Warning /> Typesetting error
             </span>
-          ) : issues.length === 0 ? (
-            <span className="status good" data-testid="orphan-status" title="Checked after every change: no single lines stranded at the top or bottom of a page, and no cue, parenthetical or heading separated from what follows it.">
-              <Check /> No orphan lines
-            </span>
-          ) : (
+          ) : issues.length === 0 ? null : (
             <button className="status warn" data-testid="orphan-status" onClick={() => setIssuesOpen((v) => !v)}>
               <Warning /> {issues.length} layout {issues.length === 1 ? "issue" : "issues"}
             </button>
           )}
+          <StatsPanel store={store} report={report} ids={ids} />
           {issuesOpen && issues.length > 0 && (
             <div className="menu issues" onMouseLeave={() => setIssuesOpen(false)}>
               {issues.map((i, k) => (

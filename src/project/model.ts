@@ -5,7 +5,20 @@
 
 import type { TemplateId } from "../formats/templates";
 
-export type Role = "manuscript" | "characters" | "research";
+export type Role = "front" | "manuscript" | "back" | "characters" | "research" | "archive";
+
+/** Binder roots in display order, with their folder names on disk. */
+export const ROOTS: { role: Role; title: string; file: string }[] = [
+  { role: "front", title: "Front matter", file: "front-matter" },
+  { role: "manuscript", title: "Manuscript", file: "manuscript" },
+  { role: "back", title: "Back matter", file: "back-matter" },
+  { role: "characters", title: "Characters", file: "characters" },
+  { role: "research", title: "Research", file: "research" },
+  { role: "archive", title: "Archive", file: "archive" },
+];
+
+/** Roles whose documents are typeset (and whose files carry number prefixes). */
+export const TYPESET_ROLES: Role[] = ["front", "manuscript", "back"];
 
 export interface BinderNode {
   id: string;
@@ -123,10 +136,10 @@ export function roleOf(data: ProjectFile, id: string): Role | null {
   return null;
 }
 
-/** Manuscript documents and folders in reading order. */
-export function manuscriptOrder(data: ProjectFile): { node: BinderNode; depth: number }[] {
+/** Documents and folders under one root, in reading order. */
+export function manuscriptOrder(data: ProjectFile, role: Role = "manuscript"): { node: BinderNode; depth: number }[] {
   const out: { node: BinderNode; depth: number }[] = [];
-  walkNodes(rootOf(data, "manuscript").children ?? [], (n, _p, depth) => out.push({ node: n, depth: depth + 1 }));
+  walkNodes(rootOf(data, role)?.children ?? [], (n, _p, depth) => out.push({ node: n, depth: depth + 1 }));
   return out;
 }
 
@@ -170,11 +183,7 @@ export function emptyProject(title: string, template: TemplateId, author: string
     contact: "",
     template,
     settings: { titlePage, paper: "us-letter" },
-    binder: [
-      { id: newId(), kind: "folder", title: "Manuscript", file: "manuscript", role: "manuscript", children: [] },
-      { id: newId(), kind: "folder", title: "Characters", file: "characters", role: "characters", children: [] },
-      { id: newId(), kind: "folder", title: "Research", file: "research", role: "research", children: [] },
-    ],
+    binder: ROOTS.map((r) => ({ id: newId(), kind: "folder" as const, title: r.title, file: r.file, role: r.role, children: [] })),
   };
 }
 

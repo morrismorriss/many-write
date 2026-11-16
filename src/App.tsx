@@ -3,7 +3,7 @@ import { ProjectStore } from "./project/store";
 import { Welcome } from "./components/Welcome";
 import { Workspace } from "./components/Workspace";
 import { ThemeBuilder } from "./components/ThemeBuilder";
-import { appPaths, isTauri } from "./lib/backend";
+import { appPaths, isTauri, pickFolder } from "./lib/backend";
 import {
   applyTheme,
   BUILT_IN_THEMES,
@@ -25,6 +25,7 @@ export function App() {
   const [building, setBuilding] = useState<Theme | null>(null);
   const [themeFolder, setThemeFolder] = useState("");
   const [ready, setReady] = useState(false);
+  const [startNew, setStartNew] = useState(false);
 
   const themes = [...BUILT_IN_THEMES, ...custom];
   const theme = themes.find((t) => t.id === settings.theme) ?? BUILT_IN_THEMES[0];
@@ -128,9 +129,18 @@ export function App() {
           onBuildTheme={(base) => setBuilding(base)}
           onDeleteTheme={(t) => void deleteTheme(t)}
           onClose={() => void closeProject()}
+          onNewProject={() => {
+            setStartNew(true);
+            void closeProject();
+          }}
+          onOpenFolder={() => void pickFolder("Open a project folder", store.root.replace(/\/[^/]*$/, "")).then((r) => { if (r) void openProject(r); })}
+          onOpenProject={(r) => void openProject(r)}
         />
       ) : (
-        <Welcome onOpen={(r) => void openProject(r)} error={error} />
+        <Welcome key={String(startNew)} onOpen={(r) => {
+          setStartNew(false);
+          void openProject(r);
+        }} error={error} startNew={startNew} />
       )}
       {building && (
         <ThemeBuilder

@@ -2,9 +2,9 @@
 // detection. All file operations run through one queue so a save can never
 // interleave with a rename or a reload.
 
-import { BackendError, configApi, fsApi, join } from "../lib/backend";
+import { BackendError, call, configApi, fsApi, join } from "../lib/backend";
 import { blockText, parseDoc, serializeDoc, adaptScriptTypes, type Block } from "../formats/markdown";
-import { getTemplate, TEMPLATES, type Template, type TemplateId } from "../formats/templates";
+import { getTemplate, MATTER_TEMPLATE, NOTES_TEMPLATE, TEMPLATES, type MatterPreset, type Template, type TemplateId } from "../formats/templates";
 import type { ManuscriptItem, ProjectMeta } from "../formats/typst";
 import {
   cloneData,
@@ -18,6 +18,8 @@ import {
   nodePath,
   parentOf,
   PROJECT_FILE,
+  ROOTS,
+  TYPESET_ROLES,
   roleOf,
   rootOf,
   serializeProject,
@@ -29,6 +31,10 @@ import {
   type Role,
 } from "./model";
 import { projectReadme } from "./readme";
+import { computeAnchors, contextKey, PRODUCTION_FILE, resolveAnchors, revisedLines, snapshotOf, type ProductionState } from "./production";
+import { emptyGoals, GOALS_FILE, observe, resetToday, type Goals } from "./goals";
+import { wordCount } from "../formats/exporters";
+import type { GenOptions } from "../formats/typst";
 
 export const AUTOSAVE_MS = 1000;
 const POLL_MS = 2000;
@@ -103,7 +109,7 @@ export async function createProject(location: string, title: string, templateId:
     ms.children!.push({ id: newId(), kind: "doc", title: `${noun} 1`, file: `01-${slugify(noun)}-1.md` });
     docs.push({ rel: `manuscript/01-${slugify(noun)}-1.md`, content: template.starter(1) });
   }
-  for (const dir of ["manuscript", "characters", "research", "notes"]) await fsApi.mkdir(join(root, dir));
+  for (const dir of [...ROOTS.map((r) => r.file), "notes"]) await fsApi.mkdir(join(root, dir));
   for (const d of docs) await fsApi.write(join(root, d.rel), d.content, null);
   await fsApi.write(join(root, "README.md"), projectReadme(title, template), null);
   await fsApi.write(join(root, PROJECT_FILE), serializeProject(data), null);
@@ -126,6 +132,9 @@ export class ProjectStore {
   saveStatus: "saved" | "saving" | "error" = "saved";
   conflict: ConflictState | null = null;
   toasts: Toast[] = [];
+  production: ProductionState | null = null;
+  goals: Goals = emptyGoals();
+  private goalsTimer: number | undefined;
 
   private listeners = new Set<Listener>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -164,6 +173,7 @@ export class ProjectStore {
     const changed = await store.reconcile();
     if (changed || created) await store.writeProject(true);
     await store.loadManuscript();
+    await store.loadExtras();
     const first = manuscriptOrder(store.data).find((x) => x.node.kind === "doc");
     store.selectedId = first?.node.id ?? null;
     if (store.selectedId) await store.ensureDoc(store.selectedId);
@@ -212,6 +222,159 @@ export class ProjectStore {
     return run;
   }
 
+  // ------------------------------------------------- production & goals
+
+  private async loadExtras() {
+    for (const [file, set] of [
+      [PRODUCTION_FILE, (v: unknown) => (this.production = v as ProductionState)],
+      [GOALS_FILE, (v: unknown) => (this.goals = { ...emptyGoals(), ...(v as Goals) })],
+    ] as const) {
+      try {
+        const r = await fsApi.read(this.abs(file));
+        if (r.exists) set(JSON.parse(r.content));
+      } catch {
+        this.toast(`${file} could not be read and was ignored.`, "warn");
+      }
+    }
+    this.trackGoals();
+  }
+
+  /** Words in the typeset manuscript (front and back matter excluded). */
+  manuscriptWords(): number {
+    return manuscriptOrder(this.data).reduce((n, x) => n + (x.node.kind === "doc" ? wordCount(this.docs.get(x.node.id)?.blocks ?? []) : 0), 0);
+  }
+
+  private trackGoals() {
+    const next = observe(this.goals, this.manuscriptWords());
+    if (next === this.goals) return;
+    this.goals = next;
+    window.clearTimeout(this.goalsTimer);
+    this.goalsTimer = window.setTimeout(() => void this.enqueue(() => fsApi.write(this.abs(GOALS_FILE), JSON.stringify(this.goals, null, 2) + "\n", null, true)), 2000);
+  }
+
+  setGoals(patch: Partial<Pick<Goals, "daily" | "project" | "deadline">>) {
+    this.goals = { ...this.goals, ...patch };
+    this.trackGoals();
+    void this.enqueue(() => fsApi.write(this.abs(GOALS_FILE), JSON.stringify(this.goals, null, 2) + "\n", null, true));
+    this.emit();
+  }
+
+  /** Set today's word count to any number (0 starts the day over). */
+  resetGoalToday(value = 0) {
+    this.goals = resetToday(this.goals, this.manuscriptWords(), value);
+    void this.enqueue(() => fsApi.write(this.abs(GOALS_FILE), JSON.stringify(this.goals, null, 2) + "\n", null, true));
+    this.emit();
+  }
+
+  /** The "key" of a line (or of a heading, index -1) for locking pages. */
+  private keyAt = (docId: string, index: number): string | undefined => {
+    if (index < 0) {
+      const n = this.node(docId);
+      return n ? `heading|${n.title}` : undefined;
+    }
+    const blocks = this.docs.get(docId)?.blocks;
+    return blocks?.[index] ? contextKey(blocks, index) : undefined;
+  };
+
+  get inProduction(): boolean {
+    return !!this.production?.active && this.template.mode === "script";
+  }
+
+  /** Lock markers and revision marks for the Typst generator. */
+  productionOptions(): GenOptions["production"] | undefined {
+    const p = this.production;
+    if (!p?.active || this.template.mode !== "script") return undefined;
+    const resolved = resolveAnchors(p.anchors, (id) => this.docs.get(id)?.blocks);
+    const locks = new Map([...resolved].map(([id, a]) => [id, { page: a.page, hard: !a.split }]));
+    const revised = new Map<string, Set<number>>();
+    for (const n of this.typesetDocs()) revised.set(n.id, revisedLines(p.snapshot[n.id], this.docs.get(n.id)?.blocks ?? []));
+    return { locks, revised, label: `${p.revision} Rev. ${p.revisionDate}` };
+  }
+
+  private async writeProduction() {
+    await this.enqueue(() => fsApi.write(this.abs(PRODUCTION_FILE), JSON.stringify(this.production, null, 2) + "\n", null, true));
+  }
+
+  /** Lock every page as it is typeset now. `ids` are element ids in order. */
+  async lockPages(ids: string[], first: number[], last: number[], pageCount: number, revision: string) {
+    await this.flushAll();
+    // Script page 1 is the page where the manuscript begins (after the title page and front matter).
+    const inManuscript = new Set(manuscriptOrder(this.data).map((x) => x.node.id));
+    const firstIdx = ids.findIndex((id, i) => inManuscript.has(id.split("#")[0]) && first[i] > 0);
+    const firstScriptPage = firstIdx >= 0 ? first[firstIdx] : this.data.settings.titlePage ? 2 : 1;
+    const anchors = computeAnchors(ids, first, last, this.keyAt, firstScriptPage, pageCount);
+    this.production = {
+      formatVersion: 1,
+      active: true,
+      revision,
+      revisionDate: new Date().toLocaleDateString(),
+      lockedAt: new Date().toISOString(),
+      pageCount: pageCount - firstScriptPage + 1,
+      anchors,
+      snapshot: snapshotOf(this.typesetDocs().map((n) => ({ id: n.id, blocks: this.docs.get(n.id)?.blocks ?? [] }))),
+    };
+    await this.writeProduction();
+    this.toast(`Locked ${this.production.pageCount} pages. Changes now go on A-pages and are marked with *.`);
+    this.emit();
+  }
+
+  /** Start the next revision colour: today's changes become the new baseline. Page locks stay. */
+  async nextRevision(revision: string) {
+    if (!this.production) return;
+    await this.flushAll();
+    this.production = {
+      ...this.production,
+      active: true,
+      revision,
+      revisionDate: new Date().toLocaleDateString(),
+      snapshot: snapshotOf(this.typesetDocs().map((n) => ({ id: n.id, blocks: this.docs.get(n.id)?.blocks ?? [] }))),
+    };
+    await this.writeProduction();
+    this.emit();
+  }
+
+  async unlockPages() {
+    if (!this.production) return;
+    this.production = { ...this.production, active: false };
+    await this.writeProduction();
+    this.toast("Left production mode. Pages flow freely again.");
+    this.emit();
+  }
+
+  // ----------------------------------------------------- find & replace
+
+  /** Replace a document's lines (find & replace); the editor reloads and it saves as usual. */
+  replaceBlocks(id: string, blocks: Block[]) {
+    const d = this.docs.get(id);
+    if (!d) return;
+    d.blocks = blocks;
+    d.rev++;
+    d.externalRev++;
+    this.scheduleSave(id);
+    this.trackGoals();
+    this.emit();
+  }
+
+  /** Make sure every document that can be searched is loaded. */
+  async loadAllDocs() {
+    const ids: string[] = [];
+    walkNodes(this.data.binder, (n) => {
+      if (n.kind === "doc" && !this.missing.has(n.id) && !this.docs.has(n.id)) ids.push(n.id);
+    });
+    for (const id of ids) await this.ensureDoc(id);
+  }
+
+  // --------------------------------------------------------------- images
+
+  /** Copy an image into the project's assets folder; returns its path relative to the project. */
+  async addImage(name: string, source: { path?: string; data?: string }): Promise<string> {
+    const ext = (name.match(/\.([a-z0-9]+)$/i)?.[1] ?? "png").toLowerCase();
+    const rel = `assets/${slugify(name.replace(/\.[^.]+$/, ""))}-${newId().slice(0, 6)}.${ext}`;
+    if (source.path) await call("fs.copy", { from: source.path, to: this.abs(rel) });
+    else await call("fs.writeBase64", { path: this.abs(rel), data: source.data });
+    return rel;
+  }
+
   // ------------------------------------------------------------- queries
 
   get template(): Template {
@@ -227,9 +390,16 @@ export class ProjectStore {
     return rel ? this.abs(rel) : null;
   }
 
-  /** The template a document is edited with: the project's for the manuscript, plain prose for notes. */
+  /**
+   * The template a document is edited with: the project's format for the
+   * manuscript (and archived drafts), typeset prose for front and back matter,
+   * Notion-style blocks for characters and research.
+   */
   templateFor(id: string): Template {
-    return roleOf(this.data, id) === "manuscript" ? this.template : TEMPLATES.article;
+    const role = roleOf(this.data, id);
+    if (role === "manuscript" || role === "archive") return this.template;
+    if (role === "front" || role === "back") return MATTER_TEMPLATE;
+    return NOTES_TEMPLATE;
   }
 
   node(id: string) {
@@ -246,15 +416,27 @@ export class ProjectStore {
     };
   }
 
+  /** Everything that is typeset, in order: front matter, the manuscript, back matter. */
   manuscriptItems(): ManuscriptItem[] {
     const items: ManuscriptItem[] = [];
-    for (const { node, depth } of manuscriptOrder(this.data)) {
-      if (node.kind === "folder") items.push({ kind: "folder", id: node.id, title: node.title, depth });
-      else if (!this.conflictCopies.has(node.id) && !this.missing.has(node.id)) {
-        items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [] });
+    const usable = (id: string) => !this.conflictCopies.has(id) && !this.missing.has(id);
+    for (const where of ["front", "back"] as const) {
+      if (where === "back") {
+        for (const { node, depth } of manuscriptOrder(this.data)) {
+          if (node.kind === "folder") items.push({ kind: "folder", id: node.id, title: node.title, depth });
+          else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [] });
+        }
+      }
+      for (const { node } of manuscriptOrder(this.data, where)) {
+        if (node.kind === "doc" && usable(node.id)) items.push({ kind: "matter", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [], where });
       }
     }
     return items;
+  }
+
+  /** Typeset documents (front matter, manuscript, back matter) in reading order. */
+  typesetDocs(): BinderNode[] {
+    return (["front", "manuscript", "back"] as const).flatMap((r) => manuscriptOrder(this.data, r).map((x) => x.node).filter((n) => n.kind === "doc"));
   }
 
   /** Character names used anywhere in the manuscript, most frequent first. */
@@ -308,9 +490,9 @@ export class ProjectStore {
   }
 
   private async loadManuscript() {
-    const ids = manuscriptOrder(this.data)
-      .filter((x) => x.node.kind === "doc" && !this.missing.has(x.node.id))
-      .map((x) => x.node.id);
+    const ids = this.typesetDocs()
+      .filter((n) => !this.missing.has(n.id))
+      .map((n) => n.id);
     await Promise.all(ids.map((id) => this.readDoc(id)));
   }
 
@@ -400,6 +582,7 @@ export class ProjectStore {
     d.blocks = blocks;
     d.rev++;
     this.scheduleSave(id);
+    this.trackGoals();
     this.emit();
   }
 
@@ -601,7 +784,7 @@ export class ProjectStore {
   /** Give the children of `folder` the file names their order and titles call for. */
   private async syncNames(folder: BinderNode) {
     const role = roleOf(this.data, folder.id);
-    const numbered = role === "manuscript";
+    const numbered = !!role && TYPESET_ROLES.includes(role);
     const dir = this.pathOf(folder.id)!;
     const taken = new Set<string>();
     const plan = (folder.children ?? []).map((c, i) => ({ c, want: desiredName(c, i, numbered, taken) }));
@@ -618,21 +801,41 @@ export class ProjectStore {
     }
   }
 
-  async addDoc(parentId?: string, afterId?: string, role: Role = "manuscript") {
+  /**
+   * Where the "+" on a binder section should put a new document: next to the
+   * selected item when it is in that section (inside it if it is a folder),
+   * otherwise at the end of the section.
+   */
+  insertionPoint(role: Role): { parentId: string; afterId?: string } {
+    const root = rootOf(this.data, role);
+    const sel = this.selectedId ? this.node(this.selectedId) : null;
+    if (!sel || sel.role || roleOf(this.data, sel.id) !== role) {
+      // Put it after the last document, inside the last folder if the section ends with one (Act One…).
+      const last = root.children?.[root.children.length - 1];
+      if (last?.kind === "folder") return { parentId: last.id };
+      return { parentId: root.id };
+    }
+    if (sel.kind === "folder") return { parentId: sel.id };
+    return { parentId: parentOf(this.data, sel.id)!.id, afterId: sel.id };
+  }
+
+  async addDoc(parentId?: string, afterId?: string, role: Role = "manuscript", preset?: { title: string; content: string }) {
     return this.enqueue(async () => {
       const parent = (parentId && this.node(parentId)) || rootOf(this.data, role);
       const r = roleOf(this.data, parent.id) ?? role;
-      const tmpl = r === "manuscript" ? this.template : TEMPLATES.article;
+      const tmpl = r === "manuscript" || r === "archive" ? this.template : r === "front" || r === "back" ? MATTER_TEMPLATE : NOTES_TEMPLATE;
       let count = 0;
-      walkNodes(r === "manuscript" ? rootOf(this.data, "manuscript").children ?? [] : parent.children ?? [], (n) => {
+      walkNodes(rootOf(this.data, r).children ?? [], (n) => {
         if (n.kind === "doc") count++;
       });
-      const noun = r === "manuscript" ? tmpl.docNoun : r === "characters" ? "Character" : "Note";
-      const node: BinderNode = { id: newId(), kind: "doc", title: `${noun} ${count + 1}`, file: `~new-${newId()}.md` };
+      const noun = r === "manuscript" || r === "archive" ? tmpl.docNoun : r === "characters" ? "Character" : r === "research" ? "Note" : "Page";
+      const node: BinderNode = { id: newId(), kind: "doc", title: preset?.title ?? `${noun} ${count + 1}`, file: `~new-${newId()}.md` };
       const kids = (parent.children ??= []);
       const at = afterId ? kids.findIndex((k) => k.id === afterId) + 1 : kids.length;
       kids.splice(at > 0 ? at : kids.length, 0, node);
-      const content = r === "manuscript" ? tmpl.starter(count + 1) : `# ${node.title}\n\n`;
+      const content =
+        preset?.content ??
+        (r === "manuscript" || r === "archive" ? tmpl.starter(count + 1) : r === "characters" ? CHARACTER_STARTER : r === "research" ? `# ${node.title}\n` : "");
       await fsApi.write(join(this.pathOf(parent.id)!, node.file), content, null);
       await this.syncNames(parent);
       await this.writeProject();
@@ -826,13 +1029,10 @@ function normalizeData(d: ProjectFile): ProjectFile {
   d.settings = Object.assign({ titlePage: true, paper: "us-letter" }, d.settings ?? {});
   d.binder ??= [];
   d.id ??= newId();
-  for (const [role, title] of [
-    ["manuscript", "Manuscript"],
-    ["characters", "Characters"],
-    ["research", "Research"],
-  ] as const) {
-    if (!d.binder.find((n) => n.role === role)) d.binder.push({ id: newId(), kind: "folder", title, file: role, role, children: [] });
-  }
+  // Every root exists, in the standard order (older projects gain the new sections).
+  d.binder = ROOTS.map((r) => d.binder.find((n) => n.role === r.role) ?? { id: newId(), kind: "folder" as const, title: r.title, file: r.file, role: r.role, children: [] }).concat(
+    d.binder.filter((n) => !n.role),
+  );
   walkNodes(d.binder, (n) => {
     n.id ??= newId();
     if (n.kind === "folder") n.children ??= [];
@@ -843,3 +1043,20 @@ function normalizeData(d: ProjectFile): ProjectFile {
 function stripRuntime(d: ProjectFile): ProjectFile {
   return d;
 }
+
+/** A new character page: Notion-style headings to fill in. */
+export const CHARACTER_STARTER = `# Name
+
+> [!note] One line: who they are and what they want.
+
+## Want
+
+## Need
+
+## Voice
+
+
+## Backstory
+`;
+
+export type { MatterPreset };

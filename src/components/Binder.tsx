@@ -2,7 +2,9 @@ import { useState } from "react";
 import type { ProjectStore } from "../project/store";
 import type { BinderNode } from "../project/model";
 import { useStore } from "../lib/useStore";
-import { ChevronDown, ChevronRight, FileIcon, FolderIcon, FolderPlus, Plus, Trash, Warning } from "./icons";
+import { ArchiveIcon, ChevronDown, ChevronRight, FileIcon, FolderIcon, FolderPlus, Plus, Trash, Warning } from "./icons";
+import { MATTER_PRESETS, NOTES_TEMPLATE } from "../formats/templates";
+import { NotesEditor } from "../editor/EditorPane";
 
 type DropPos = "before" | "after" | "inside";
 
@@ -11,6 +13,7 @@ export function Binder({ store }: { store: ProjectStore }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; pos: DropPos } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [presetsFor, setPresetsFor] = useState<"front" | "back" | null>(null);
 
   const onDragOver = (e: React.DragEvent, node: BinderNode) => {
     if (!dragId) return;
@@ -129,27 +132,62 @@ export function Binder({ store }: { store: ProjectStore }) {
     <nav className="binder" role="tree" aria-label="Binder">
       {store.data.binder.map((root) => {
         const role = root.role!;
-        const docNoun = role === "manuscript" ? store.template.docNoun : role === "characters" ? "character" : "note";
+        const docNoun = role === "manuscript" || role === "archive" ? store.template.docNoun : role === "characters" ? "character" : role === "research" ? "note" : "page";
         const folderNoun = role === "manuscript" ? store.template.folderNoun : "folder";
+        const matter = role === "front" || role === "back";
+        const add = () => {
+          if (matter) return setPresetsFor(presetsFor === role ? null : role);
+          const at = store.insertionPoint(role);
+          void store.addDoc(at.parentId, at.afterId, role);
+        };
+        const empty =
+          role === "front" ? "Title page extras: dedication, cast list…" : role === "back" ? "Acknowledgements, notes…" : role === "archive" ? "Drag old drafts here" : "Nothing here yet";
         return (
-          <section key={root.id} className="binder-section" onDragOver={(e) => onDragOver(e, root)} onDrop={onDrop}>
+          <section key={root.id} className={`binder-section role-${role}`} onDragOver={(e) => onDragOver(e, root)} onDrop={onDrop}>
             <div className={`binder-head${drop?.id === root.id ? " drop-inside" : ""}`}>
-              <button className="section-toggle" onClick={() => store.toggleCollapsed(root.id)}>
-                {root.title}
+              <button className="section-toggle" onClick={() => store.toggleCollapsed(root.id)} data-testid={`section-${role}`}>
+                {role === "archive" && <ArchiveIcon width={12} height={12} />} {root.title}
               </button>
               <span className="head-actions">
-                <button className="row-action" title={`New ${folderNoun.toLowerCase()}`} onClick={() => void store.addFolder(root.id, role)} data-testid={`add-folder-${role}`}>
-                  <FolderPlus />
-                </button>
-                <button className="row-action" title={`New ${docNoun.toLowerCase()}`} onClick={() => void store.addDoc(root.id, undefined, role)} data-testid={`add-doc-${role}`}>
+                {!matter && (
+                  <button className="row-action" title={`New ${folderNoun.toLowerCase()}`} onClick={() => void store.addFolder(root.id, role)} data-testid={`add-folder-${role}`}>
+                    <FolderPlus />
+                  </button>
+                )}
+                <button className="row-action" title={matter ? "Add a page" : `New ${docNoun.toLowerCase()}`} onClick={add} data-testid={`add-doc-${role}`}>
                   <Plus />
                 </button>
               </span>
             </div>
-            {!root.collapsed && (
-              <div role="group">
-                {root.children?.length ? root.children.map((c) => row(c, 0)) : <div className="binder-empty">Nothing here yet</div>}
+            {presetsFor === role && (
+              <div className="menu preset-menu" onMouseLeave={() => setPresetsFor(null)}>
+                {MATTER_PRESETS.filter((pr) => pr.where === role && (!pr.forTemplates || pr.forTemplates.includes(store.template.id as never))).map((pr) => (
+                  <button
+                    key={pr.title}
+                    className="menu-item"
+                    data-testid={`preset-${pr.title}`}
+                    onClick={() => {
+                      setPresetsFor(null);
+                      void store.addDoc(root.id, undefined, role, pr);
+                    }}
+                  >
+                    {pr.title}
+                  </button>
+                ))}
+                <div className="menu-sep" />
+                <button
+                  className="menu-item"
+                  onClick={() => {
+                    setPresetsFor(null);
+                    void store.addDoc(root.id, undefined, role, { title: "Untitled page", content: "" });
+                  }}
+                >
+                  Blank page
+                </button>
               </div>
+            )}
+            {!root.collapsed && (
+              <div role="group">{root.children?.length ? root.children.map((c) => row(c, 0)) : <div className="binder-empty">{empty}</div>}</div>
             )}
           </section>
         );
@@ -158,7 +196,7 @@ export function Binder({ store }: { store: ProjectStore }) {
   );
 }
 
-export function NotesPanel({ store }: { store: ProjectStore }) {
+export function NotesPanel({ store, spellcheck }: { store: ProjectStore; spellcheck: boolean }) {
   useStore(store);
   const id = store.selectedId;
   const node = id ? store.node(id) : null;
@@ -170,14 +208,14 @@ export function NotesPanel({ store }: { store: ProjectStore }) {
         <span>Notes</span>
         <span className="notes-for">{node.title}</span>
       </div>
-      <textarea
+      <NotesEditor
         key={node.id}
-        data-testid="notes"
-        className="notes-text"
-        placeholder={`Notes for this ${node.kind === "folder" ? "folder" : store.templateFor(node.id).docNoun.toLowerCase()}…`}
-        value={notes?.text ?? ""}
-        onChange={(e) => store.updateNotes(node.id, e.target.value)}
-        onBlur={() => void store.flushNotes(node.id)}
+        store={store}
+        nodeId={node.id}
+        markdown={notes?.text ?? ""}
+        template={NOTES_TEMPLATE}
+        spellcheck={spellcheck}
+        onChange={(md) => store.updateNotes(node.id, md)}
       />
     </div>
   );

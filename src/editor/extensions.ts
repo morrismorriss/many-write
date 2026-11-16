@@ -3,12 +3,63 @@ import Document from "@tiptap/extension-document";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { Fragment, Slice, type Node as PMNode, type Schema } from "@tiptap/pm/model";
-import { cycleNext, elementLabel, type ElementType, type Template } from "../formats/templates";
+import { cycleNext, elementLabel, hasType, type ElementType, type Template } from "../formats/templates";
 import { parseDoc, serializeDoc, adaptScriptTypes, type Block, type Run } from "../formats/markdown";
 
 // --------------------------------------------------------------- schema
 
-export const ScriptDocument = Document.extend({ content: "element+" });
+export const ScriptDocument = Document.extend({ content: "(element | image)+" });
+
+export interface ImageOptions {
+  /** Absolute path of the project folder, to find images on disk. */
+  getRoot: () => string;
+  loadUrl: (absPath: string) => Promise<string>;
+}
+
+/** A picture from the project's assets folder, with an editable caption. */
+export const ImageNode = Node.create<ImageOptions>({
+  name: "image",
+  group: "block",
+  atom: true,
+  draggable: true,
+  addOptions() {
+    return { getRoot: () => "", loadUrl: async () => "" };
+  },
+  addAttributes() {
+    return { src: { default: "" }, alt: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: "figure[data-src]", getAttrs: (el) => ({ src: (el as HTMLElement).dataset.src, alt: (el as HTMLElement).dataset.alt ?? "" }) }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["figure", { "data-src": HTMLAttributes.src, "data-alt": HTMLAttributes.alt, class: "mw-image" }];
+  },
+  addNodeView() {
+    return ({ node, getPos, editor }) => {
+      const dom = document.createElement("figure");
+      dom.className = "mw-image";
+      dom.contentEditable = "false";
+      const img = document.createElement("img");
+      img.alt = node.attrs.alt;
+      const cap = document.createElement("input");
+      cap.className = "mw-caption";
+      cap.placeholder = "Add a caption";
+      cap.value = node.attrs.alt;
+      cap.addEventListener("change", () => {
+        const pos = typeof getPos === "function" ? getPos() : undefined;
+        if (pos !== undefined) editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, alt: cap.value }));
+      });
+      cap.addEventListener("keydown", (e) => e.stopPropagation());
+      dom.append(img, cap);
+      const root = this.options.getRoot();
+      void this.options
+        .loadUrl(`${root}/${node.attrs.src}`)
+        .then((u) => (img.src = u))
+        .catch(() => (dom.dataset.missing = "true"));
+      return { dom, stopEvent: (e) => e.target === cap, ignoreMutation: () => true };
+    };
+  },
+});
 
 /** Every line is an `element` whose `type` attribute is its element type. */
 export const ElementNode = Node.create({
@@ -48,16 +99,24 @@ function runsToInline(runs: Run[]): JSONContent[] {
 }
 
 export function blocksToContent(blocks: Block[], template: Template): JSONContent {
-  const list = blocks.length ? blocks : [{ type: template.firstElement, runs: [] }];
+  const list: Block[] = blocks.length ? blocks : [{ type: template.firstElement, runs: [] }];
   return {
     type: "doc",
-    content: list.map((b) => ({ type: "element", attrs: { type: b.type }, content: runsToInline(b.runs) })),
+    content: list.map((b) =>
+      b.type === "image"
+        ? { type: "image", attrs: { src: b.src ?? "", alt: b.runs.map((r) => r.text).join("") } }
+        : { type: "element", attrs: { type: b.type }, content: runsToInline(b.runs) },
+    ),
   };
 }
 
 export function docToBlocks(doc: PMNode): Block[] {
   const blocks: Block[] = [];
   doc.forEach((node) => {
+    if (node.type.name === "image") {
+      blocks.push({ type: "image", runs: node.attrs.alt ? [{ text: node.attrs.alt }] : [], src: node.attrs.src });
+      return;
+    }
     const runs: Run[] = [];
     node.forEach((child) => {
       if (child.type.name === "hardBreak") {
@@ -82,48 +141,234 @@ export function docToBlocks(doc: PMNode): Block[] {
   return blocks;
 }
 
+/** A line's text with hard breaks as "\n" — the same offsets search results use. */
+export function lineText(node: PMNode): string {
+  return node.textBetween(0, node.content.size, undefined, "\n");
+}
+
 // ------------------------------------------------------------- commands
 
-/** Change the element type of the line holding the cursor. */
-export function setLineType(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, type: ElementType): boolean {
-  const { $from } = state.selection;
+/** Change the type of the line holding the cursor, as part of `tr`. */
+function retype(tr: Transaction, type: ElementType): Transaction {
+  const { $from } = tr.selection;
   const node = $from.parent;
-  if (node.type.name !== "element") return false;
-  if (!dispatch) return true;
+  if (node.type.name !== "element") return tr;
   const pos = $from.before();
-  let tr = state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, type });
+  tr.setNodeMarkup(pos, undefined, { ...node.attrs, type });
   const text = node.textContent;
   if (type === "parenthetical" && text === "") {
     // Final Draft habit: a new parenthetical opens with the cursor inside "()".
-    tr = tr.insertText("()", pos + 1);
-    tr = tr.setSelection(TextSelection.create(tr.doc, pos + 2));
+    tr.insertText("()", pos + 1);
+    tr.setSelection(TextSelection.create(tr.doc, pos + 2));
   } else if (node.attrs.type === "parenthetical" && text === "()") {
-    tr = tr.delete(pos + 1, pos + 3);
+    tr.delete(pos + 1, pos + 3);
   }
-  dispatch(tr.scrollIntoView());
+  if (type === "divider") {
+    // A divider holds no text; continue on a fresh line below it (Notion does the same).
+    if (text) tr.delete(pos + 1, pos + 1 + node.content.size);
+    const end = pos + tr.doc.nodeAt(pos)!.nodeSize;
+    tr.insert(end, tr.doc.type.schema.nodes.element.create({ type: "paragraph" }));
+    tr.setSelection(TextSelection.create(tr.doc, end + 1));
+  }
+  return tr;
+}
+
+export function setLineType(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, type: ElementType): boolean {
+  if (state.selection.$from.parent.type.name !== "element") return false;
+  if (dispatch) dispatch(retype(state.tr, type).scrollIntoView());
   return true;
 }
+
+// ------------------------------------------------------------ popup menu
+// One small menu serves two jobs: the "/" block menu and, on a character
+// line, the list of names already used in the script (as in Scrivener).
+
+export interface MenuItem {
+  label: string;
+  hint?: string;
+  value: string;
+}
+
+interface PopupInfo {
+  kind: "slash" | "names";
+  /** Range of the text the pick replaces. */
+  from: number;
+  to: number;
+  items: MenuItem[];
+  index: number;
+}
+
+interface PopupState {
+  slashFrom: number | null;
+  /** null = the default highlight for this list. */
+  index: number | null;
+  dismissed: string | null;
+}
+
+const popupKey = new PluginKey<PopupState>("mw-popup");
 
 export interface ScriptKeysOptions {
   getTemplate: () => Template;
   getNames: () => string[];
+  getSearch: () => SearchHighlight | null;
+  /** Ask for an image, copy it into the project and return its relative path. */
+  pickImage: () => Promise<string | null>;
 }
 
-const suggestKey = new PluginKey<{ dismissed: string | null }>("mw-suggest");
+export interface SearchHighlight {
+  re: RegExp;
+  /** The match to show as current: line index and character offset in that line. */
+  current?: { index: number; from: number } | null;
+}
 
-/** The completion for a character cue being typed, if any. */
-function suggestion(state: EditorState, names: string[]): string | null {
+function slashItems(t: Template, query: string): MenuItem[] {
+  const q = query.toLowerCase();
+  return t.elements
+    .filter((e) => e.type !== "todo_done")
+    .filter((e) => !q || e.label.toLowerCase().includes(q) || e.type.includes(q) || (e.aliases ?? []).some((a) => a.startsWith(q)))
+    .map((e) => ({ label: e.label, value: e.type, hint: e.aliases?.[0] }));
+}
+
+function popupInfo(state: EditorState, opts: ScriptKeysOptions): PopupInfo | null {
+  const ps = popupKey.getState(state);
   const { $from, empty } = state.selection;
-  if (!empty || $from.parent.attrs.type !== "character") return null;
-  if ($from.parentOffset !== $from.parent.content.size) return null;
-  const typed = $from.parent.textContent.toUpperCase();
-  if (!typed.trim()) return null;
-  if (suggestKey.getState(state)?.dismissed === typed) return null;
-  const hit = names.find((n) => n.startsWith(typed) && n !== typed);
-  return hit ? hit.slice(typed.length) : null;
+  if (!ps || !empty || $from.parent.type.name !== "element") return null;
+  const lineStart = $from.start();
+  const lineEnd = $from.end();
+
+  if (ps.slashFrom !== null) {
+    const from = ps.slashFrom;
+    if (from < lineStart || from >= lineEnd || state.doc.textBetween(from, from + 1) !== "/" || $from.pos <= from) return null;
+    const query = state.doc.textBetween(from + 1, $from.pos);
+    if (query.length > 24 || /\s{2}/.test(query)) return null;
+    const items = slashItems(opts.getTemplate(), query.trim());
+    if (!items.length) return null;
+    return { kind: "slash", from, to: $from.pos, items, index: Math.min(ps.index ?? 0, items.length - 1) };
+  }
+
+  if ($from.parent.attrs.type === "character" && $from.pos === lineEnd) {
+    const typed = $from.parent.textContent.toUpperCase().trim();
+    if (ps.dismissed === typed) return null;
+    const names = opts.getNames().filter((n) => n.startsWith(typed) && n !== typed).slice(0, 8);
+    if (!names.length) return null;
+    // On an empty line nothing is highlighted, so Enter keeps its usual job.
+    const index = ps.index ?? (typed ? 0 : -1);
+    return { kind: "names", from: lineStart, to: lineEnd, items: names.map((n) => ({ label: n, value: n })), index: Math.min(index, names.length - 1) };
+  }
+  return null;
 }
 
-function handleEnter(view: EditorView, template: Template, names: string[]): boolean {
+function choose(view: EditorView, info: PopupInfo, i: number, template: Template): boolean {
+  const item = info.items[i];
+  if (!item) return false;
+  let tr = view.state.tr.setMeta(popupKey, { slashFrom: null, index: null, dismissed: null });
+  if (info.kind === "slash") {
+    tr.delete(info.from, info.to);
+    if (item.value === "image") {
+      view.dispatch(tr);
+      void pickImageFor(view);
+      return true;
+    }
+    tr = retype(tr, item.value as ElementType);
+    view.dispatch(tr.scrollIntoView());
+    return true;
+  }
+  // A picked name fills the cue and moves on to the dialogue line.
+  tr.insertText(item.value, info.from, info.to);
+  const at = tr.selection.$from.end();
+  tr.split(at, 1, [{ type: view.state.schema.nodes.element, attrs: { type: template.afterEnter.character ?? "dialogue" } }]);
+  tr.setSelection(TextSelection.create(tr.doc, at + 2));
+  view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+let imagePicker: (() => Promise<string | null>) | null = null;
+
+/** Insert a picked image at the cursor's line (replacing it when empty). */
+async function pickImageFor(view: EditorView) {
+  const src = await imagePicker?.();
+  if (!src) return;
+  const { state } = view;
+  const { $from } = state.selection;
+  const image = state.schema.nodes.image.create({ src, alt: "" });
+  const tr = state.tr;
+  let after: number;
+  if ($from.parent.type.name === "element" && $from.parent.content.size === 0) {
+    tr.replaceWith($from.before(), $from.after(), image);
+    after = $from.before() + image.nodeSize;
+  } else {
+    after = $from.after() + image.nodeSize;
+    tr.insert($from.after(), image);
+  }
+  // A fresh line to keep typing on, under the picture.
+  tr.insert(after, state.schema.nodes.element.create({ type: "paragraph" }));
+  tr.setSelection(TextSelection.create(tr.doc, after + 1));
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+}
+
+class PopupView {
+  dom: HTMLDivElement;
+  private info: PopupInfo | null = null;
+  constructor(
+    private view: EditorView,
+    private opts: ScriptKeysOptions,
+  ) {
+    this.dom = document.createElement("div");
+    this.dom.className = "menu popup-menu";
+    this.dom.setAttribute("role", "listbox");
+    this.dom.style.display = "none";
+    document.body.appendChild(this.dom);
+    this.update(view);
+  }
+  update(view: EditorView) {
+    this.view = view;
+    const info = view.hasFocus() || this.info ? popupInfo(view.state, this.opts) : null;
+    this.info = info;
+    if (!info) {
+      this.dom.style.display = "none";
+      return;
+    }
+    this.dom.dataset.kind = info.kind;
+    this.dom.replaceChildren(
+      ...(info.kind === "names" ? [Object.assign(document.createElement("div"), { className: "popup-title", textContent: "Characters" })] : []),
+      ...info.items.map((it, i) => {
+        const b = document.createElement("button");
+        b.className = i === info.index ? "menu-item active" : "menu-item";
+        b.setAttribute("role", "option");
+        b.dataset.value = it.value;
+        b.innerHTML = "";
+        const l = document.createElement("span");
+        l.textContent = it.label;
+        b.appendChild(l);
+        if (it.hint && info.kind === "slash") {
+          const k = document.createElement("kbd");
+          k.textContent = it.hint;
+          b.appendChild(k);
+        }
+        b.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          choose(this.view, info, i, this.opts.getTemplate());
+          this.view.focus();
+        });
+        return b;
+      }),
+    );
+    const c = view.coordsAtPos(info.kind === "slash" ? info.from : view.state.selection.from);
+    this.dom.style.display = "block";
+    const below = c.bottom + 6;
+    const h = this.dom.offsetHeight;
+    this.dom.style.top = `${below + h > window.innerHeight ? c.top - h - 6 : below}px`;
+    this.dom.style.left = `${Math.min(c.left, window.innerWidth - this.dom.offsetWidth - 12)}px`;
+  }
+  destroy() {
+    this.dom.remove();
+  }
+}
+
+// ---------------------------------------------------------------- Enter
+
+function handleEnter(view: EditorView, template: Template): boolean {
   const { state } = view;
   let tr = state.tr;
   if (!state.selection.empty) tr = tr.deleteSelection();
@@ -134,13 +379,19 @@ function handleEnter(view: EditorView, template: Template, names: string[]): boo
   const text = node.textContent;
   const blockStart = $pos.before();
 
-  // Accept a character-name completion, then carry on as a normal Enter.
-  const sug = state.selection.empty ? suggestion(state, names) : null;
-  if (sug) tr = tr.insertText(sug, tr.selection.from);
+  if (type === "divider") {
+    const end = blockStart + node.nodeSize;
+    tr.insert(end, state.schema.nodes.element.create({ type: "paragraph" }));
+    view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end + 1)).scrollIntoView());
+    return true;
+  }
 
-  // Enter on an empty line: cycle its type (character -> direction -> transition -> ...).
   const blank = !text.trim() || (type === "parenthetical" && text.trim() === "()");
-  if (blank && template.emptyCycle.length && !sug && state.selection.empty) {
+  // Enter on an empty list item leaves the list.
+  const exit = template.emptyExit?.[type];
+  if (blank && exit && state.selection.empty) return setLineType(state, view.dispatch, exit);
+  // Enter on an empty line: cycle its type (character -> direction -> transition -> ...).
+  if (blank && template.emptyCycle.length && state.selection.empty) {
     return setLineType(state, view.dispatch, cycleNext(template.emptyCycle, type));
   }
 
@@ -158,7 +409,8 @@ function handleEnter(view: EditorView, template: Template, names: string[]): boo
     view.dispatch(tr.scrollIntoView());
     return true;
   }
-  const nextType = atEnd ? (template.afterEnter[type] ?? type) : type;
+  let nextType = atEnd ? (template.afterEnter[type] ?? type) : type;
+  if (nextType === "todo_done") nextType = "todo";
   tr = tr.split(at, 1, [{ type: state.schema.nodes.element, attrs: { type: nextType } }]);
   // The new line's content starts two positions after the split point.
   tr = tr.setSelection(TextSelection.create(tr.doc, at + 2));
@@ -169,26 +421,60 @@ function handleEnter(view: EditorView, template: Template, names: string[]): boo
   return true;
 }
 
+// Notion-style markdown shortcuts, typed at the start of a line.
+const SHORTCUTS: [RegExp, ElementType][] = [
+  [/^[-*+]$/, "bullet"],
+  [/^1[.)]$/, "numbered"],
+  [/^\[ ?\]$/, "todo"],
+  [/^\[x\]$/i, "todo_done"],
+  [/^#$/, "title"],
+  [/^##$/, "heading"],
+  [/^###$/, "subheading"],
+  [/^>$/, "quote"],
+  [/^!$/, "callout"],
+];
+
+// ------------------------------------------------------------- extension
+
 export const ScriptKeys = Extension.create<ScriptKeysOptions>({
   name: "scriptKeys",
   priority: 1000,
   addOptions() {
-    return { getTemplate: () => ({}) as Template, getNames: () => [] };
+    return { getTemplate: () => ({}) as Template, getNames: () => [], getSearch: () => null, pickImage: async () => null };
   },
   addKeyboardShortcuts() {
     const t = () => this.options.getTemplate();
+    const popup = () => popupInfo(this.editor.state, this.options);
+    const move = (step: number) => {
+      const info = popup();
+      if (!info) return false;
+      const n = info.items.length;
+      const next = info.index < 0 ? (step > 0 ? 0 : n - 1) : (info.index + step + n) % n;
+      this.editor.view.dispatch(this.editor.state.tr.setMeta(popupKey, { ...popupKey.getState(this.editor.state)!, index: next }));
+      return true;
+    };
     const shortcuts: Record<string, () => boolean> = {
-      Enter: () => handleEnter(this.editor.view, t(), this.options.getNames()),
+      Enter: () => {
+        const info = popup();
+        if (info && info.index >= 0) return choose(this.editor.view, info, info.index, t());
+        return handleEnter(this.editor.view, t());
+      },
       "Shift-Enter": () => this.editor.commands.setHardBreak(),
+      ArrowDown: () => move(1),
+      ArrowUp: () => move(-1),
+      Escape: () => {
+        const { state, view } = this.editor;
+        if (!popup()) return false;
+        view.dispatch(state.tr.setMeta(popupKey, { slashFrom: null, index: null, dismissed: state.selection.$from.parent.textContent.toUpperCase().trim() }));
+        return true;
+      },
       Tab: () => {
         const tmpl = t();
         const { state, view } = this.editor;
+        const info = popup();
+        if (info) return choose(view, info, Math.max(0, info.index), tmpl);
         if (!tmpl.tabCycle.length) {
           view.dispatch(state.tr.insertText("    ").scrollIntoView());
-          return true;
-        }
-        if (suggestion(state, this.options.getNames())) {
-          view.dispatch(state.tr.insertText(suggestion(state, this.options.getNames())!));
           return true;
         }
         const cur = state.selection.$from.parent.attrs.type as ElementType;
@@ -198,7 +484,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         const tmpl = t();
         const { state, view } = this.editor;
         if (!tmpl.tabCycle.length) {
-          // Poems: remove up to four spaces of indentation.
+          // Poems and notes: remove up to four spaces of indentation.
           const $from = state.selection.$from;
           const lead = $from.parent.textContent.match(/^ {1,4}/)?.[0].length ?? 0;
           if (lead) view.dispatch(state.tr.delete($from.start(), $from.start() + lead));
@@ -207,20 +493,17 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         const cur = state.selection.$from.parent.attrs.type as ElementType;
         return setLineType(state, view.dispatch, cycleNext(tmpl.tabCycle, cur, -1));
       },
-      ArrowRight: () => {
-        const sug = suggestion(this.editor.state, this.options.getNames());
-        if (!sug) return false;
-        this.editor.view.dispatch(this.editor.state.tr.insertText(sug));
-        return true;
-      },
-      Escape: () => {
+      Backspace: () => {
+        // Backspace at the start of a list item, quote or heading turns it back into text.
         const { state, view } = this.editor;
-        if (!suggestion(state, this.options.getNames())) return false;
-        view.dispatch(state.tr.setMeta(suggestKey, { dismissed: state.selection.$from.parent.textContent.toUpperCase() }));
-        return true;
+        const { $from, empty } = state.selection;
+        if (!empty || $from.parentOffset !== 0 || $from.parent.type.name !== "element") return false;
+        const type = $from.parent.attrs.type as ElementType;
+        const to = t().backspaceTo?.[type] ?? (type === "divider" ? "paragraph" : undefined);
+        return to ? setLineType(state, view.dispatch, to) : false;
       },
     };
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= 9; i++) {
       shortcuts[`Mod-Alt-${i}`] = () => {
         const el = t().elements[i - 1];
         return el ? setLineType(this.editor.state, this.editor.view.dispatch, el.type) : false;
@@ -231,45 +514,108 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
   addProseMirrorPlugins() {
     const options = this.options;
     return [
-      new Plugin({
-        key: suggestKey,
+      new Plugin<PopupState>({
+        key: popupKey,
         state: {
-          init: () => ({ dismissed: null as string | null }),
+          init: () => ({ slashFrom: null, index: null, dismissed: null }),
           apply: (tr, value) => {
-            const meta = tr.getMeta(suggestKey);
+            const meta = tr.getMeta(popupKey) as PopupState | undefined;
             if (meta) return meta;
-            return tr.docChanged ? { dismissed: null } : value;
+            if (!tr.docChanged && !tr.selectionSet) return value;
+            const slashFrom = value.slashFrom === null ? null : tr.mapping.map(value.slashFrom, -1);
+            return { slashFrom, index: tr.docChanged ? null : value.index, dismissed: tr.docChanged ? null : value.dismissed };
           },
         },
+        view: (view) => {
+          imagePicker = () => options.pickImage();
+          return new PopupView(view, options);
+        },
         props: {
+          handleDOMEvents: {
+            blur: (view) => {
+              // Close the menu when focus leaves the editor (but not when clicking it).
+              window.setTimeout(() => {
+                if (!view.hasFocus()) view.dispatch(view.state.tr.setMeta(popupKey, { slashFrom: null, index: null, dismissed: null }));
+              }, 120);
+              return false;
+            },
+            mousedown: (view, event) => {
+              // Clicking a to-do's box ticks it.
+              const p = (event.target as HTMLElement).closest?.("p.el-todo, p.el-todo_done") as HTMLElement | null;
+              if (!p || event.clientX > p.getBoundingClientRect().left + 26) return false;
+              const pos = view.posAtDOM(p, 0) - 1;
+              const node = view.state.doc.nodeAt(pos);
+              if (!node) return false;
+              event.preventDefault();
+              view.dispatch(view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, type: node.attrs.type === "todo" ? "todo_done" : "todo" }));
+              return true;
+            },
+          },
           decorations(state) {
             const decos: Decoration[] = [];
             const { $from } = state.selection;
             const tmpl = options.getTemplate();
             // Placeholder on the current empty line, naming its element type.
-            if ($from.parent.type.name === "element" && $from.parent.content.size === 0) {
+            if ($from.parent.type.name === "element" && $from.parent.content.size === 0 && $from.parent.attrs.type !== "divider") {
               const type = $from.parent.attrs.type as ElementType;
               const label = tmpl.elements.find((e) => e.type === type)?.placeholder ?? elementLabel(tmpl, type);
               decos.push(Decoration.node($from.before(), $from.after(), { class: "is-empty", "data-placeholder": label }));
             }
-            const sug = suggestion(state, options.getNames());
-            if (sug) {
-              decos.push(
-                Decoration.widget(state.selection.from, () => {
-                  const s = document.createElement("span");
-                  s.className = "mw-suggest";
-                  s.textContent = sug;
-                  return s;
-                }),
-              );
+            // Find & replace matches.
+            const search = options.getSearch();
+            if (search) {
+              state.doc.forEach((node, pos, index) => {
+                if (node.type.name !== "element") return;
+                const text = lineText(node);
+                search.re.lastIndex = 0;
+                let m: RegExpExecArray | null;
+                while ((m = search.re.exec(text)) && m[0].length) {
+                  const current = search.current?.index === index && search.current.from === m.index;
+                  decos.push(Decoration.inline(pos + 1 + m.index, pos + 1 + m.index + m[0].length, { class: current ? "search-hit current" : "search-hit" }));
+                }
+              });
             }
             return DecorationSet.create(state.doc, decos);
           },
           handleTextInput(view, from, to, text) {
+            const { state } = view;
+            const { $from } = state.selection;
+            if (from !== to || $from.parent.type.name !== "element") return false;
+            const tmpl = options.getTemplate();
+            const type = $from.parent.attrs.type as ElementType;
+            const before = $from.parent.textContent.slice(0, $from.parentOffset);
+            // Typing into a divider starts a new line under it.
+            if (type === "divider") {
+              const end = $from.after();
+              const tr = state.tr.insert(end, state.schema.nodes.element.create({ type: "paragraph" }, state.schema.text(text)));
+              view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end + 1 + text.length)));
+              return true;
+            }
+            // "/" opens the block menu at the start of a line or after a space.
+            if (text === "/" && (before === "" || /\s$/.test(before))) {
+              view.dispatch(state.tr.insertText("/", from, to).setMeta(popupKey, { slashFrom: from, index: null, dismissed: null }));
+              return true;
+            }
             // "(" on an empty dialogue line starts a parenthetical.
-            const { $from } = view.state.selection;
-            if (text === "(" && from === to && $from.parent.attrs.type === "dialogue" && $from.parent.content.size === 0) {
-              return setLineType(view.state, view.dispatch, "parenthetical");
+            if (text === "(" && type === "dialogue" && $from.parent.content.size === 0) {
+              return setLineType(state, view.dispatch, "parenthetical");
+            }
+            // Notion-style markdown shortcuts in notes and prose.
+            if (tmpl.mode === "notes" || tmpl.mode === "prose") {
+              if (text === "-" && before === "--" && hasType(tmpl, "divider")) {
+                const tr = state.tr.delete($from.start(), from);
+                view.dispatch(retype(tr, "divider"));
+                return true;
+              }
+              if (text === " " && type === tmpl.firstElement) {
+                for (const [re, target] of SHORTCUTS) {
+                  if (re.test(before) && hasType(tmpl, target)) {
+                    const tr = state.tr.delete($from.start(), from);
+                    view.dispatch(retype(tr, target));
+                    return true;
+                  }
+                }
+              }
             }
             return false;
           },
@@ -281,9 +627,8 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
           },
           clipboardTextSerializer(slice) {
             const tmpl = options.getTemplate();
-            const doc = slice.content;
             const blocks: Block[] = [];
-            doc.forEach((n) => {
+            slice.content.forEach((n) => {
               if (n.type.name === "element") blocks.push(...docToBlocks(n.type.schema.nodes.doc.create(null, [n])));
             });
             if (!blocks.length) return slice.content.textBetween(0, slice.content.size, "\n");
@@ -294,11 +639,17 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         appendTransaction(trs, _old, state) {
           if (!trs.some((t) => t.docChanged)) return null;
           const tmpl = options.getTemplate();
-          const valid = new Set(tmpl.elements.map((e) => e.type));
-          const fallback: ElementType = tmpl.mode === "poem" ? "line" : tmpl.mode === "script" ? (valid.has("action") ? "action" : "direction") : "paragraph";
+          const fallback: ElementType = tmpl.mode === "poem" ? "line" : tmpl.mode === "script" ? (hasType(tmpl, "action") ? "action" : "direction") : "paragraph";
           let tr: Transaction | null = null;
           state.doc.forEach((node, pos, index) => {
-            if (!valid.has(node.attrs.type)) {
+            if (node.type.name === "image" && hasType(tmpl, "image")) return;
+            if (node.type.name === "image") {
+              // This format has no pictures (scripts): drop it.
+              tr ??= state.tr;
+              tr.delete(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize));
+              return;
+            }
+            if (!hasType(tmpl, node.attrs.type)) {
               tr ??= state.tr;
               // A document replaced wholesale (select all + type) starts like a new one.
               const type = index === 0 && state.doc.childCount === 1 ? tmpl.firstElement : fallback;
@@ -314,7 +665,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
 
 export function parseBlocksForTemplate(text: string, tmpl: Template): Block[] {
   const doc = parseDoc(text, tmpl.mode, tmpl.elements.some((e) => e.type === "title"));
-  if (tmpl.mode === "script") return adaptScriptTypes(doc, tmpl.elements.some((e) => e.type === "action") ? "action" : "direction").blocks;
+  if (tmpl.mode === "script") return adaptScriptTypes(doc, hasType(tmpl, "action") ? "action" : "direction").blocks;
   return doc.blocks;
 }
 
