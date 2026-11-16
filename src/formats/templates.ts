@@ -27,9 +27,32 @@ export type ElementType =
   // Front/back matter: a centred paragraph (dedications, epigraphs).
   | "centered"
   // A picture from the project's assets folder.
-  | "image";
+  | "image"
+  // A source in a Works Cited list or bibliography (hanging indent).
+  | "citation"
+  // Text-message bubbles: the other person (left) and the phone's owner (right).
+  | "text_left"
+  | "text_right";
 
-export type TemplateId = "stage-play" | "screenplay" | "poem" | "book" | "article" | "document";
+export type TemplateId = "stage-play" | "screenplay" | "poem" | "book" | "article" | "essay" | "document";
+
+/** Citation style of an essay. */
+export type EssayStyle = "mla" | "chicago";
+
+export const ESSAY_STYLES: { id: EssayStyle; name: string; description: string; sources: string }[] = [
+  {
+    id: "mla",
+    name: "MLA",
+    description: "Name, instructor, course and date at the top left; surname and page number on every page.",
+    sources: "Works Cited",
+  },
+  {
+    id: "chicago",
+    name: "Chicago",
+    description: "A title page, then numbered pages; footnote-style references gathered in a bibliography.",
+    sources: "Bibliography",
+  },
+];
 /** Templates used outside the manuscript. */
 export type AuxTemplateId = "notes" | "matter";
 
@@ -75,6 +98,17 @@ export interface Template {
 }
 
 export type ExportFormat = "pdf" | "docx" | "epub" | "fdx" | "fountain";
+
+/** Text-message bubbles, offered in books, articles and documents. */
+const BUBBLE_ELEMENTS: ElementDef[] = [
+  { type: "text_left", label: "Text message (left)", placeholder: "Their message", aliases: ["text", "message", "sms", "chat", "bubble", "imessage", "left"] },
+  { type: "text_right", label: "Text message (right)", placeholder: "Your message", aliases: ["text", "message", "sms", "chat", "bubble", "imessage", "right"] },
+];
+const BUBBLE_FLOW = {
+  afterEnter: { text_left: "text_left", text_right: "text_right" } as Partial<Record<ElementType, ElementType>>,
+  emptyExit: { text_left: "paragraph", text_right: "paragraph" } as Partial<Record<ElementType, ElementType>>,
+  backspaceTo: { text_left: "paragraph", text_right: "paragraph" } as Partial<Record<ElementType, ElementType>>,
+};
 
 const scriptExports: ExportFormat[] = ["pdf", "docx", "fdx", "fountain", "epub"];
 const proseExports: ExportFormat[] = ["pdf", "docx", "epub"];
@@ -180,9 +214,12 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       { type: "scene_break", label: "Scene break", placeholder: "* * *" },
       { type: "title", label: "Heading 1", placeholder: "Heading 1", aliases: ["h1"] },
       { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
+      ...BUBBLE_ELEMENTS,
     ],
     firstElement: "paragraph",
-    afterEnter: { paragraph: "paragraph", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph" },
+    afterEnter: { paragraph: "paragraph", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph", ...BUBBLE_FLOW.afterEnter },
+    emptyExit: BUBBLE_FLOW.emptyExit,
+    backspaceTo: BUBBLE_FLOW.backspaceTo,
     emptyCycle: [],
     tabCycle: ["paragraph", "heading", "subheading", "quote", "scene_break"],
     typst: "book.typ",
@@ -206,12 +243,40 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       { type: "scene_break", label: "Section break", placeholder: "* * *" },
       { type: "title", label: "Heading 1", placeholder: "Heading 1", aliases: ["h1"] },
       { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
+      ...BUBBLE_ELEMENTS,
+    ],
+    firstElement: "paragraph",
+    afterEnter: { paragraph: "paragraph", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph", ...BUBBLE_FLOW.afterEnter },
+    emptyExit: BUBBLE_FLOW.emptyExit,
+    backspaceTo: BUBBLE_FLOW.backspaceTo,
+    emptyCycle: [],
+    tabCycle: ["paragraph", "heading", "subheading", "quote", "scene_break"],
+    typst: "article.typ",
+    pageFont: "Libertinus Serif",
+    docNoun: "Section",
+    folderNoun: "Part",
+    starter: () => ``,
+    exports: proseExports,
+    titlePageDefault: false,
+  },
+  essay: {
+    id: "essay",
+    name: "Essay",
+    description: "An academic paper in MLA or Chicago style: double-spaced, with a Works Cited or Bibliography page.",
+    mode: "prose",
+    elements: [
+      { type: "paragraph", label: "Paragraph", placeholder: "Write…" },
+      { type: "heading", label: "Heading", placeholder: "Heading", aliases: ["h2"] },
+      { type: "subheading", label: "Subheading", placeholder: "Subheading", aliases: ["h3"] },
+      { type: "quote", label: "Block quote", placeholder: "A quotation of more than four lines", aliases: ["quotation"] },
+      { type: "scene_break", label: "Section break", placeholder: "* * *" },
+      { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "figure", "img"] },
     ],
     firstElement: "paragraph",
     afterEnter: { paragraph: "paragraph", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph" },
     emptyCycle: [],
     tabCycle: ["paragraph", "heading", "subheading", "quote", "scene_break"],
-    typst: "article.typ",
+    typst: "essay.typ",
     pageFont: "Libertinus Serif",
     docNoun: "Section",
     folderNoun: "Part",
@@ -284,12 +349,15 @@ export const MATTER_TEMPLATE: Template = {
     { type: "subheading", label: "Subheading", placeholder: "Subheading", aliases: ["h3"] },
     { type: "quote", label: "Quote", placeholder: "Quotation", aliases: ["epigraph"] },
     { type: "scene_break", label: "Break", placeholder: "* * *", aliases: ["divider"] },
+    { type: "citation", label: "Source", placeholder: "Surname, First. Title. Publisher, Year.", aliases: ["citation", "works cited", "bibliography", "reference", "cite"] },
     { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
   ],
   firstElement: "paragraph",
-  afterEnter: { paragraph: "paragraph", centered: "centered", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph" },
+  afterEnter: { paragraph: "paragraph", centered: "centered", heading: "paragraph", subheading: "paragraph", quote: "paragraph", scene_break: "paragraph", citation: "citation" },
   emptyCycle: [],
-  tabCycle: ["paragraph", "centered", "heading", "subheading", "quote", "scene_break"],
+  emptyExit: { citation: "paragraph" },
+  backspaceTo: { citation: "paragraph" },
+  tabCycle: ["paragraph", "centered", "heading", "subheading", "quote", "citation", "scene_break"],
   typst: "matter.typ",
   pageFont: "",
   docNoun: "Page",
@@ -298,6 +366,65 @@ export const MATTER_TEMPLATE: Template = {
   exports: [],
   titlePageDefault: false,
 };
+
+/**
+ * Works Cited (MLA 9) and Bibliography (Chicago 17, notes-bibliography) pages.
+ * Each "- " line is one source, typeset with a half-inch hanging indent; the
+ * examples show the pattern for common kinds of source. Keep them in
+ * alphabetical order by the first word.
+ */
+export const WORKS_CITED_STARTER = `- Author Surname, First Name. *Title of Book*. Publisher, Year.
+
+- Author Surname, First Name. "Title of Article." *Journal Name*, vol. 1, no. 2, Year, pp. 10–20.
+
+- Author Surname, First Name. "Title of Web Page." *Name of Website*, Day Month Year, www.example.com/page.
+`;
+
+export const BIBLIOGRAPHY_STARTER = `- Surname, First Name. *Title of Book*. City: Publisher, Year.
+
+- Surname, First Name. "Title of Article." *Journal Name* 1, no. 2 (Year): 10–20.
+
+- Surname, First Name. "Title of Web Page." Name of Website. Month Day, Year. https://www.example.com/page.
+`;
+
+/** Clauses offered for a copyright page. `{author}` becomes the project's author. */
+export const COPYRIGHT_CLAUSES: { id: string; title: string; text: string; defaultOn: boolean }[] = [
+  {
+    id: "rights",
+    title: "All rights reserved",
+    defaultOn: true,
+    text: "All rights reserved. No part of this publication may be reproduced, stored, or transmitted in any form or by any means, electronic, mechanical, photocopying, recording, scanning, or otherwise without written permission from the publisher. It is illegal to copy this book, post it to a website, or distribute it by any other means without permission.",
+  },
+  {
+    id: "fiction",
+    title: "Fiction",
+    defaultOn: false,
+    text: "This novel is entirely a work of fiction. The names, characters, and incidents portrayed in it are the work of the author's imagination. Any resemblance to actual persons, living or dead, events, or localities is entirely coincidental.",
+  },
+  { id: "moral", title: "Moral rights", defaultOn: false, text: "{author} asserts the moral right to be identified as the author of this work." },
+  {
+    id: "external",
+    title: "External content",
+    defaultOn: false,
+    text: "{author} has no responsibility for the persistence or accuracy of URLs for external or third-party Internet Websites referred to in this publication and does not guarantee that any content on such Websites is, or will remain, accurate or appropriate.",
+  },
+  {
+    id: "designations",
+    title: "Designations",
+    defaultOn: false,
+    text: "Designations used by companies to distinguish their products are often claimed as trademarks. All brand names and product names used in this book and on its cover are trade names, service marks, trademarks, and registered trademarks of their respective owners. The publishers and the book are not associated with any product or vendor mentioned in this book. None of the companies referenced within the book have endorsed the book.",
+  },
+  { id: "edition", title: "Edition", defaultOn: false, text: "First edition" },
+  { id: "isbn", title: "ISBN", defaultOn: false, text: "ISBN: 000-0-00-000000-0" },
+];
+
+/** The copyright page: the notice, then the chosen clauses, each its own paragraph. */
+export function copyrightPage(author: string, year: number, clauseIds: string[]): string {
+  const name = author.trim() || "the author";
+  const lines = [`Copyright © ${year} by ${name}`];
+  for (const c of COPYRIGHT_CLAUSES) if (clauseIds.includes(c.id)) lines.push(c.text.replace(/\{author\}/g, name));
+  return lines.join("\n\n") + "\n";
+}
 
 /** Ready-made front and back matter pages offered in the binder. */
 export interface MatterPreset {
@@ -310,6 +437,7 @@ export interface MatterPreset {
 export const MATTER_PRESETS: MatterPreset[] = [
   { title: "Dedication", where: "front", content: "-> For … <-\n" },
   { title: "Epigraph", where: "front", content: "> A line that sets the tone.\n\n-> — Its author <-\n" },
+  // Content comes from the copyright dialog (copyrightPage); this is the fallback.
   { title: "Copyright", where: "front", content: "Copyright © 2026 by the author. All rights reserved.\n" },
   { title: "Cast of characters", where: "front", forTemplates: ["stage-play", "screenplay"], content: "ANNA, thirties, a teacher.\n\nBEN, her brother.\n" },
   { title: "Time and place", where: "front", forTemplates: ["stage-play"], content: "A kitchen in a small town. The present.\n" },
@@ -319,11 +447,17 @@ export const MATTER_PRESETS: MatterPreset[] = [
   { title: "Afterword", where: "back", forTemplates: ["book"], content: "" },
   { title: "About the author", where: "back", content: "" },
   { title: "Notes", where: "back", content: "" },
+  { title: "Works Cited", where: "back", content: WORKS_CITED_STARTER },
+  { title: "Bibliography", where: "back", content: BIBLIOGRAPHY_STARTER },
 ];
 
 /** A plain document, like a word processor: Notion-style blocks, typeset as a clean page. */
 TEMPLATES.document = {
   ...NOTES_TEMPLATE,
+  elements: [...NOTE_ELEMENTS, ...BUBBLE_ELEMENTS],
+  afterEnter: { ...NOTES_TEMPLATE.afterEnter, ...BUBBLE_FLOW.afterEnter },
+  emptyExit: { ...NOTES_TEMPLATE.emptyExit, ...BUBBLE_FLOW.emptyExit },
+  backspaceTo: { ...NOTES_TEMPLATE.backspaceTo, ...BUBBLE_FLOW.backspaceTo },
   id: "document",
   name: "Document",
   description: "A plain document, like a word processor: headings, lists, to-dos and quotes.",
@@ -336,7 +470,7 @@ TEMPLATES.document = {
   titlePageDefault: false,
 };
 
-export const TEMPLATE_ORDER: TemplateId[] = ["stage-play", "screenplay", "document", "book", "article", "poem"];
+export const TEMPLATE_ORDER: TemplateId[] = ["stage-play", "screenplay", "document", "essay", "book", "article", "poem"];
 
 export function getTemplate(id: string | undefined): Template {
   return TEMPLATES[(id as TemplateId) ?? "stage-play"] ?? TEMPLATES["stage-play"];

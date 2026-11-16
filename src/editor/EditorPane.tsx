@@ -12,6 +12,22 @@ import { parseDoc, serializeDoc } from "../formats/markdown";
 import type { ProjectStore } from "../project/store";
 import { imageUrl, pickImage } from "../lib/backend";
 import { ChevronDown } from "../components/icons";
+import { sceneBreakText } from "../formats/typst";
+
+/** Books: the scene break divider the writer chose, shown in the editor as on the page. */
+function useSceneBreakStyle(store: ProjectStore, template: Template): React.CSSProperties | undefined {
+  const s = store.data.settings;
+  const style = template.id === "book" ? (s.sceneBreak ?? "asterisks") : undefined;
+  const img = style === "image" ? s.sceneBreakImage : undefined;
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setUrl(null);
+    if (img) void imageUrl(store.abs(img)).then(setUrl, () => setUrl(null));
+  }, [store, img]);
+  if (!style) return undefined;
+  if (url) return { ["--break-img" as string]: `url("${url}")` };
+  return { ["--break" as string]: JSON.stringify(sceneBreakText(style)) };
+}
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘⌥" : "Ctrl+Alt+";
@@ -68,6 +84,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
   const [lineType, setType] = useState<ElementType>(template.firstElement);
   const [menuOpen, setMenuOpen] = useState(false);
   const extRev = useRef(doc.externalRev);
+  const breakStyle = useSceneBreakStyle(store, template);
 
   const editor = useEditor({
     extensions: extensions(store, { template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current }),
@@ -158,7 +175,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
         </div>
       </div>
       <div className="editor-scroll">
-        <div className="editor-column">
+        <div className={breakStyle && "--break-img" in breakStyle ? "editor-column break-img" : "editor-column"} style={breakStyle}>
           {header}
           <EditorContent editor={editor} />
         </div>

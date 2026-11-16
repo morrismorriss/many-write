@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { appPaths, join, pickFolder } from "../lib/backend";
-import { TEMPLATE_ORDER, TEMPLATES, type TemplateId } from "../formats/templates";
+import { ESSAY_STYLES, TEMPLATE_ORDER, TEMPLATES, type EssayStyle, type TemplateId } from "../formats/templates";
 import { createProject, forgetRecent, readRecent, type RecentProject } from "../project/store";
 import { Close } from "./icons";
 
@@ -17,6 +17,7 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [creating, setCreating] = useState(!!startNew);
   const [template, setTemplate] = useState<TemplateId>("stage-play");
+  const [essayStyle, setEssayStyle] = useState<EssayStyle>("mla");
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [location, setLocation] = useState("");
@@ -32,7 +33,7 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
     setBusy(true);
     setErr(null);
     try {
-      const root = await createProject(location, title.trim() || "Untitled", template, author.trim());
+      const root = await createProject(location, title.trim() || "Untitled", template, author.trim(), { essayStyle });
       onOpen(root);
     } catch (e) {
       setErr((e as Error).message);
@@ -50,7 +51,7 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
     <div className="welcome">
       <div className="welcome-inner">
         <h1 className="wordmark">Many Write</h1>
-        <p className="tagline">Plays, screenplays, books, articles and poems. Plain files on your computer.</p>
+        <p className="tagline">Plays, screenplays, essays, books, articles and poems. Plain files on your computer.</p>
         {(error || err) && <div className="banner error">{error || err}</div>}
         {!creating ? (
           <>
@@ -101,9 +102,22 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
                 </button>
               ))}
             </div>
+            {template === "essay" && (
+              <div className="field" data-testid="essay-style">
+                <span>Style</span>
+                <div className="style-cards">
+                  {ESSAY_STYLES.map((s) => (
+                    <button key={s.id} className={essayStyle === s.id ? "style-card on" : "style-card"} onClick={() => setEssayStyle(s.id)} data-testid={`style-${s.id}`} aria-pressed={essayStyle === s.id}>
+                      <span className="template-name">{s.name}</span>
+                      <span className="template-desc">{s.description}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <label className="field">
               <span>Title</span>
-              <input autoFocus value={title} placeholder="My Play" onChange={(e) => setTitle(e.target.value)} data-testid="new-title" />
+              <input autoFocus value={title} placeholder={template === "essay" ? "My Essay" : "My Play"} onChange={(e) => setTitle(e.target.value)} data-testid="new-title" />
             </label>
             <label className="field">
               <span>Author</span>
@@ -120,7 +134,8 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
             </label>
             <p className="muted small-text">
               Creates <code>{join(location, (title.trim() || "Untitled").replace(/[\\/:*?"<>|]+/g, "-"))}</code> with one markdown file per{" "}
-              {TEMPLATES[template].docNoun.toLowerCase()}.
+              {TEMPLATES[template].docNoun.toLowerCase()}
+              {template === "essay" && <>, and a {ESSAY_STYLES.find((s) => s.id === essayStyle)!.sources} page in the back matter</>}.
             </p>
             <div className="welcome-actions">
               <button className="btn ghost" onClick={() => setCreating(false)}>

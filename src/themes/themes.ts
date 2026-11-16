@@ -1,8 +1,10 @@
-// Themes are small JSON files: four colours, a writing font and whether the
-// preview page follows the theme. Custom ones live in the app's config folder
-// under themes/, so they can be shared by copying the file.
+// Themes are small JSON files: four colours, a writing font, whether the
+// preview page follows the theme and, optionally, a background picture
+// (embedded in the file, so the theme is still one file to share). Custom
+// ones live in the app's config folder under themes/, so they can be shared
+// by copying the file.
 
-import { configApi } from "../lib/backend";
+import { call, configApi } from "../lib/backend";
 
 export type WritingFont = "serif" | "sans" | "mono";
 
@@ -12,7 +14,22 @@ export interface Theme {
   colors: { background: string; sidebar: string; text: string; accent: string };
   writingFont: WritingFont;
   previewMatchesTheme: boolean;
+  /** A picture behind the editor, as a data: URL. */
+  backgroundImage?: string;
+  /** How strongly the picture shows through the background colour, 0.05 to 1. */
+  backgroundStrength?: number;
   builtIn?: boolean;
+}
+
+export const DEFAULT_BACKGROUND_STRENGTH = 0.35;
+const IMAGE_DATA_URL = /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/]+=*$/;
+
+export function isBackgroundImage(v: unknown): v is string {
+  return typeof v === "string" && IMAGE_DATA_URL.test(v);
+}
+
+function clampStrength(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0.05, v)) : DEFAULT_BACKGROUND_STRENGTH;
 }
 
 export const BUILT_IN_THEMES: Theme[] = [
@@ -127,6 +144,14 @@ export function applyTheme(t: Theme, el: HTMLElement = document.documentElement)
   s.setProperty("--writing-font", FONT_STACKS[t.writingFont]);
   // Both side panels (binder on the left, preview on the right) use the sidebar colour.
   s.setProperty("--pane", c.sidebar);
+  // The background picture sits behind the editor, faded into the background colour.
+  if (isBackgroundImage(t.backgroundImage)) {
+    s.setProperty("--bg-image", `url("${t.backgroundImage}")`);
+    s.setProperty("--bg-image-strength", String(clampStrength(t.backgroundStrength)));
+  } else {
+    s.setProperty("--bg-image", "none");
+    s.setProperty("--bg-image-strength", "0");
+  }
   el.dataset.scheme = isDark(t) ? "dark" : "light";
   if (el === document.documentElement) s.colorScheme = isDark(t) ? "dark" : "light";
 }
@@ -163,7 +188,43 @@ export function validateTheme(raw: unknown, id: string): Theme | null {
     colors: { background: c.background, sidebar: c.sidebar, text: c.text, accent: c.accent },
     writingFont: r.writingFont === "sans" || r.writingFont === "mono" ? r.writingFont : "serif",
     previewMatchesTheme: !!r.previewMatchesTheme,
+    ...(isBackgroundImage(r.backgroundImage) ? { backgroundImage: r.backgroundImage, backgroundStrength: clampStrength(r.backgroundStrength) } : {}),
   };
+}
+
+const MAX_SIDE = 2400;
+const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml" };
+
+/**
+ * Turn a picked image (a path on disk, or data from a file input) into a data
+ * URL for a theme. Large photos are scaled down to at most 2400px and stored
+ * as JPEG, so the theme file stays a reasonable size; SVGs are kept as they are.
+ */
+export async function backgroundFromPick(pick: { name: string; path?: string; data?: string }): Promise<string> {
+  let url = pick.data ?? "";
+  if (!url && pick.path) {
+    const ext = pick.path.split(".").pop()?.toLowerCase() ?? "png";
+    if (!MIME[ext]) throw new Error("That file is not a picture Many Write can use (PNG, JPEG, GIF, WebP or SVG).");
+    url = `data:${MIME[ext]};base64,${await call<string>("fs.readBase64", { path: pick.path })}`;
+  }
+  if (!isBackgroundImage(url)) throw new Error("That file is not a picture Many Write can use (PNG, JPEG, GIF, WebP or SVG).");
+  if (url.startsWith("data:image/svg+xml")) return url;
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("The picture could not be read."));
+    el.src = url;
+  });
+  const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+  // Small pictures that are already compact are kept exactly.
+  if (scale === 1 && url.length < 1_500_000) return url;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return url;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.86);
 }
 
 export function themeFileId(name: string): string {

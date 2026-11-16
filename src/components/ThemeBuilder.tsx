@@ -1,5 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { applyTheme, checkContrast, FONT_STACKS, parseHex, type Theme, type WritingFont } from "../themes/themes";
+import { pickImage } from "../lib/backend";
+import {
+  applyTheme,
+  backgroundFromPick,
+  checkContrast,
+  DEFAULT_BACKGROUND_STRENGTH,
+  FONT_STACKS,
+  parseHex,
+  type Theme,
+  type WritingFont,
+} from "../themes/themes";
 import { Check, Close, Warning } from "./icons";
 
 interface Props {
@@ -29,6 +39,24 @@ export function ThemeBuilder({ initial, onSave, onCancel, themeFolder }: Props) 
   useLayoutEffect(() => {
     if (dialog.current) applyTheme(initial, dialog.current);
   }, [initial]);
+
+  const [imageErr, setImageErr] = useState<string | null>(null);
+  const [loadingImage, setLoadingImage] = useState(false);
+  const chooseImage = async () => {
+    setImageErr(null);
+    const pick = await pickImage();
+    if (!pick) return;
+    setLoadingImage(true);
+    try {
+      const backgroundImage = await backgroundFromPick(pick);
+      setT((x) => ({ ...x, backgroundImage, backgroundStrength: x.backgroundStrength ?? DEFAULT_BACKGROUND_STRENGTH }));
+    } catch (e) {
+      setImageErr((e as Error).message);
+    } finally {
+      setLoadingImage(false);
+    }
+  };
+  const strength = t.backgroundStrength ?? DEFAULT_BACKGROUND_STRENGTH;
 
   const checks = checkContrast(t);
   const setColor = (key: keyof Theme["colors"], v: string) => setT((x) => ({ ...x, colors: { ...x.colors, [key]: v } }));
@@ -69,6 +97,43 @@ export function ThemeBuilder({ initial, onSave, onCancel, themeFolder }: Props) 
                 ))}
               </div>
             </div>
+            <div className="field">
+              <span>Background picture</span>
+              <div className="bg-picker">
+                {t.backgroundImage ? (
+                  <img className="bg-thumb" src={t.backgroundImage} alt="" data-testid="bg-thumb" />
+                ) : (
+                  <div className="bg-thumb empty" aria-hidden="true" />
+                )}
+                <div className="bg-picker-actions">
+                  <button className="btn small" onClick={() => void chooseImage()} disabled={loadingImage} data-testid="bg-choose">
+                    {loadingImage ? "Loading…" : t.backgroundImage ? "Change picture…" : "Choose picture…"}
+                  </button>
+                  {t.backgroundImage && (
+                    <button className="btn small ghost" onClick={() => setT(({ backgroundImage: _i, backgroundStrength: _s, ...rest }) => rest)} data-testid="bg-remove">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+              {t.backgroundImage && (
+                <label className="bg-strength">
+                  <span>Show picture</span>
+                  <input
+                    type="range"
+                    min={5}
+                    max={100}
+                    step={5}
+                    value={Math.round(strength * 100)}
+                    onChange={(e) => setT({ ...t, backgroundStrength: Number(e.target.value) / 100 })}
+                    aria-label="How strongly the picture shows"
+                    data-testid="bg-strength"
+                  />
+                  <span className="ratio">{Math.round(strength * 100)}%</span>
+                </label>
+              )}
+              {imageErr && <span className="contrast-warn" role="alert">{imageErr}</span>}
+            </div>
             <label className="check">
               <input type="checkbox" checked={t.previewMatchesTheme} onChange={(e) => setT({ ...t, previewMatchesTheme: e.target.checked })} />
               <span>Preview page matches the theme (otherwise it stays white). PDFs are always printed on white.</span>
@@ -80,7 +145,10 @@ export function ThemeBuilder({ initial, onSave, onCancel, themeFolder }: Props) 
                 <div className="tb-sample-item" style={{ background: mixAccent(t) }}>Scene 1</div>
                 <div className="tb-sample-item">Scene 2</div>
               </div>
-              <div className="tb-sample-main" style={{ fontFamily: FONT_STACKS[t.writingFont] }}>
+              <div className="tb-sample-main" style={{ fontFamily: FONT_STACKS[t.writingFont], position: "relative", isolation: "isolate" }}>
+                {t.backgroundImage && (
+                  <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: -1, background: `url("${t.backgroundImage}") center / cover no-repeat`, opacity: strength }} />
+                )}
                 <div style={{ textAlign: "center", letterSpacing: "0.04em" }}>ANNA</div>
                 <div>I told you already. Twice.</div>
                 <div style={{ color: t.colors.accent, marginTop: 8, fontFamily: "Inter, sans-serif", fontSize: 12 }}>Accent colour</div>
@@ -98,6 +166,11 @@ export function ThemeBuilder({ initial, onSave, onCancel, themeFolder }: Props) 
                   <span className="ratio">{c.ratio.toFixed(1)}:1</span>
                 </div>
               ))}
+              {t.backgroundImage && (
+                <p className="color-hint" style={{ marginTop: 6 }}>
+                  The check uses the background colour. With a busy picture, keep “Show picture” low so text stays easy to read.
+                </p>
+              )}
               {checks.some((c) => c.level !== "good") && (
                 <p className="contrast-warn" role="alert">
                   {checks.find((c) => c.level !== "good")!.label} is hard to read (needs {checks.find((c) => c.level !== "good")!.min}:1). Try a darker or lighter colour.
@@ -105,7 +178,7 @@ export function ThemeBuilder({ initial, onSave, onCancel, themeFolder }: Props) 
               )}
             </div>
             <p className="tb-folder">
-              Saved as a small file in <code>{themeFolder}</code>, so you can share it.
+              Saved as {t.backgroundImage ? "a file (picture included)" : "a small file"} in <code>{themeFolder}</code>, so you can share it.
             </p>
           </div>
         </div>

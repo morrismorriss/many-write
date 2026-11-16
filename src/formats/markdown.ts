@@ -299,7 +299,8 @@ export function serializeScript(doc: ParsedDoc, actionType: ElementType = "direc
 
 // ------------------------------------------------------------------ prose
 
-export function parseProse(text: string, hasTitle: boolean): ParsedDoc {
+/** `citations`: "- " lines are sources (Works Cited, Bibliography); only front and back matter has them. */
+export function parseProse(text: string, hasTitle: boolean, citations = false): ParsedDoc {
   const [frontMatter, body] = splitFrontMatter(text.replace(/\r\n?/g, "\n"));
   const lines = body.split("\n");
   const blocks: Block[] = [];
@@ -330,6 +331,14 @@ export function parseProse(text: string, hasTitle: boolean): ParsedDoc {
       i++;
       continue;
     }
+    if (citations && /^[-*+]\s+\S/.test(t)) {
+      // One source; a wrapped source continues on the following indented or plain lines.
+      const src = [t.replace(/^[-*+]\s+/, "")];
+      i++;
+      while (i < lines.length && lines[i].trim() && !/^\s*[-*+]\s/.test(lines[i]) && !/^(#{1,6})\s|^>/.test(lines[i].trim())) src.push(lines[i++].trim());
+      blocks.push({ type: "citation", runs: parseInline(joinSoft(src)) });
+      continue;
+    }
     if (/^(\*\s*){3,}$|^(-\s*){3,}$|^(_\s*){3,}$/.test(t)) {
       blocks.push({ type: "scene_break", runs: [] });
       i++;
@@ -340,6 +349,12 @@ export function parseProse(text: string, hasTitle: boolean): ParsedDoc {
       while (i < lines.length && lines[i].trim().startsWith(">")) {
         q.push(lines[i].trim().replace(/^>\s?/, ""));
         i++;
+      }
+      const bubble = q[0].match(/^\[!text-(left|right)\]\s*(.*)$/i);
+      if (bubble) {
+        q[0] = bubble[2];
+        blocks.push({ type: bubble[1].toLowerCase() === "left" ? "text_left" : "text_right", runs: parseInline(joinSoft(q.filter((l, k) => l || k > 0))) });
+        continue;
       }
       blocks.push({ type: "quote", runs: parseInline(joinSoft(q)) });
       continue;
@@ -391,8 +406,15 @@ export function serializeProse(doc: ParsedDoc): string {
       case "quote":
         if (text) parts.push(text.split("\n").map((l) => `> ${l}`).join("\n"));
         break;
+      case "citation":
+        if (text) parts.push(`- ${text}`);
+        break;
+      case "text_left":
+      case "text_right":
+        if (text) parts.push(bubbleLines(b.type, text));
+        break;
       default:
-        if (text) parts.push(/^(#{1,6}\s|>|(\*\s*){3,}$|(-\s*){3,}$)/.test(text) ? "\\" + text : text);
+        if (text) parts.push(/^(#{1,6}\s|>|[-+]\s|(\*\s*){3,}$|(-\s*){3,}$)/.test(text) ? "\\" + text : text);
     }
   }
   return (doc.frontMatter ?? "") + parts.join("\n\n") + (parts.length ? "\n" : "");
@@ -448,6 +470,15 @@ export function serializePoem(doc: ParsedDoc): string {
   return (doc.frontMatter ?? "") + out.join("\n") + (out.length ? "\n" : "");
 }
 
+/** A text-message bubble: an Obsidian-style callout, `> [!text-left] Hi`. Later lines continue it. */
+function bubbleLines(type: ElementType, text: string): string {
+  const side = type === "text_left" ? "left" : "right";
+  return text
+    .split("\n")
+    .map((l, k) => (k ? `> ${l}` : `> [!text-${side}] ${l}`))
+    .join("\n");
+}
+
 // ------------------------------------------------------------------ notes
 // Notion-style pages written as markdown that Obsidian also understands:
 // lists, "- [ ]" to-dos, "> [!note]" callouts and "---" dividers.
@@ -479,9 +510,12 @@ export function parseNotes(text: string): ParsedDoc {
       const q: string[] = [];
       while (i < lines.length && lines[i].trim().startsWith(">")) q.push(lines[i++].trim().replace(/^>\s?/, ""));
       i--;
+      const bubble = q[0].match(/^\[!text-(left|right)\]\s*(.*)$/i);
       const call = q[0].match(/^\[!\w+\][-+]?\s*(.*)$/);
-      if (call) q[0] = call[1];
-      blocks.push({ type: call ? "callout" : "quote", runs: parseInline(q.filter((l, k) => l || k > 0).join("\n")) });
+      if (bubble) q[0] = bubble[2];
+      else if (call) q[0] = call[1];
+      const type: ElementType = bubble ? (bubble[1].toLowerCase() === "left" ? "text_left" : "text_right") : call ? "callout" : "quote";
+      blocks.push({ type, runs: parseInline(q.filter((l, k) => l || k > 0).join("\n")) });
     } else {
       // A trailing backslash is a line break inside the same paragraph.
       let p = t;
@@ -521,6 +555,8 @@ export function serializeNotes(doc: ParsedDoc): string {
       case "image": line = `![${blockText(b).replace(/[\[\]]/g, "")}](${encodeURI(b.src ?? "")})`; break;
       case "quote": line = text.split("\n").map((l) => `> ${l}`).join("\n"); break;
       case "callout": line = text.split("\n").map((l, k) => (k ? `> ${l}` : `> [!note] ${l}`)).join("\n"); break;
+      case "text_left":
+      case "text_right": line = bubbleLines(b.type, text); break;
       default:
         line = text.split("\n").map(escapeNoteLine).join("\\\n");
     }
@@ -534,11 +570,11 @@ export function serializeNotes(doc: ParsedDoc): string {
 
 // ---------------------------------------------------------------- dispatch
 
-export function parseDoc(text: string, mode: FileMode, hasTitle = false): ParsedDoc {
+export function parseDoc(text: string, mode: FileMode, hasTitle = false, citations = false): ParsedDoc {
   if (mode === "script") return parseScript(text);
   if (mode === "poem") return parsePoem(text);
   if (mode === "notes") return parseNotes(text);
-  return parseProse(text, hasTitle);
+  return parseProse(text, hasTitle, citations);
 }
 
 export function serializeDoc(doc: ParsedDoc, mode: FileMode): string {

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { ProjectStore } from "../project/store";
-import type { BinderNode } from "../project/model";
+import { roleOf, type BinderNode } from "../project/model";
 import { useStore } from "../lib/useStore";
-import { ArchiveIcon, ChevronDown, ChevronRight, FileIcon, FolderIcon, FolderPlus, Plus, Trash, Warning } from "./icons";
-import { MATTER_PRESETS, NOTES_TEMPLATE } from "../formats/templates";
+import { ArchiveIcon, ChevronDown, Close, ChevronRight, FileIcon, FolderIcon, FolderPlus, Plus, Trash, Warning } from "./icons";
+import { COPYRIGHT_CLAUSES, copyrightPage, MATTER_PRESETS, NOTES_TEMPLATE } from "../formats/templates";
 import { NotesEditor } from "../editor/EditorPane";
 
 type DropPos = "before" | "after" | "inside";
@@ -14,6 +14,7 @@ export function Binder({ store }: { store: ProjectStore }) {
   const [drop, setDrop] = useState<{ id: string; pos: DropPos } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [presetsFor, setPresetsFor] = useState<"front" | "back" | null>(null);
+  const [copyrightFor, setCopyrightFor] = useState<"front" | "back" | null>(null);
 
   const onDragOver = (e: React.DragEvent, node: BinderNode) => {
     if (!dragId) return;
@@ -110,6 +111,20 @@ export function Binder({ store }: { store: ProjectStore }) {
                   <Plus />
                 </button>
               )}
+              {store.data.binder.some((r) => r.role === "archive") && roleOf(store.data, node.id) !== "archive" && (
+                <button
+                  className="row-action"
+                  title="Move to archive"
+                  aria-label="Move to archive"
+                  data-testid={`archive-${node.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void store.archive(node.id).then(() => store.toast(`Moved “${node.title}” to the Archive.`));
+                  }}
+                >
+                  <ArchiveIcon />
+                </button>
+              )}
               <button
                 className="row-action"
                 title="Move to trash"
@@ -191,7 +206,8 @@ export function Binder({ store }: { store: ProjectStore }) {
                     data-testid={`preset-${pr.title}`}
                     onClick={() => {
                       setPresetsFor(null);
-                      void store.addDoc(root.id, undefined, role, pr);
+                      if (pr.title === "Copyright") setCopyrightFor(role);
+                      else void store.addDoc(root.id, undefined, role, pr);
                     }}
                   >
                     {pr.title}
@@ -215,7 +231,67 @@ export function Binder({ store }: { store: ProjectStore }) {
           </section>
         );
       })}
+      {copyrightFor && (
+        <CopyrightDialog
+          author={store.data.author}
+          onCancel={() => setCopyrightFor(null)}
+          onCreate={(content) => {
+            const where = copyrightFor;
+            setCopyrightFor(null);
+            void store.addDoc(store.data.binder.find((r) => r.role === where)!.id, undefined, where, { title: "Copyright", content });
+          }}
+        />
+      )}
     </nav>
+  );
+}
+
+/** Choose the clauses for a copyright page. */
+function CopyrightDialog({ author, onCreate, onCancel }: { author: string; onCreate: (content: string) => void; onCancel: () => void }) {
+  const [on, setOn] = useState(() => new Set(COPYRIGHT_CLAUSES.filter((c) => c.defaultOn).map((c) => c.id)));
+  const year = new Date().getFullYear();
+  const name = author.trim() || "the author";
+  const toggle = (id: string) =>
+    setOn((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="modal small copyright-dialog" role="dialog" aria-label="Copyright page">
+        <div className="modal-head">
+          <h2>Copyright page</h2>
+          <button className="icon-btn" onClick={onCancel} aria-label="Close">
+            <Close />
+          </button>
+        </div>
+        <p className="muted small-text">
+          Starts with “Copyright © {year} by {name}”. Tick the clauses that apply. These are common wording, not legal advice:{" "}
+          <strong>you decide what to keep, change or add</strong>, and you can edit the page afterwards.
+        </p>
+        <div className="clause-list">
+          {COPYRIGHT_CLAUSES.map((c) => (
+            <label key={c.id} className="check clause">
+              <input type="checkbox" checked={on.has(c.id)} onChange={() => toggle(c.id)} data-testid={`clause-${c.id}`} />
+              <span>
+                <span className="clause-title">{c.title}</span>
+                <span className="clause-text">{c.text.replace(/\{author\}/g, name)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={() => onCreate(copyrightPage(author, year, [...on]))} data-testid="copyright-create">
+            Add page
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

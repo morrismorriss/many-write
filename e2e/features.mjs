@@ -116,7 +116,7 @@ const charFile = fs.readdirSync(path.join(root, "characters"))[0];
 const charMd = read(`characters/${charFile}`);
 ok(charMd.includes("- [x] Find a surname\n- [ ] Decide her age"), "to-dos saved as markdown checkboxes, ticked by clicking");
 ok(charMd.includes("- Hates the sea") && charMd.includes("> [!note] Never apologises."), "bullets and callouts saved Obsidian-style");
-ok(charMd.startsWith("# Name\n\n> [!note]"), "new character pages start from a template");
+ok(charMd.startsWith("# Name\n\n**Age:**") && charMd.includes("## About"), "new character pages start from the name / age / about template");
 await page.screenshot({ path: path.join(SHOTS, "20-character-page.png") });
 
 // ---- Images with /image

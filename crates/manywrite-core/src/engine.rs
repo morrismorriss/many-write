@@ -28,6 +28,8 @@ pub const TEMPLATES: &[(&str, &str)] = &[
     ("article.typ", include_str!("templates/article.typ")),
     ("matter.typ", include_str!("templates/matter.typ")),
     ("document.typ", include_str!("templates/document.typ")),
+    ("essay.typ", include_str!("templates/essay.typ")),
+    ("bubbles.typ", include_str!("templates/bubbles.typ")),
 ];
 
 const BUNDLED_FONTS: &[&[u8]] = &[

@@ -85,6 +85,7 @@ These use markdown that Obsidian also understands:
 | To-do | `- [ ] task`, `- [x] done` |
 | Quote | `> text` |
 | Callout | `> [!note] text` |
+| Text message | `> [!text-left] text` (the other person), `> [!text-right] text` (the phone's owner) |
 | Divider | `---` |
 | Image | `![caption](assets/picture-1a2b3c.png)` |
 
@@ -92,6 +93,16 @@ These use markdown that Obsidian also understands:
 
 Ordinary prose markdown. A centred line is written `-> text <-` (MultiMarkdown).
 A page made only of centred lines or quotes (a dedication, an epigraph) is set lower on the page.
+In front and back matter, a `- ` line is a source in a Works Cited list or bibliography, set with a half-inch hanging indent.
+
+Books, articles and essays write text-message bubbles the same way as documents: `> [!text-left] text` and `> [!text-right] text`.
+A book's scene-break style is a project setting (`settings.sceneBreak`: `asterisks`, `line`, `hearts` or `image`, with `settings.sceneBreakImage` pointing into `assets/`); the file always says `* * *`.
+
+## Essays
+
+`project.json` keeps the essay's style and heading details in `settings`: `essayStyle` (`mla` or `chicago`), `instructor`, `course` and `date` (empty means today).
+MLA puts the name, instructor, course and date at the top left of page 1, the title centred under them, and "Surname n" at the top right of every page.
+Chicago starts with a title page (unless turned off) and numbers pages from 2. Both are 12pt, double-spaced, with 1in margins.
 
 ## production.json
 

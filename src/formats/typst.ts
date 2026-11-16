@@ -3,7 +3,7 @@
 
 import type { Block, Run } from "./markdown";
 import { blockText } from "./markdown";
-import type { Template } from "./templates";
+import type { EssayStyle, Template } from "./templates";
 
 export type ManuscriptItem =
   | { kind: "folder"; id: string; title: string; depth: number }
@@ -17,6 +17,22 @@ export interface ProjectMeta {
   contact: string;
   titlePage: boolean;
   paper: "us-letter" | "a4";
+  /** Essays only. */
+  essay?: { style: EssayStyle; instructor: string; course: string; date: string };
+  /** Books only: the scene break divider. */
+  sceneBreak?: { style: "asterisks" | "line" | "hearts" | "image"; image?: string };
+}
+
+/** The text a scene break shows where a picture can't be used (editor, Word, EPUB). */
+export function sceneBreakText(style: string | undefined): string {
+  return style === "hearts" ? "♥   ♥   ♥" : style === "line" ? "⸻" : "*   *   *";
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** Today as each style writes it: MLA "16 November 2026", Chicago "November 16, 2026". */
+export function essayDate(style: EssayStyle, d = new Date()): string {
+  return style === "mla" ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
 export interface GenOptions {
@@ -110,6 +126,16 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
     `title-page: ${meta.titlePage ? "true" : "false"}`,
   ];
   if (template.id !== "book") confArgs.push(`paper: ${str(meta.paper || "us-letter")}`);
+  if (template.id === "book" && meta.sceneBreak) {
+    const { style, image } = meta.sceneBreak;
+    const useImage = style === "image" && !!image;
+    confArgs.push(`scene-break: ${str(useImage ? "image" : style === "image" ? "asterisks" : style)}`);
+    if (useImage) confArgs.push(`scene-break-image: ${str("/" + image!.replace(/^\/+/, ""))}`);
+  }
+  if (template.id === "essay") {
+    const e = meta.essay ?? { style: "mla", instructor: "", course: "", date: "" };
+    confArgs.push(`style: ${str(e.style)}`, `instructor: ${str(e.instructor)}`, `course: ${str(e.course)}`, `date: ${str(e.date.trim() || essayDate(e.style))}`);
+  }
   if (opts.pageFill) confArgs.push(`page-fill: rgb(${str(opts.pageFill)})`);
   if (opts.textFill) confArgs.push(`text-fill: rgb(${str(opts.textFill)})`);
   const prod = template.mode === "script" ? opts.production : undefined;

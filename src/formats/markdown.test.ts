@@ -227,3 +227,28 @@ describe("front matter pages", () => {
     expect(serializeProse2(doc)).toBe(md);
   });
 });
+
+describe("works cited and bibliography entries", () => {
+  it("reads '- ' lines as sources only where citations are allowed, and writes them back", () => {
+    const md = "- Smith, Ann. *A Book*. Press, 2020.\n\n- Jones, Bo. \"An Article.\"\n  *Journal*, 2019.\n";
+    const doc = parseProse(md, false, true);
+    expect(types(doc.blocks)).toEqual(["citation:Smith, Ann. A Book. Press, 2020.", 'citation:Jones, Bo. "An Article." Journal, 2019.']);
+    expect(serializeProse(doc)).toBe('- Smith, Ann. *A Book*. Press, 2020.\n\n- Jones, Bo. "An Article." *Journal*, 2019.\n');
+    // Elsewhere (a book chapter) the same line stays a paragraph, and survives a round trip.
+    const para = parseProse("- Hello, she said.\n", false);
+    expect(types(para.blocks)).toEqual(["paragraph:- Hello, she said."]);
+    expect(types(parseProse(serializeProse(para), false, true).blocks)).toEqual(["paragraph:- Hello, she said."]);
+  });
+});
+
+describe("text-message bubbles", () => {
+  it("round-trips left and right bubbles in prose and in documents", () => {
+    const md = "Before.\n\n> [!text-left] Are you up?\n\n> [!text-right] Yes\\\n> why?\n";
+    const prose = parseProse(md, false);
+    expect(types(prose.blocks)).toEqual(["paragraph:Before.", "text_left:Are you up?", "text_right:Yes\nwhy?"]);
+    expect(serializeProse(prose)).toBe(md);
+    const notes = parseNotes("> [!text-right] Hi\n> there\n\n> [!note] A callout\n");
+    expect(types(notes.blocks)).toEqual(["text_right:Hi\nthere", "callout:A callout"]);
+    expect(serializeNotes(notes)).toBe("> [!text-right] Hi\n> there\n\n> [!note] A callout\n");
+  });
+});

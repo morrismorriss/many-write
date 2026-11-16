@@ -1,6 +1,8 @@
 // Document: a plain document, like a word processor page. Headings,
 // paragraphs, lists, to-dos, quotes, callouts and dividers.
 
+#import "bubbles.typ": text-bubble
+
 #let mw-num = counter("mw-num")
 
 #let conf(
@@ -28,7 +30,9 @@
 
 #let el(kind, prev, body) = {
   let gap = 0.9em
-  if kind == "title" {
+  if kind in ("text_left", "text_right") {
+    text-bubble(kind, prev, body)
+  } else if kind == "title" {
     block(sticky: true, above: 1.6em, below: 0.7em, text(size: 20pt, weight: "bold", body))
   } else if kind == "heading" {
     block(sticky: true, above: 1.5em, below: 0.6em, text(size: 15pt, weight: "bold", body))

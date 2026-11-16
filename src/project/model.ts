@@ -3,7 +3,7 @@
 // order in Finder, Explorer or Obsidian. Reordering renames files but never
 // rewrites their contents.
 
-import type { TemplateId } from "../formats/templates";
+import type { EssayStyle, TemplateId } from "../formats/templates";
 
 export type Role = "front" | "manuscript" | "back" | "characters" | "research" | "archive";
 
@@ -36,7 +36,18 @@ export interface BinderNode {
 export interface ProjectSettings {
   titlePage: boolean;
   paper: "us-letter" | "a4";
+  /** Essays: citation style, and the details MLA's heading and Chicago's title page show. */
+  essayStyle?: EssayStyle;
+  instructor?: string;
+  course?: string;
+  /** As it should be printed; empty means today's date. */
+  date?: string;
+  /** Books: how a scene break is drawn. "image" uses sceneBreakImage (a project-relative path). */
+  sceneBreak?: SceneBreakStyle;
+  sceneBreakImage?: string;
 }
+
+export type SceneBreakStyle = "asterisks" | "line" | "hearts" | "image";
 
 export interface ProjectFile {
   app: "many-write";

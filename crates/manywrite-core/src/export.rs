@@ -32,7 +32,7 @@ pub struct ExportDoc {
     pub title: String,
     #[serde(default)]
     pub author: String,
-    /// Template id: stage-play, screenplay, poem, book, article.
+    /// Template id: stage-play, screenplay, poem, book, article, essay, document.
     pub template: String,
     #[serde(default = "default_lang")]
     pub lang: String,
@@ -40,6 +40,12 @@ pub struct ExportDoc {
     #[serde(default)]
     pub id: String,
     pub blocks: Vec<Block>,
+    /// Essays: "mla" or "chicago".
+    #[serde(default)]
+    pub style: String,
+    /// Essays: text before the page number in the running header (MLA: the surname).
+    #[serde(default)]
+    pub running_head: String,
 }
 
 fn default_lang() -> String {
@@ -162,6 +168,7 @@ fn script_styles(screenplay: bool) -> Vec<Style> {
             Style { id: "subheading", ppr: "<w:keepNext/><w:spacing w:before=\"240\" w:after=\"120\"/>", rpr: "<w:i/>" },
             Style { id: "quote", ppr: "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"720\" w:right=\"720\"/>", rpr: "<w:i/>" },
             Style { id: "scene_break", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"240\" w:after=\"240\"/>", rpr: "" },
+            Style { id: "citation", ppr: "<w:spacing w:before=\"120\" w:after=\"0\"/><w:ind w:left=\"720\" w:hanging=\"720\"/>", rpr: "" },
         ]
     } else {
         vec![
@@ -181,6 +188,7 @@ fn script_styles(screenplay: bool) -> Vec<Style> {
             Style { id: "subheading", ppr: "<w:keepNext/><w:spacing w:before=\"240\" w:after=\"120\"/>", rpr: "<w:i/>" },
             Style { id: "quote", ppr: "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"720\" w:right=\"720\"/>", rpr: "<w:i/>" },
             Style { id: "scene_break", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"240\" w:after=\"240\"/>", rpr: "" },
+            Style { id: "citation", ppr: "<w:spacing w:before=\"120\" w:after=\"0\"/><w:ind w:left=\"720\" w:hanging=\"720\"/>", rpr: "" },
         ]
     }
 }
@@ -202,6 +210,9 @@ fn prose_styles(book: bool) -> Vec<Style> {
         },
         Style { id: "quote", ppr: "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"720\" w:right=\"720\"/>", rpr: "<w:i/>" },
         Style { id: "scene_break", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"240\" w:after=\"240\"/>", rpr: "" },
+        Style { id: "citation", ppr: "<w:spacing w:before=\"120\" w:after=\"0\"/><w:ind w:left=\"720\" w:hanging=\"720\"/>", rpr: "" },
+        Style { id: "text_left", ppr: "<w:keepLines/><w:spacing w:before=\"80\" w:after=\"80\"/><w:ind w:left=\"0\" w:right=\"3240\"/><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"E9E9EB\"/>", rpr: "" },
+        Style { id: "text_right", ppr: "<w:keepLines/><w:spacing w:before=\"80\" w:after=\"80\"/><w:ind w:left=\"3240\" w:right=\"0\"/><w:jc w:val=\"right\"/><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"D6E6FF\"/>", rpr: "" },
         Style { id: "list", ppr: "<w:spacing w:before=\"60\" w:after=\"60\"/><w:ind w:left=\"540\" w:hanging=\"360\"/>", rpr: "" },
         // Poem lines: never justified, hanging indent for wrapped lines.
         Style { id: "line", ppr: "<w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:left=\"720\" w:hanging=\"720\"/>", rpr: "" },
@@ -209,10 +220,86 @@ fn prose_styles(book: bool) -> Vec<Style> {
     ]
 }
 
+/// Essays (MLA and Chicago): 12pt, double-spaced (480 = 2 lines), half-inch indents.
+fn essay_styles(chicago: bool) -> Vec<Style> {
+    vec![
+        Style { id: "paragraph", ppr: "<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/><w:ind w:firstLine=\"720\"/>", rpr: "" },
+        Style { id: "essay_heading", ppr: "<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/>", rpr: "" },
+        Style { id: "essay_title", ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/>", rpr: "" },
+        Style { id: "essay_byline", ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/>", rpr: "" },
+        Style { id: "essay_cover_title", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"3168\" w:after=\"0\"/>", rpr: "" },
+        Style { id: "essay_cover_details", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"5760\" w:after=\"0\"/>", rpr: "" },
+        Style { id: "essay_cover_line", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\"/>", rpr: "" },
+        Style {
+            id: "heading",
+            ppr: if chicago {
+                "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/><w:outlineLvl w:val=\"1\"/>"
+            } else {
+                "<w:keepNext/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/><w:outlineLvl w:val=\"1\"/>"
+            },
+            rpr: "<w:b/>",
+        },
+        Style { id: "subheading", ppr: "<w:keepNext/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/><w:outlineLvl w:val=\"2\"/>", rpr: "<w:i/>" },
+        Style {
+            id: "quote",
+            ppr: if chicago {
+                "<w:spacing w:before=\"240\" w:after=\"240\" w:line=\"240\" w:lineRule=\"auto\"/><w:ind w:left=\"720\"/>"
+            } else {
+                "<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/><w:ind w:left=\"720\"/>"
+            },
+            rpr: "",
+        },
+        Style { id: "scene_break", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/>", rpr: "" },
+        Style {
+            id: "matter_title",
+            ppr: if chicago {
+                "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"480\"/>"
+            } else {
+                "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/>"
+            },
+            rpr: "",
+        },
+        Style { id: "matter_paragraph", ppr: "<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/><w:ind w:firstLine=\"720\"/>", rpr: "" },
+        Style { id: "centered", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/>", rpr: "" },
+        Style {
+            id: "citation",
+            ppr: if chicago {
+                "<w:spacing w:before=\"0\" w:after=\"240\" w:line=\"240\" w:lineRule=\"auto\"/><w:ind w:left=\"720\" w:hanging=\"720\"/>"
+            } else {
+                "<w:spacing w:before=\"0\" w:after=\"0\" w:line=\"480\" w:lineRule=\"auto\"/><w:ind w:left=\"720\" w:hanging=\"720\"/>"
+            },
+            rpr: "",
+        },
+    ]
+}
+
+/// The running header: right-aligned, `head` then the page number (a PAGE field).
+fn essay_header(head: &str) -> String {
+    let lead = if head.is_empty() { String::new() } else { format!("<w:r><w:t xml:space=\"preserve\">{} </w:t></w:r>", xml_escape(head)) };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/></w:pPr>{lead}<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:hdr>"#
+    )
+}
+
 pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let script = matches!(doc.template.as_str(), "stage-play" | "screenplay");
-    let styles = if script { script_styles(doc.template == "screenplay") } else { prose_styles(doc.template == "book") };
-    let (font, size) = if script { ("Courier Prime", 24) } else { ("Georgia", 23) };
+    let essay = doc.template == "essay";
+    let chicago = essay && doc.style == "chicago";
+    let styles = if essay {
+        essay_styles(chicago)
+    } else if script {
+        script_styles(doc.template == "screenplay")
+    } else {
+        prose_styles(doc.template == "book")
+    };
+    let (font, size) = if script {
+        ("Courier Prime", 24)
+    } else if essay {
+        ("Times New Roman", 24)
+    } else {
+        ("Georgia", 23)
+    };
 
     let mut styles_xml = String::new();
     styles_xml.push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -236,6 +323,10 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let known: Vec<&str> = styles.iter().map(|s| s.id).collect();
     let mut body = String::new();
     for block in &doc.blocks {
+        if block.kind == "page_break" {
+            body.push_str("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>");
+            continue;
+        }
         let style = if known.contains(&block.kind.as_str()) {
             block.kind.as_str()
         } else if script {
@@ -277,7 +368,14 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         body.push_str("</w:p>");
     }
 
+    // Essays: Chicago leaves page 1 (the title page, or the first page) unnumbered.
+    let essay_sect = if chicago {
+        r#"<w:sectPr><w:headerReference w:type="default" r:id="rId2"/><w:headerReference w:type="first" r:id="rId3"/><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/><w:titlePg/></w:sectPr>"#
+    } else {
+        r#"<w:sectPr><w:headerReference w:type="default" r:id="rId2"/><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#
+    };
     let sect = match doc.template.as_str() {
+        "essay" => essay_sect,
         "book" => r#"<w:sectPr><w:pgSz w:w="8640" w:h="12960"/><w:pgMar w:top="1080" w:right="900" w:bottom="1224" w:left="1260" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#,
         "stage-play" | "screenplay" => r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="2160" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#,
         _ => r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1728" w:bottom="1440" w:left="1728" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#,
@@ -293,21 +391,46 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         xml_escape(&doc.title),
         xml_escape(&doc.author)
     );
-    let content_types = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>"#;
+    let header_types = if essay {
+        r#"<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/header2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>"#
+    } else {
+        ""
+    };
+    let content_types = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>{header_types}</Types>"#
+    );
     let rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>"#;
-    let doc_rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>"#;
+    let header_rels = if essay {
+        r#"<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/>"#
+    } else {
+        ""
+    };
+    let doc_rels = format!(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>{header_rels}</Relationships>"#
+    );
 
-    Ok(zip_store(&[
-        ("[Content_Types].xml", content_types.as_bytes().to_vec()),
+    let mut files = vec![
+        ("[Content_Types].xml", content_types.into_bytes()),
         ("_rels/.rels", rels.as_bytes().to_vec()),
         ("docProps/core.xml", core.into_bytes()),
-        ("word/_rels/document.xml.rels", doc_rels.as_bytes().to_vec()),
+        ("word/_rels/document.xml.rels", doc_rels.into_bytes()),
         ("word/document.xml", document.into_bytes()),
         ("word/styles.xml", styles_xml.into_bytes()),
-    ]))
+    ];
+    if essay {
+        files.push(("word/header1.xml", essay_header(&doc.running_head).into_bytes()));
+        // The first-page header (Chicago): empty.
+        files.push((
+            "word/header2.xml",
+            br#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p/></w:hdr>"#
+                .to_vec(),
+        ));
+    }
+    Ok(zip_store(&files))
 }
 
 fn title_case(id: &str) -> String {
@@ -331,6 +454,11 @@ p.article { text-indent: 0; margin: 0 0 0.8em; }
 blockquote { margin: 1em 2em; font-style: italic; }
 hr.scene-break { border: none; text-align: center; margin: 1em 0; }
 hr.scene-break::after { content: "* * *"; }
+p.citation { text-indent: -2em; margin: 0 0 0.6em 2em; }
+p.center { text-indent: 0; text-align: center; }
+p.bubble { display: table; max-width: 68%; text-indent: 0; padding: 0.35em 0.8em; border-radius: 1em; margin: 0.35em 0; }
+p.bubble.left { background: #e9e9eb; color: #000; }
+p.bubble.right { background: #2f7cf6; color: #fff; margin-left: auto; }
 .poem p { text-indent: -2em; margin-left: 2em; white-space: pre-wrap; }
 .poem .stanza-break { height: 1em; }
 .part { text-align: center; margin-top: 30%; font-variant: small-caps; }
@@ -384,7 +512,13 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         let html = &mut current.as_mut().unwrap().1;
         let inline = epub_inline(&b.runs, poem);
         match b.kind.as_str() {
-            "chapter" | "title" | "matter_title" => html.push_str(&format!("<h1>{inline}</h1>\n")),
+            "chapter" | "title" | "matter_title" | "essay_title" | "essay_cover_title" => html.push_str(&format!("<h1>{inline}</h1>\n")),
+            "essay_heading" => html.push_str(&format!("<p class=\"first\">{inline}</p>\n")),
+            "essay_byline" | "essay_cover_details" | "essay_cover_line" => html.push_str(&format!("<p class=\"center\">{inline}</p>\n")),
+            "citation" => html.push_str(&format!("<p class=\"citation\">{inline}</p>\n")),
+            "text_left" => html.push_str(&format!("<p class=\"bubble left\">{inline}</p>\n")),
+            "text_right" => html.push_str(&format!("<p class=\"bubble right\">{inline}</p>\n")),
+            "page_break" => {}
             "centered" => html.push_str(&format!("<p class=\"first\" style=\"text-align:center\">{inline}</p>\n")),
             "matter_paragraph" => html.push_str(&format!("<p class=\"article\">{inline}</p>\n")),
             "folder_heading" => html.push_str(&format!("<h1 class=\"part\">{inline}</h1>\n")),

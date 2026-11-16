@@ -87,9 +87,10 @@ fn checker_detects_problems_when_rules_are_off() {
 fn every_template_compiles() {
     for (t, kinds) in [
         ("poem", vec!["title", "line", "line"]),
-        ("book", vec!["heading", "paragraph", "paragraph", "quote", "scene_break", "paragraph"]),
-        ("article", vec!["heading", "paragraph", "quote", "subheading", "paragraph"]),
-        ("document", vec!["title", "paragraph", "bullet", "bullet", "numbered", "numbered", "todo", "todo_done", "quote", "callout", "divider", "paragraph"]),
+        ("book", vec!["heading", "paragraph", "paragraph", "quote", "scene_break", "paragraph", "text_left", "text_right", "text_right", "paragraph"]),
+        ("article", vec!["heading", "paragraph", "quote", "subheading", "paragraph", "text_left", "text_right"]),
+        ("document", vec!["title", "paragraph", "bullet", "bullet", "numbered", "numbered", "todo", "todo_done", "quote", "callout", "divider", "paragraph", "text_right", "text_left"]),
+        ("essay", vec!["paragraph", "heading", "paragraph", "quote", "subheading", "paragraph"]),
     ] {
         let header = format!("#import \"/mw/{t}.typ\": *\n#show: conf.with(title: \"T\", author: \"A\")\n#doc-start(\"Chapter\", first: true)\n");
         let items: Vec<_> = kinds.iter().map(|k| (*k, "Some words for the text here.".to_string())).collect();
@@ -112,6 +113,26 @@ fn exports_are_valid_zips() {
     })).unwrap();
     for bytes in [docx(&doc).unwrap(), epub(&doc).unwrap()] {
         assert_eq!(&bytes[0..4], b"PK\x03\x04");
+    }
+    // Essays: a running header part, wired into the document.
+    for style in ["mla", "chicago"] {
+        let essay: ExportDoc = serde_json::from_value(serde_json::json!({
+            "title": "On Rivers", "author": "Ada Lovelace", "template": "essay", "style": style, "runningHead": "Lovelace",
+            "blocks": [
+                {"kind": "essay_heading", "runs": [{"text": "Ada Lovelace"}]},
+                {"kind": "essay_title", "runs": [{"text": "On Rivers"}]},
+                {"kind": "paragraph", "runs": [{"text": "Text."}]},
+                {"kind": "text_left", "runs": [{"text": "Hi"}]},
+                {"kind": "page_break", "runs": []},
+                {"kind": "matter_title", "runs": [{"text": "Works Cited"}]},
+                {"kind": "citation", "runs": [{"text": "Smith, A. Book. 2020."}]},
+            ]
+        })).unwrap();
+        let bytes = docx(&essay).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("word/header1.xml") && text.contains("Lovelace </w:t>") && text.contains("w:pStyle w:val=\"citation\""), "{style}");
+        assert_eq!(text.contains("<w:titlePg/>"), style == "chicago");
+        assert_eq!(&epub(&essay).unwrap()[0..4], b"PK\x03\x04");
     }
 }
 
@@ -182,4 +203,90 @@ fn locked_pages_produce_a_pages_and_revision_marks() {
     assert!(pages[3].contains(" 3. "), "page 3 keeps its number: {}", &pages[3][..60]);
     assert!(pages[1].contains('*') || pages[2].contains('*'), "revision asterisk drawn");
     let _ = labels;
+}
+
+fn essay_source(style: &str, title_page: bool) -> (String, Vec<ElementSpan>) {
+    let header = format!(
+        "#import \"/mw/essay.typ\": *\n#show: conf.with(title: \"On Rivers\", author: \"Ada Lovelace\", title-page: {title_page}, style: \"{style}\", instructor: \"Professor Byron\", course: \"English 101\", date: \"16 November 2026\")\n"
+    );
+    let words = "the river runs past the town and the people watch it go by every single day of the year";
+    let items: Vec<(&str, String)> = (0..14)
+        .map(|i| if i == 5 { ("heading", "A Turn".to_string()) } else { ("paragraph", words.split(' ').cycle().take(60 + i * 7).collect::<Vec<_>>().join(" ")) })
+        .collect();
+    let (mut src, els) = build(&header, &items);
+    src.push_str("#import \"/mw/matter.typ\": matter-start, matter-el\n");
+    let sources = if style == "mla" { "Works Cited" } else { "Bibliography" };
+    src.push_str(&format!("#matter-start(\"{sources}\", first: false, centered: false)\n"));
+    for i in 0..3 {
+        src.push_str(&format!("#matter-el(\"citation\", none)[#\"Surname{i}, First. A Very Long Title of a Book That Wraps Onto a Second Line Of The Page. Publisher, 2020.\"]\n"));
+    }
+    (src, els)
+}
+
+#[test]
+fn mla_essay_has_heading_block_and_running_head() {
+    let (src, els) = essay_source("mla", false);
+    let mut engine = Engine::new();
+    let r = engine.compile(&src, &els);
+    assert!(r.ok, "errors: {:?}", r.errors);
+    assert!(r.page_count >= 3, "pages: {}", r.page_count);
+    let first = engine.page_text(0).unwrap();
+    assert!(first.starts_with("Lovelace 1"), "running head: {}", &first[..60]);
+    assert!(first.contains("Ada Lovelace") && first.contains("Professor Byron") && first.contains("English 101"), "{first}");
+    // Body paragraphs carry the half-inch first-line indent.
+    let svg = engine.page_svg(0).unwrap();
+    assert!(svg.contains("<svg"));
+    let last = engine.page_text(r.page_count - 1).unwrap();
+    assert!(last.contains("Works Cited"), "works cited page: {last}");
+    assert!(last.starts_with(&format!("Lovelace {}", r.page_count)), "{}", &last[..30]);
+}
+
+#[test]
+fn chicago_essay_has_unnumbered_title_page_and_bibliography() {
+    let (src, els) = essay_source("chicago", true);
+    let mut engine = Engine::new();
+    let r = engine.compile(&src, &els);
+    assert!(r.ok, "errors: {:?}", r.errors);
+    let cover = engine.page_text(0).unwrap();
+    assert!(cover.starts_with("On Rivers"), "title page: {cover}");
+    assert!(!cover.contains("Lovelace 1"));
+    assert!(engine.page_text(1).unwrap().starts_with('2'), "first text page is 2");
+    let last = engine.page_text(r.page_count - 1).unwrap();
+    assert!(last.contains("Bibliography"), "{last}");
+    // Without a title page, Chicago still compiles.
+    let (src, els) = essay_source("chicago", false);
+    assert!(Engine::new().compile(&src, &els).ok);
+}
+
+#[test]
+fn book_scene_break_styles_typeset() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (style, extra) in [("asterisks", ""), ("line", ""), ("hearts", ""), ("image", ", scene-break-image: \"/assets/icon.png\"")] {
+        let header = format!("#import \"/mw/book.typ\": *\n#show: conf.with(title: \"B\", title-page: false, scene-break: \"{style}\"{extra})\n");
+        let items = vec![("paragraph", "Before.".to_string()), ("scene_break", String::new()), ("paragraph", "After.".to_string())];
+        let (src, els) = build(&header, &items);
+        let mut engine = Engine::new();
+        engine.set_root(Some(root.clone()));
+        let r = engine.compile(&src, &els);
+        assert!(r.ok, "{style}: {:?}", r.errors);
+        let text = engine.page_text(0).unwrap();
+        if style == "hearts" {
+            assert!(text.contains('♥'), "hearts drawn: {text}");
+        }
+    }
+}
+
+#[test]
+fn book_chapter_titles_are_centred() {
+    let header = "#import \"/mw/book.typ\": *\n#show: conf.with(title: \"B\", title-page: false)\n#doc-start(\"Chapter One\", first: true)\n";
+    let (src, els) = build(header, &[("paragraph", "Text.".to_string())]);
+    let mut engine = Engine::new();
+    assert!(engine.compile(&src, &els).ok);
+    let svg = engine.page_svg(0).unwrap();
+    // The title's first line is offset well into the text area; the body text below starts at 0.
+    let offset = |nth: usize| -> f64 {
+        svg.split("matrix(1 0 0 -1 ").nth(nth).and_then(|t| t.split(' ').next()).and_then(|v| v.parse().ok()).unwrap_or(-1.0)
+    };
+    assert!(offset(1) > 80.0, "chapter title offset {}", offset(1));
+    assert!(offset(2) < 1.0, "body text offset {}", offset(2));
 }

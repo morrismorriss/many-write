@@ -1,6 +1,6 @@
 # Many Write
 
-A local-first desktop writing app for **stage plays, screenplays, books, articles, poems and plain documents**.
+A local-first desktop writing app for **stage plays, screenplays, essays, books, articles, poems and plain documents**.
 
 - **Binder with notes**: acts, scenes, characters and research in a sidebar, with a notes file beside each item.
 - **Script formatting with Enter/Tab flow**: type a name and press Enter for dialogue; press Enter again for the next speaker.
@@ -34,7 +34,9 @@ A local-first desktop writing app for **stage plays, screenplays, books, article
 | A character line | A list of the names you have used; type to filter, **↑ ↓** and **Enter** (or click) to pick |
 | **/** at the start of a line | The block menu: type to filter (`/trans`, `/todo`, `/image`), **Enter** to apply |
 
-Screenplays have their own Enter/Tab flow. Poems keep every line break and indent exactly (Tab indents). Books and articles use paragraphs, headings and quotes.
+Screenplays have their own Enter/Tab flow. Poems keep every line break and indent exactly (Tab indents). Books and articles use paragraphs, headings and quotes. Books, articles and documents also have **text-message bubbles** (`/text`, left or right), and a book's scene breaks can be asterisks, a line, three hearts or your own picture (File › Project settings).
+
+**Essays** come in **MLA** or **Chicago** style, chosen when you create the project: double-spaced 12pt pages, MLA's heading block and "Surname 1" running header, or Chicago's title page. A **Works Cited** (MLA) or **Bibliography** (Chicago) page is added to the back matter with example entries; each `- ` line is one source with a hanging indent. Both are also offered for any project under Back matter › +. Instructor, course and date are in File › Project settings.
 
 ## Around the editor
 
@@ -42,6 +44,9 @@ Screenplays have their own Enter/Tab flow. Poems keep every line break and inden
 - **Notes**: every binder item has a notes page below the binder, with the same `/` blocks.
 - **Find & replace** (⌘F, or ⌘⇧F for the whole script): match case, whole words, every result listed, replace one or all. Bold and italics are kept.
 - **Words and pages**: the chart button above the preview lists words and pages for each scene, with totals and a running-time estimate for scripts.
+- **Copyright page**: Front matter › + › Copyright lets you tick the clauses you want (all rights reserved, fiction, moral rights, external content, designations, edition, ISBN). They are common wording, not legal advice: you decide what to keep or add.
+- **Archive button**: the box icon next to the trash can moves a chapter or scene to the Archive.
+- **Theme pictures**: a custom theme can have a background picture behind the editor, with a slider for how strongly it shows.
 - **Goals**: a daily word goal with a progress ring, a project goal with a deadline, and this week's progress, laid out the way your computer's calendar is (Sunday- or Monday-first).
 - **Pomodoro timer**: the tomato in the top bar. Focus and break lengths you choose, and a happy ding when time is up.
 - **File menu**: new project, new or open single document, import, recent projects, spell check on or off. Spelling uses the system dictionary on macOS, Windows and Linux.

@@ -1,8 +1,9 @@
-import { useState } from "react";
-import { call, fsApi, join, pickSavePath } from "../lib/backend";
-import { generateTypst } from "../formats/typst";
+import { useEffect, useState } from "react";
+import type { SceneBreakStyle } from "../project/model";
+import { call, fsApi, imageUrl, join, pickImage, pickSavePath } from "../lib/backend";
+import { essayDate, generateTypst } from "../formats/typst";
 import { toExportDoc, toFdx, toFountain } from "../formats/exporters";
-import type { ExportFormat } from "../formats/templates";
+import { ESSAY_STYLES, type EssayStyle, type ExportFormat } from "../formats/templates";
 import type { ProjectStore } from "../project/store";
 import type { Theme } from "../themes/themes";
 import type { CompileReport } from "./Preview";
@@ -119,8 +120,33 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
   const [contact, setContact] = useState(d.contact);
   const [titlePage, setTitlePage] = useState(d.settings.titlePage);
   const [paper, setPaper] = useState(d.settings.paper);
+  const essay = store.template.id === "essay";
+  const book = store.template.id === "book";
+  const [sceneBreak, setSceneBreak] = useState<SceneBreakStyle>(d.settings.sceneBreak ?? "asterisks");
+  const [breakImage, setBreakImage] = useState<string | undefined>(d.settings.sceneBreakImage);
+  const [breakPreview, setBreakPreview] = useState<string | null>(null);
+  useEffect(() => {
+    setBreakPreview(null);
+    if (breakImage) void imageUrl(store.abs(breakImage)).then(setBreakPreview, () => setBreakPreview(null));
+  }, [store, breakImage]);
+  const chooseBreakImage = async () => {
+    const f = await pickImage();
+    if (!f) return;
+    try {
+      setBreakImage(await store.addImage(`scene-break-${f.name}`, f));
+      setSceneBreak("image");
+    } catch (e) {
+      store.toast(`Could not add the picture: ${(e as Error).message}`, "error");
+    }
+  };
+  const [essayStyle, setEssayStyle] = useState<EssayStyle>(d.settings.essayStyle ?? "mla");
+  const [instructor, setInstructor] = useState(d.settings.instructor ?? "");
+  const [course, setCourse] = useState(d.settings.course ?? "");
+  const [date, setDate] = useState(d.settings.date ?? "");
   const save = async () => {
-    await store.updateMeta({ title: title.trim() || "Untitled", author, contact, settings: { titlePage, paper } });
+    const essaySettings = essay ? { essayStyle, instructor, course, date } : {};
+    const bookSettings = book ? { sceneBreak: sceneBreak === "image" && !breakImage ? ("asterisks" as const) : sceneBreak, sceneBreakImage: breakImage } : {};
+    await store.updateMeta({ title: title.trim() || "Untitled", author, contact, settings: { titlePage, paper, ...essaySettings, ...bookSettings } });
     onClose();
   };
   return (
@@ -140,14 +166,81 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
           <span>Author</span>
           <input value={author} onChange={(e) => setAuthor(e.target.value)} />
         </label>
-        <label className="field">
-          <span>Contact (title page)</span>
-          <textarea rows={3} value={contact} onChange={(e) => setContact(e.target.value)} />
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
-          <span>Title page</span>
-        </label>
+        {essay ? (
+          <>
+            <div className="field">
+              <span>Style</span>
+              <div className="segmented" data-testid="settings-essay-style">
+                {ESSAY_STYLES.map((s) => (
+                  <button key={s.id} className={essayStyle === s.id ? "on" : ""} onClick={() => setEssayStyle(s.id)}>
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="field">
+              <span>Instructor</span>
+              <input value={instructor} placeholder="Professor Surname" onChange={(e) => setInstructor(e.target.value)} data-testid="essay-instructor" />
+            </label>
+            <label className="field">
+              <span>Course</span>
+              <input value={course} placeholder="English 101" onChange={(e) => setCourse(e.target.value)} data-testid="essay-course" />
+            </label>
+            <label className="field">
+              <span>Date</span>
+              <input value={date} placeholder={`Today: ${essayDate(essayStyle)}`} onChange={(e) => setDate(e.target.value)} />
+            </label>
+            {essayStyle === "chicago" && (
+              <label className="check">
+                <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
+                <span>Title page</span>
+              </label>
+            )}
+          </>
+        ) : (
+          <>
+            <label className="field">
+              <span>Contact (title page)</span>
+              <textarea rows={3} value={contact} onChange={(e) => setContact(e.target.value)} />
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
+              <span>Title page</span>
+            </label>
+          </>
+        )}
+        {book && (
+          <div className="field">
+            <span>Scene break</span>
+            <div className="segmented" data-testid="scene-break">
+              {(
+                [
+                  ["asterisks", "* * *"],
+                  ["line", "——"],
+                  ["hearts", "♥ ♥ ♥"],
+                  ["image", "Picture"],
+                ] as [SceneBreakStyle, string][]
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  className={sceneBreak === id ? "on" : ""}
+                  data-testid={`break-${id}`}
+                  onClick={() => (id === "image" && !breakImage ? void chooseBreakImage() : setSceneBreak(id))}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {sceneBreak === "image" && breakImage && (
+              <div className="bg-picker" style={{ marginTop: 6 }}>
+                {breakPreview ? <img className="bg-thumb" style={{ objectFit: "contain" }} src={breakPreview} alt="" /> : <div className="bg-thumb empty" />}
+                <button className="btn small" onClick={() => void chooseBreakImage()} data-testid="break-choose">
+                  Change picture…
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {store.template.id !== "book" && (
           <div className="field">
             <span>Paper</span>

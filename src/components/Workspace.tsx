@@ -282,7 +282,7 @@ function DocTitle({ store, node }: { store: ProjectStore; node: BinderNode }) {
   useEffect(() => setValue(node.title), [node.title]);
   return (
     <input
-      className="doc-title"
+      className={store.template.id === "book" && roleOf(store.data, node.id) === "manuscript" ? "doc-title chapter" : "doc-title"}
       value={value}
       aria-label="Title"
       data-testid="doc-title"

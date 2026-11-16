@@ -4,7 +4,19 @@
 
 import { BackendError, call, configApi, fsApi, join } from "../lib/backend";
 import { blockText, parseDoc, serializeDoc, adaptScriptTypes, type Block } from "../formats/markdown";
-import { getTemplate, MATTER_TEMPLATE, NOTES_TEMPLATE, TEMPLATES, type MatterPreset, type Template, type TemplateId } from "../formats/templates";
+import {
+  BIBLIOGRAPHY_STARTER,
+  getTemplate,
+  hasType,
+  MATTER_TEMPLATE,
+  NOTES_TEMPLATE,
+  TEMPLATES,
+  WORKS_CITED_STARTER,
+  type EssayStyle,
+  type MatterPreset,
+  type Template,
+  type TemplateId,
+} from "../formats/templates";
 import type { ManuscriptItem, ProjectMeta } from "../formats/typst";
 import {
   cloneData,
@@ -94,11 +106,22 @@ export async function forgetRecent(root: string) {
 }
 
 /** Create the folder structure for a new project and return its root. */
-export async function createProject(location: string, title: string, templateId: TemplateId, author: string): Promise<string> {
+export async function createProject(
+  location: string,
+  title: string,
+  templateId: TemplateId,
+  author: string,
+  opts: { essayStyle?: EssayStyle } = {},
+): Promise<string> {
   const template = TEMPLATES[templateId];
   const root = join(location, title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "Untitled");
   if (await fsApi.exists(join(root, PROJECT_FILE))) throw new Error(`There is already a project in ${root}.`);
   const data = emptyProject(title, templateId, author, template.titlePageDefault);
+  if (templateId === "essay") {
+    // Chicago papers open with a title page; MLA papers never have one.
+    const style = opts.essayStyle ?? "mla";
+    Object.assign(data.settings, { essayStyle: style, instructor: "", course: "", date: "", titlePage: style === "chicago" });
+  }
   const ms = rootOf(data, "manuscript");
   const docs: { rel: string; content: string }[] = [];
   if (templateId === "stage-play") {
@@ -110,6 +133,14 @@ export async function createProject(location: string, title: string, templateId:
     const noun = template.docNoun;
     ms.children!.push({ id: newId(), kind: "doc", title: `${noun} 1`, file: `01-${slugify(noun)}-1.md` });
     docs.push({ rel: `manuscript/01-${slugify(noun)}-1.md`, content: template.starter(1) });
+  }
+  if (templateId === "essay") {
+    // The sources page the style calls for, ready to fill in.
+    const mla = data.settings.essayStyle !== "chicago";
+    const title = mla ? "Works Cited" : "Bibliography";
+    const file = `01-${slugify(title)}.md`;
+    rootOf(data, "back").children!.push({ id: newId(), kind: "doc", title, file });
+    docs.push({ rel: `back-matter/${file}`, content: mla ? WORKS_CITED_STARTER : BIBLIOGRAPHY_STARTER });
   }
   for (const dir of [...ROOTS.map((r) => r.file), "notes"]) await fsApi.mkdir(join(root, dir));
   for (const d of docs) await fsApi.write(join(root, d.rel), d.content, null);
@@ -541,6 +572,17 @@ export class ProjectStore {
       contact: this.data.contact,
       titlePage: this.data.settings.titlePage,
       paper: this.data.settings.paper,
+      sceneBreak:
+        this.data.template === "book" ? { style: this.data.settings.sceneBreak ?? "asterisks", image: this.data.settings.sceneBreakImage } : undefined,
+      essay:
+        this.data.template === "essay"
+          ? {
+              style: this.data.settings.essayStyle ?? "mla",
+              instructor: this.data.settings.instructor ?? "",
+              course: this.data.settings.course ?? "",
+              date: this.data.settings.date ?? "",
+            }
+          : undefined,
     };
   }
 
@@ -589,7 +631,7 @@ export class ProjectStore {
 
   private parse(id: string, text: string): Block[] {
     const t = this.templateFor(id);
-    const doc = parseDoc(text, t.mode, t.elements.some((e) => e.type === "title"));
+    const doc = parseDoc(text, t.mode, hasType(t, "title"), hasType(t, "citation"));
     if (t.mode === "script") return adaptScriptTypes(doc, t.elements.some((e) => e.type === "action") ? "action" : "direction").blocks;
     return doc.blocks;
   }
@@ -603,7 +645,7 @@ export class ProjectStore {
 
   private setFromDisk(id: string, text: string, hash: string | null) {
     const t = this.templateFor(id);
-    const parsed = parseDoc(text, t.mode, t.elements.some((e) => e.type === "title"));
+    const parsed = parseDoc(text, t.mode, hasType(t, "title"), hasType(t, "citation"));
     this.frontMatter.set(id, parsed.frontMatter);
     const prev = this.docs.get(id);
     const rev = (prev?.rev ?? 0) + 1;
@@ -1036,6 +1078,13 @@ export class ProjectStore {
     this.emit();
   }
 
+  /** Move a document or folder to the end of the Archive section. */
+  async archive(id: string) {
+    const archive = rootOf(this.data, "archive");
+    if (!archive || roleOf(this.data, id) === "archive") return;
+    await this.move(id, archive.id, "inside");
+  }
+
   async remove(id: string) {
     const node = this.node(id);
     if (!node || node.role) return;
@@ -1180,16 +1229,9 @@ function stripRuntime(d: ProjectFile): ProjectFile {
 /** A new character page: Notion-style headings to fill in. */
 export const CHARACTER_STARTER = `# Name
 
-> [!note] One line: who they are and what they want.
+**Age:** 
 
-## Want
-
-## Need
-
-## Voice
-
-
-## Backstory
+## About
 `;
 
 export type { MatterPreset };

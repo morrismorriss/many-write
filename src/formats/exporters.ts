@@ -2,7 +2,7 @@
 // plus the neutral block list the core turns into .docx and .epub.
 
 import { blockText, serializeRuns, serializeScript, type Block, type Run } from "./markdown";
-import type { ManuscriptItem, ProjectMeta } from "./typst";
+import { essayDate, sceneBreakText, type ManuscriptItem, type ProjectMeta } from "./typst";
 import type { Template } from "./templates";
 
 const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
@@ -116,12 +116,34 @@ export interface ExportDoc {
   lang: string;
   id: string;
   blocks: ExportBlock[];
+  /** Essays: "mla" or "chicago". */
+  style?: string;
+  /** Essays: the words before the page number in the running header (MLA: the author's surname). */
+  runningHead?: string;
+}
+
+/** Essay opening: MLA's heading block and title, or Chicago's title page or title and byline. */
+function essayOpening(meta: ProjectMeta): ExportBlock[] {
+  const e = meta.essay ?? { style: "mla" as const, instructor: "", course: "", date: "" };
+  const date = e.date.trim() || essayDate(e.style);
+  const title = meta.title || "Untitled";
+  const line = (kind: string, text: string): ExportBlock => ({ kind, runs: [{ text }] });
+  if (e.style === "mla") {
+    return [...[meta.author, e.instructor, e.course, date].filter((l) => l.trim()).map((l) => line("essay_heading", l)), line("essay_title", title)];
+  }
+  const details = [meta.author, e.course, e.instructor, date].filter((l) => l.trim());
+  if (meta.titlePage) {
+    return [line("essay_cover_title", title), ...details.map((l, i) => line(i === 0 ? "essay_cover_details" : "essay_cover_line", l)), line("page_break", "")];
+  }
+  return [line("essay_title", title), ...details.map((l) => line("essay_byline", l))];
 }
 
 /** Flatten the manuscript for the .docx / .epub writers in the core. */
 export function toExportDoc(template: Template, meta: ProjectMeta, items: ManuscriptItem[], projectId: string): ExportDoc {
   const blocks: ExportBlock[] = [];
   const script = template.mode === "script";
+  const essay = template.id === "essay";
+  if (essay) blocks.push(...essayOpening(meta));
   if (meta.titlePage && (script || template.id === "book")) {
     blocks.push({ kind: "title", runs: [{ text: meta.title || "Untitled" }] });
     if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
@@ -158,10 +180,19 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
         blocks.push({ kind: k.kind, runs: k.prefix ? [{ text: k.prefix }, ...b.runs] : b.runs });
         continue;
       }
+      if (b.type === "scene_break" && meta.sceneBreak && meta.sceneBreak.style !== "asterisks") {
+        blocks.push({ kind: b.type, runs: [{ text: sceneBreakText(meta.sceneBreak.style) }] });
+        continue;
+      }
       blocks.push({ kind: b.type, runs: normalizeRuns(b) });
     }
   }
-  return { title: meta.title || "Untitled", author: meta.author, template: template.id, lang: "en", id: `urn:uuid:${projectId}`, blocks };
+  const doc: ExportDoc = { title: meta.title || "Untitled", author: meta.author, template: template.id, lang: "en", id: `urn:uuid:${projectId}`, blocks };
+  if (essay) {
+    doc.style = meta.essay?.style ?? "mla";
+    doc.runningHead = doc.style === "mla" ? (meta.author.trim().split(/\s+/).pop() ?? "") : "";
+  }
+  return doc;
 }
 
 /** Notion-style blocks (Document format) as plain styles Word and e-readers understand. */

@@ -669,7 +669,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
 });
 
 export function parseBlocksForTemplate(text: string, tmpl: Template): Block[] {
-  const doc = parseDoc(text, tmpl.mode, tmpl.elements.some((e) => e.type === "title"));
+  const doc = parseDoc(text, tmpl.mode, hasType(tmpl, "title"), hasType(tmpl, "citation"));
   if (tmpl.mode === "script") return adaptScriptTypes(doc, hasType(tmpl, "action") ? "action" : "direction").blocks;
   return doc.blocks;
 }

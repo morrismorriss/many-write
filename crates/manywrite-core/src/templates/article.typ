@@ -1,5 +1,7 @@
 // Article: title, headings, paragraphs, quotes.
 
+#import "bubbles.typ": text-bubble
+
 #let conf(
   title: none, author: none, contact: none, date: none, title-page: false,
   font: "Libertinus Serif", paper: "us-letter",
@@ -20,7 +22,9 @@
 }
 
 #let el(kind, prev, body) = {
-  if kind == "title" {
+  if kind in ("text_left", "text_right") {
+    text-bubble(kind, prev, body)
+  } else if kind == "title" {
     block(sticky: true, above: 1.5em, below: 0.8em, text(size: 18pt, weight: "bold", body))
   } else if kind == "heading" {
     block(sticky: true, above: 1.8em, below: 0.8em, text(size: 14pt, weight: "bold", body))
