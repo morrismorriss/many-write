@@ -173,7 +173,7 @@ This builds installers for the current platform. CI builds macOS, Windows and Li
 - **Text is never code.** Everything you type (or import) reaches the typesetter only inside string literals, so it cannot run as Typst code; this is fuzzed with hostile input. The UI never inserts HTML; the preview is shown as an image.
 - **Imported files are untrusted.** Word/zip, PDF, RTF and Scrivener readers are bounds-checked, refuse decompression bombs (64 MB per entry), cannot be steered outside the project being imported, and a damaged file produces an error rather than a crash (`crates/manywrite-core/tests/security.rs`).
 - **Saves are safe.** Atomic writes, conflict detection, and nothing is deleted: removed items and replaced versions go to the project's `.trash/` or `archive/`.
-- **The browser dev server** (`npm run dev`, never shipped) only answers the Many Write page on `localhost`; requests from other websites and DNS-rebinding attempts are refused.
+- **The browser dev server** (`npm run dev`, never shipped) only answers the Many Write page on `localhost`; requests from other websites and DNS-rebinding attempts are refused. To view it through a forwarding proxy (a hosted preview), start Vite with `MW_PREVIEW=1`; the app's request header is still required.
 
 ## Licence
 
