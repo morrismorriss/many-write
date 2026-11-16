@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::engine::{ElementSpan, Engine};
-use crate::{export, fs};
+use crate::{export, fs, import};
 
 pub struct Core {
     preview: Mutex<Engine>,
@@ -131,6 +131,22 @@ impl Core {
             "typst.pageText" => {
                 let index: usize = arg(args, "index")?;
                 Ok(json!(self.preview.lock().unwrap().page_text(index)))
+            }
+            "import.docx" => {
+                let path = path_arg(args, "path")?;
+                let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+                Ok(serde_json::to_value(import::docx(&bytes)?).unwrap())
+            }
+            "import.pdf" => {
+                let path = path_arg(args, "path")?;
+                let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+                Ok(serde_json::to_value(import::pdf(bytes)?).unwrap())
+            }
+            "import.scrivener" => Ok(serde_json::to_value(import::scrivener(&path_arg(args, "path")?)?).unwrap()),
+            "import.rtf" => {
+                let path = path_arg(args, "path")?;
+                let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+                Ok(serde_json::to_value(import::rtf(&String::from_utf8_lossy(&bytes))).unwrap())
             }
             "export.pdf" => {
                 let source: String = arg(args, "source")?;

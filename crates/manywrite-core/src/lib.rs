@@ -5,5 +5,6 @@ pub mod api;
 pub mod engine;
 pub mod export;
 pub mod fs;
+pub mod import;
 
 pub use api::Core;

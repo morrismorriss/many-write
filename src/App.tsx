@@ -3,7 +3,8 @@ import { ProjectStore } from "./project/store";
 import { Welcome } from "./components/Welcome";
 import { Workspace } from "./components/Workspace";
 import { ThemeBuilder } from "./components/ThemeBuilder";
-import { appPaths, isTauri, pickFolder } from "./lib/backend";
+import { appPaths, fsApi, isTauri, pickFile, pickFolder, pickSavePath } from "./lib/backend";
+import { ImportDialog } from "./components/ImportDialog";
 import {
   applyTheme,
   BUILT_IN_THEMES,
@@ -26,6 +27,7 @@ export function App() {
   const [themeFolder, setThemeFolder] = useState("");
   const [ready, setReady] = useState(false);
   const [startNew, setStartNew] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
 
   const themes = [...BUILT_IN_THEMES, ...custom];
   const theme = themes.find((t) => t.id === settings.theme) ?? BUILT_IN_THEMES[0];
@@ -58,7 +60,8 @@ export function App() {
     setError(null);
     try {
       if (store) await store.close();
-      const s = await ProjectStore.open(root);
+      // A single markdown/text/Fountain file opens on its own; anything else is a project folder.
+      const s = /\.(md|markdown|txt|fountain|spmd)$/i.test(root) ? await ProjectStore.openSingle(root) : await ProjectStore.open(root);
       setStore(s);
       // A project remembers the theme it was last written in.
       if (s.data.theme) setSettings({ theme: s.data.theme });
@@ -66,6 +69,30 @@ export function App() {
       setStore(null);
       setError((e as Error).message);
     }
+  };
+
+  const docsDir = async () => (store ? store.root : (await appPaths()).documents);
+  const openDocument = async () => {
+    const p = await pickFile("Open a document", ["md", "markdown", "txt", "fountain"], await docsDir());
+    if (p) void openProject(p);
+  };
+  const newDocument = async () => {
+    const p = await pickSavePath("New document", `${await docsDir()}/Untitled.md`, "md");
+    if (!p) return;
+    try {
+      if (!(await fsApi.exists(p))) await fsApi.write(p, "", null);
+      void openProject(p);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const importFile = async () => {
+    const p = await pickFile("Import a document", ["docx", "fdx", "fountain", "pdf", "rtf", "md", "txt", "scriv"], await docsDir());
+    if (p) setImporting(p);
+  };
+  const importScrivener = async () => {
+    const p = await pickFolder("Choose a Scrivener project (.scriv)", await docsDir());
+    if (p) setImporting(p);
   };
 
   const closeProject = async () => {
@@ -135,12 +162,26 @@ export function App() {
           }}
           onOpenFolder={() => void pickFolder("Open a project folder", store.root.replace(/\/[^/]*$/, "")).then((r) => { if (r) void openProject(r); })}
           onOpenProject={(r) => void openProject(r)}
+          onNewDocument={() => void newDocument()}
+          onOpenDocument={() => void openDocument()}
+          onImport={() => void importFile()}
+          onImportScrivener={() => void importScrivener()}
         />
       ) : (
         <Welcome key={String(startNew)} onOpen={(r) => {
           setStartNew(false);
           void openProject(r);
-        }} error={error} startNew={startNew} />
+        }} error={error} startNew={startNew} onOpenDocument={() => void openDocument()} onImport={() => void importFile()} />
+      )}
+      {importing && (
+        <ImportDialog
+          path={importing}
+          onCancel={() => setImporting(null)}
+          onDone={(root) => {
+            setImporting(null);
+            void openProject(root);
+          }}
+        />
       )}
       {building && (
         <ThemeBuilder

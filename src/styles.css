@@ -486,3 +486,12 @@ figure.mw-image.ProseMirror-selectednode img { outline: 2px solid var(--accent);
 .section-toggle svg { vertical-align: -1px; }
 .binder-section { position: relative; }
 .preset-menu { position: absolute; top: 28px; right: 6px; left: auto; min-width: 200px; }
+.single-hint { padding: 8px 12px; line-height: 1.5; }
+
+/* Top bar: the left side gives way (breadcrumbs truncate) before anything overlaps. */
+.topbar-left { flex: 1 1 auto; overflow: hidden; }
+.topbar-left .crumbs { flex: 1 1 auto; min-width: 0; }
+.topbar-right { gap: 2px; }
+.layout-status { display: flex; align-items: center; gap: 4px; }
+.status.prod { padding: 2px 8px; font-weight: 500; }
+@media (max-width: 1280px) { .topbar-left .crumbs { display: none; } }

@@ -128,6 +128,29 @@ export function Binder({ store }: { store: ProjectStore }) {
     );
   };
 
+  if (store.single) {
+    const doc = store.data.binder.find((r) => r.role === "manuscript")?.children?.[0];
+    return (
+      <nav className="binder" aria-label="Document">
+        <div className="binder-head">
+          <span className="section-toggle">Document</span>
+        </div>
+        {doc && (
+          <div className="binder-row selected" style={{ paddingLeft: 8 }}>
+            <span className="twisty" />
+            <span className="row-icon">
+              <FileIcon />
+            </span>
+            <span className="row-title">{doc.file}</span>
+          </div>
+        )}
+        <p className="binder-empty single-hint">
+          A single file, saved as you type. To get scenes, notes and a binder, use File › New project, or import it.
+        </p>
+      </nav>
+    );
+  }
+
   return (
     <nav className="binder" role="tree" aria-label="Binder">
       {store.data.binder.map((root) => {

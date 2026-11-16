@@ -4,10 +4,17 @@ A local-first desktop writing app for **stage plays, screenplays, books, article
 
 - **Binder with notes**: acts, scenes, characters and research in a sidebar, with a notes file beside each item.
 - **Script formatting with Enter/Tab flow**: type a name and press Enter for dialogue; press Enter again for the next speaker.
-- **Live typeset preview**: the actual page, updated as you type, with a checked **"No orphan lines"** status.
+- **Live typeset preview**: the actual page, updated as you type. Orphan lines and stranded cues are prevented and checked; a warning appears only if something goes wrong.
+- **Production mode**: lock page numbers for revisions. Rewrites go onto A-pages (12A, 12B…), changed lines get a margin asterisk, and the header names the revision colour.
+- **Notion-style pages**: type `/` anywhere for blocks. Characters and research pages have to-dos, lists, callouts, dividers and images.
+- **Open and import**: open a single document on its own, or import Word, Final Draft, Fountain, PDF, RTF and Scrivener projects.
 - **Plain files**: every scene is a markdown file in a folder you own. No account, no cloud, no lock-in.
 
 ![Stage play in the light theme](docs/screenshots/stage-play-light.png)
+
+| Production mode | Character page | Words and pages |
+| --- | --- | --- |
+| ![Locked pages with an A-page and revision marks](docs/screenshots/production.png) | ![Notion-style character page](docs/screenshots/character-page.png) | ![Words and pages per scene](docs/screenshots/stats.png) |
 
 | Dark | Pink | Theme builder |
 | --- | --- | --- |
@@ -24,9 +31,48 @@ A local-first desktop writing app for **stage plays, screenplays, books, article
 | Type **(** on an empty dialogue line | A **parenthetical**, with the cursor inside `()` |
 | **Tab** / **Shift-Tab**, or the type menu | Change the current line's type |
 | **⌘⌥1…6** (Ctrl+Alt on Windows/Linux) | Jump to a specific type |
-| Type the start of a known name | It is suggested; **Enter**, **Tab** or **→** accepts, **Esc** dismisses |
+| A character line | A list of the names you have used; type to filter, **↑ ↓** and **Enter** (or click) to pick |
+| **/** at the start of a line | The block menu: type to filter (`/trans`, `/todo`, `/image`), **Enter** to apply |
 
 Screenplays have their own Enter/Tab flow. Poems keep every line break and indent exactly (Tab indents). Books and articles use paragraphs, headings and quotes.
+
+## Around the editor
+
+- **Binder**: front matter (cast list, dedication, time and place…), the manuscript, back matter, characters, research and an **archive** for old drafts. Drag to reorder, nest or archive. New scenes go next to the one you're on.
+- **Notes**: every binder item has a notes page below the binder, with the same `/` blocks.
+- **Find & replace** (⌘F, or ⌘⇧F for the whole script): match case, whole words, every result listed, replace one or all. Bold and italics are kept.
+- **Words and pages**: the chart button above the preview lists words and pages for each scene, with totals and a running-time estimate for scripts.
+- **Goals**: a daily word goal with progress ring, a project goal with a deadline, the last seven days, and "set today's count" or reset at any time.
+- **Pomodoro timer**: focus and break lengths you choose, with a chime.
+- **File menu**: new project, new or open single document, import, recent projects, spell check on or off. Spelling uses the system dictionary on macOS, Windows and Linux.
+
+## Production mode
+
+When a script is going into rehearsal or production, choose **Production › Lock pages**. From then on:
+
+- every page keeps its number; a rewrite that runs long continues on **12A, 12B…**, and a cut leaves white space instead of renumbering;
+- changed and new lines are marked with **\*** in the right margin;
+- the header shows the revision (White, Blue, Pink, Yellow, Green, Goldenrod…) and its date;
+- **Start next revision** moves to the next colour and clears the marks; A-pages stay;
+- **Leave production mode** lets pages flow freely again.
+
+Locks follow their lines even when you add or cut lines above them.
+
+## Open and import
+
+- **Open document…** edits a single `.md`, `.txt` or `.fountain` file in place, with the preview and exports, without creating a project.
+- **Import…** creates a new project from:
+
+| From | What comes across |
+| --- | --- |
+| Word (.docx) | Paragraphs, bold/italic/underline, headings (split into chapters); script styles (Character, Dialogue…) become script elements |
+| Final Draft (.fdx) | Every element and its emphasis, split into scenes; the title from the title page |
+| Fountain | Elements, title page, scenes |
+| PDF | The text, rebuilt into paragraphs; scripts are recognised and rebuilt into cues, dialogue, parentheticals and scenes. Scanned PDFs need text recognition first |
+| RTF | Paragraphs and emphasis |
+| Scrivener (.scriv) | The draft folder structure, research, each document's text, synopsis and notes. Trash is skipped |
+
+The original file is never changed.
 
 ## Your files
 
@@ -96,10 +142,10 @@ npm test && cargo test -p manywrite-core
 ```
 
 ```bash
-node e2e/smoke.mjs && node e2e/templates.mjs
+node e2e/smoke.mjs && node e2e/templates.mjs && node e2e/features.mjs && node e2e/imports.mjs
 ```
 
-The last command runs the end-to-end checks against `npm run dev` and needs Playwright.
+That runs the end-to-end checks against `npm run dev` (it needs Playwright).
 
 ```bash
 npm run tauri build

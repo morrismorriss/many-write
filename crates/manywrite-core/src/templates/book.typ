@@ -30,7 +30,9 @@
 }
 
 #let el(kind, prev, body) = {
-  if kind == "heading" {
+  if kind == "title" {
+    block(sticky: true, above: 2.4em, below: 1.2em, align(center, text(size: 15pt, body)))
+  } else if kind == "heading" {
     block(sticky: true, above: 2em, below: 1em, text(size: 13pt, weight: "bold", body))
   } else if kind == "subheading" {
     block(sticky: true, above: 1.5em, below: 0.8em, text(weight: "bold", body))
@@ -38,7 +40,7 @@
     block(above: 1em, below: 1em, pad(x: 1.5em, par(first-line-indent: 0pt, body)))
   } else if kind == "scene_break" {
     block(above: 1em, below: 1em, width: 100%, align(center, sym.ast.op + h(1em) + sym.ast.op + h(1em) + sym.ast.op))
-  } else if kind == "paragraph" and prev in (none, "heading", "subheading", "chapter", "scene_break", "quote") {
+  } else if kind == "paragraph" and prev in (none, "title", "heading", "subheading", "chapter", "scene_break", "quote") {
     // No indent on the first paragraph after a heading or break.
     block(above: 0.65em, below: 0pt, par(first-line-indent: 0pt, body))
   } else {

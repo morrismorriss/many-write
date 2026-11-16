@@ -82,8 +82,8 @@ export function ThemeMenu({ themes, current, onPick, onBuild, onDelete }: ThemeM
   const [open, setOpen] = useState(false);
   return (
     <div className="menu-anchor">
-      <button className="btn ghost small" onClick={() => setOpen((v) => !v)} data-testid="theme-btn" title="Theme">
-        <Palette /> {current.name}
+      <button className="icon-btn" onClick={() => setOpen((v) => !v)} data-testid="theme-btn" title={`Theme: ${current.name}`}>
+        <Palette />
       </button>
       {open && (
         <div className="menu right" onMouseLeave={() => setOpen(false)}>

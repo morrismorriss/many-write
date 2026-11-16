@@ -9,9 +9,11 @@ interface Props {
   error: string | null;
   /** Open straight onto the new-project form (File > New project). */
   startNew?: boolean;
+  onOpenDocument: () => void;
+  onImport: () => void;
 }
 
-export function Welcome({ onOpen, error, startNew }: Props) {
+export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: Props) {
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [creating, setCreating] = useState(!!startNew);
   const [template, setTemplate] = useState<TemplateId>("stage-play");
@@ -57,7 +59,13 @@ export function Welcome({ onOpen, error, startNew }: Props) {
                 New project
               </button>
               <button className="btn" onClick={() => void open()} data-testid="open-project">
-                Open folder…
+                Open project…
+              </button>
+              <button className="btn" onClick={onOpenDocument} data-testid="open-document">
+                Open document…
+              </button>
+              <button className="btn" onClick={onImport} data-testid="import">
+                Import…
               </button>
             </div>
             {recent.length > 0 && (
@@ -68,7 +76,7 @@ export function Welcome({ onOpen, error, startNew }: Props) {
                     <button className="recent-open" onClick={() => onOpen(r.root)}>
                       <span className="recent-name">{r.title}</span>
                       <span className="recent-meta">
-                        {TEMPLATES[r.template]?.name ?? ""} · {r.root}
+                        {r.single ? "Document" : (TEMPLATES[r.template]?.name ?? "")} · {r.root}
                       </span>
                     </button>
                     <button

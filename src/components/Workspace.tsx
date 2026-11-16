@@ -10,7 +10,6 @@ import { FileMenu, FindBar, GoalsWidget, Pomodoro, ProductionMenu, type FindScop
 import { ChevronLeft, ChevronRight, FileIcon, FolderIcon, Search, Warning } from "./icons";
 import type { AppSettings, Theme } from "../themes/themes";
 import { roleOf, type BinderNode } from "../project/model";
-import { wordCount } from "../formats/exporters";
 import { blockText } from "../formats/markdown";
 import type { Match } from "../formats/search";
 
@@ -27,6 +26,10 @@ interface Props {
   onNewProject: () => void;
   onOpenFolder: () => void;
   onOpenProject: (root: string) => void;
+  onNewDocument: () => void;
+  onOpenDocument: () => void;
+  onImport: () => void;
+  onImportScrivener: () => void;
 }
 
 export function Workspace(p: Props) {
@@ -38,14 +41,12 @@ export function Workspace(p: Props) {
   const [find, setFind] = useState<FindScope | null>(null);
   const [highlight, setHighlight] = useState<SearchHighlight | null>(null);
   const last = useRef<{ report: CompileReport | null; ids: string[] }>({ report: null, ids: [] });
-  const [pages, setPages] = useState(0);
   const dragging = useRef(false);
 
   const sel = store.selectedId ? store.node(store.selectedId) : null;
   const onCursor = useCallback((docId: string, index: number) => setCursor({ docId, index }), []);
   const onReport = useCallback((r: CompileReport, ids: string[]) => {
     last.current = { report: r, ids };
-    if (r.ok) setPages(r.pageCount);
   }, []);
 
   // Keyboard: Mod-\ binder, Mod-Shift-\ preview, Mod-F find, Mod-Shift-F find in the whole script.
@@ -107,8 +108,6 @@ export function Workspace(p: Props) {
     void store.lockPages(ids, report.elementPages, report.elementLastPages, report.pageCount, revision);
   };
 
-  const totalWords = store.manuscriptWords();
-  const docWords = sel?.kind === "doc" ? wordCount(store.docState(sel.id)?.blocks ?? []) : 0;
   const binderW = settings.binderOpen ? 268 : 0;
   const previewW = settings.previewOpen ? settings.previewWidth : 0;
 
@@ -126,7 +125,7 @@ export function Workspace(p: Props) {
             <div className="binder-scroll">
               <Binder store={store} />
             </div>
-            <NotesPanel store={store} spellcheck={settings.spellcheck} />
+            {!store.single && <NotesPanel store={store} spellcheck={settings.spellcheck} />}
           </>
         )}
       </aside>
@@ -147,6 +146,11 @@ export function Workspace(p: Props) {
           <div className="topbar-left">
             <FileMenu
               onNew={p.onNewProject}
+              onNewDocument={p.onNewDocument}
+              onOpenDocument={p.onOpenDocument}
+              onImport={p.onImport}
+              onImportScrivener={p.onImportScrivener}
+              single={store.single}
               onOpenFolder={p.onOpenFolder}
               onOpen={p.onOpenProject}
               onClose={p.onClose}
@@ -155,7 +159,7 @@ export function Workspace(p: Props) {
               onToggleSpellcheck={() => setSettings({ spellcheck: !settings.spellcheck })}
               currentRoot={store.root}
             />
-            <ProductionMenu store={store} onLock={lock} />
+            {!store.single && <ProductionMenu store={store} onLock={lock} />}
             <div className="crumbs">
               {sel ? (
                 breadcrumb(store, sel).map((t, i, a) => (
@@ -169,14 +173,10 @@ export function Workspace(p: Props) {
             </div>
           </div>
           <div className="topbar-right">
-            <span className="muted small-text" data-testid="word-count" title="Words in this document / in the whole manuscript">
-              {sel?.kind === "doc" && roleOf(store.data, sel.id) === "manuscript" ? `${docWords.toLocaleString()} / ` : ""}
-              {totalWords.toLocaleString()} words{pages ? ` · ${pages} pages` : ""}
-            </span>
             <span className={`save-status ${store.saveStatus}`} data-testid="save-status">
               {store.saveStatus === "saving" ? "Saving…" : store.saveStatus === "error" ? "Not saved" : store.isDirty() ? "Edited" : "Saved"}
             </span>
-            <GoalsWidget store={store} />
+            {!store.single && <GoalsWidget store={store} />}
             <Pomodoro settings={settings.pomodoro} onChange={(pomodoro) => setSettings({ pomodoro })} notify={(t) => store.toast(t)} />
             <button className="icon-btn" onClick={() => setFind(find ? null : "doc")} title="Find and replace (⌘F)" data-testid="find-btn">
               <Search />

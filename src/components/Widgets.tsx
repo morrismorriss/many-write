@@ -34,6 +34,10 @@ function usePopover() {
 
 interface FileMenuProps {
   onNew: () => void;
+  onNewDocument: () => void;
+  onOpenDocument: () => void;
+  onImport: () => void;
+  onImportScrivener: () => void;
   onOpenFolder: () => void;
   onOpen: (root: string) => void;
   onClose: () => void;
@@ -41,6 +45,7 @@ interface FileMenuProps {
   spellcheck: boolean;
   onToggleSpellcheck: () => void;
   currentRoot: string;
+  single?: boolean;
 }
 
 export function FileMenu(p: FileMenuProps) {
@@ -64,7 +69,20 @@ export function FileMenu(p: FileMenuProps) {
             New project…
           </button>
           <button className="menu-item" onClick={run(p.onOpenFolder)} data-testid="file-open">
-            Open folder…
+            Open project folder…
+          </button>
+          <button className="menu-item" onClick={run(p.onNewDocument)} data-testid="file-new-doc">
+            New document…
+          </button>
+          <button className="menu-item" onClick={run(p.onOpenDocument)} data-testid="file-open-doc">
+            Open document…
+          </button>
+          <button className="menu-item two-line" onClick={run(p.onImport)} data-testid="file-import">
+            <span>Import…</span>
+            <small>Word, Final Draft, Fountain, PDF, RTF</small>
+          </button>
+          <button className="menu-item" onClick={run(p.onImportScrivener)} data-testid="file-import-scriv">
+            Import Scrivener project…
           </button>
           <div className="menu-sep" />
           <div className="menu-label">Recent projects</div>
@@ -75,13 +93,15 @@ export function FileMenu(p: FileMenuProps) {
             .map((r) => (
               <button key={r.root} className="menu-item two-line" onClick={run(() => p.onOpen(r.root))} title={r.root}>
                 <span>{r.title}</span>
-                <small>{TEMPLATES[r.template]?.name ?? ""}</small>
+                <small>{r.single ? "Document" : (TEMPLATES[r.template]?.name ?? "")}</small>
               </button>
             ))}
           <div className="menu-sep" />
-          <button className="menu-item" onClick={run(p.onSettings)}>
-            Project settings…
-          </button>
+          {!p.single && (
+            <button className="menu-item" onClick={run(p.onSettings)}>
+              Project settings…
+            </button>
+          )}
           <button className="menu-item" onClick={p.onToggleSpellcheck} data-testid="toggle-spellcheck">
             <span>Check spelling as you type</span>
             {p.spellcheck && <Check />}

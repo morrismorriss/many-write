@@ -6,12 +6,18 @@ A project is a folder of plain files. Nothing is stored anywhere else.
 My Play/
   project.json          # title, author, format template, theme, binder order
   README.md             # this convention, written into every new project
+  front-matter/         # cast list, dedication… (typeset before the script, unnumbered)
   manuscript/
     01-act-one/
       01-scene-1.md
       02-scene-2.md
-  characters/  research/  # reference notes, one markdown file each
+  back-matter/          # acknowledgements, notes… (typeset after the script)
+  characters/  research/  # Notion-style pages, one markdown file each
+  archive/              # old drafts: kept, never typeset or exported
   notes/                # notes attached to binder items (linked from project.json)
+  assets/               # images added with /image
+  goals.json            # writing goals and the daily word log
+  production.json       # production mode: locked pages and the current revision
   exports/              # PDFs and other exports
   .trash/               # deleted items and the losing side of any edit conflict
 ```
@@ -67,6 +73,34 @@ Emphasis uses markdown: `*italic*`, `**bold**`.
 
 Ordinary markdown: `##` headings, paragraphs separated by blank lines,
 `> ` for quotations, `* * *` for a scene break, `*italic*` and `**bold**`.
+
+## Notes, characters and research pages
+
+These use markdown that Obsidian also understands:
+
+| Block | Written as |
+| --- | --- |
+| Headings | `#`, `##`, `###` |
+| Bulleted / numbered list | `- item`, `1. item` |
+| To-do | `- [ ] task`, `- [x] done` |
+| Quote | `> text` |
+| Callout | `> [!note] text` |
+| Divider | `---` |
+| Image | `![caption](assets/picture-1a2b3c.png)` |
+
+## Front and back matter
+
+Ordinary prose markdown. A centred line is written `-> text <-` (MultiMarkdown).
+A page made only of centred lines or quotes (a dedication, an epigraph) is set lower on the page.
+
+## production.json
+
+Written when you lock pages for production. Each page records the line it
+started on (`docId`, its position, and a short hash of that line plus the two
+after it, so a repeated line such as a character cue is still found after lines
+are added above it), and a hash of every line at the start of the current
+revision, which is how changed lines get their margin asterisk. No script text
+is stored in it. Deleting the file leaves production mode.
 
 ## project.json
 

@@ -69,6 +69,8 @@ export interface RecentProject {
   title: string;
   template: TemplateId;
   openedAt: number;
+  /** A single document rather than a project folder. */
+  single?: boolean;
 }
 
 export async function readRecent(): Promise<RecentProject[]> {
@@ -133,6 +135,8 @@ export class ProjectStore {
   conflict: ConflictState | null = null;
   toasts: Toast[] = [];
   production: ProductionState | null = null;
+  /** A single document opened on its own (File > Open document): no project.json, no binder. */
+  single = false;
   goals: Goals = emptyGoals();
   private goalsTimer: number | undefined;
 
@@ -182,6 +186,27 @@ export class ProjectStore {
     if (store.conflictCopies.size) {
       store.toast(`Found ${store.conflictCopies.size} conflict ${store.conflictCopies.size === 1 ? "copy" : "copies"} from a sync service. They are marked in the binder.`, "warn");
     }
+    return store;
+  }
+
+  /** Open one markdown, text or Fountain file by itself. */
+  static async openSingle(path: string): Promise<ProjectStore> {
+    const r = await fsApi.read(path);
+    if (!r.exists) throw new Error(`${path} does not exist.`);
+    const dir = path.replace(/\/[^/]*$/, "") || "/";
+    const name = path.split("/").pop()!;
+    const template: TemplateId = /\.(fountain|spmd)$/i.test(name) ? "screenplay" : "article";
+    const data = emptyProject(name.replace(/\.[^.]+$/, ""), template, "", false);
+    const ms = rootOf(data, "manuscript");
+    ms.file = "";
+    const doc: BinderNode = { id: newId(), kind: "doc", title: data.title, file: name };
+    ms.children = [doc];
+    const store = new ProjectStore(dir, data, null);
+    store.single = true;
+    store.setFromDisk(doc.id, r.content, r.hash);
+    store.selectedId = doc.id;
+    await rememberRecent({ root: path, title: data.title, template, openedAt: Date.now(), single: true }).catch(() => {});
+    store.startPolling();
     return store;
   }
 
@@ -245,6 +270,7 @@ export class ProjectStore {
   }
 
   private trackGoals() {
+    if (this.single) return;
     const next = observe(this.goals, this.manuscriptWords());
     if (next === this.goals) return;
     this.goals = next;
@@ -737,6 +763,7 @@ export class ProjectStore {
   // ---------------------------------------------------------- project.json
 
   private async writeProject(force = false) {
+    if (this.single) return;
     const text = serializeProject(stripRuntime(this.data));
     try {
       const { hash } = await fsApi.write(this.abs(PROJECT_FILE), text, this.projectHash, force);
@@ -967,7 +994,7 @@ export class ProjectStore {
     paths.push(...noteIds.map((id) => this.notesPath(id)!));
     const hashes = await fsApi.hashes(paths);
     let changed = false;
-    if (hashes[0] !== this.projectHash && hashes[0] !== null) {
+    if (!this.single && hashes[0] !== this.projectHash && hashes[0] !== null) {
       await this.reloadProject();
       this.toast("The binder was updated from changes on disk.");
       return;

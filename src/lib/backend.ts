@@ -148,3 +148,14 @@ export function imageUrl(absPath: string): Promise<string> {
   }
   return p;
 }
+
+/** Ask for a file to open (with a type filter) or, for packages such as .scriv, a folder. */
+export async function pickFile(title: string, extensions: string[], defaultPath?: string): Promise<string | null> {
+  if (isTauri) {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const r = await open({ title, defaultPath, filters: [{ name: "Documents", extensions }] });
+    return typeof r === "string" ? normalize(r) : null;
+  }
+  const r = window.prompt(`${title}\n(Type the path of a file on this computer.)`, defaultPath ?? "");
+  return r ? normalize(r) : null;
+}
