@@ -7,7 +7,7 @@ A local-first desktop writing app for **stage plays, screenplays, essays, books,
 - **Live typeset preview**: the actual page, updated as you type. Orphan lines and stranded cues are prevented and checked; a warning appears only if something goes wrong.
 - **Production mode**: lock page numbers for revisions. Rewrites go onto A-pages (12A, 12B…), changed lines get a margin asterisk, and the header names the revision colour.
 - **Notion-style pages**: type `/` anywhere for blocks. Characters and research pages have to-dos, lists, callouts, dividers and images.
-- **Open and import**: open a single document on its own, or import Word, Final Draft, Fountain, PDF, RTF and Scrivener projects.
+- **Open and import**: open a single document on its own, or import Word, Final Draft, Fountain, PDF and RTF files.
 - **Plain files**: every scene is a markdown file in a folder you own. No account, no cloud, no lock-in.
 
 ![Stage play in the light theme](docs/screenshots/stage-play-light.png)
@@ -76,7 +76,6 @@ Locks follow their lines even when you add or cut lines above them.
 | Fountain | Elements, title page, scenes |
 | PDF | The text, rebuilt into paragraphs; scripts are recognised and rebuilt into cues, dialogue, parentheticals and scenes. Scanned PDFs need text recognition first |
 | RTF | Paragraphs and emphasis |
-| Scrivener (.scriv) | Scrivener 2 and 3: the draft folder structure, research, Characters / Front Matter / Back Matter folders into the matching sections, each document's text, synopsis and notes; Trash and Templates are skipped. On a Mac choose the `.scriv` project itself; on Windows choose its folder or the `.scrivx` file inside. Scrivener 1 projects bring their text in order, but not their titles |
 
 The original file is never changed.
 
@@ -176,10 +175,10 @@ This builds installers for the current platform. CI builds macOS, Windows and Li
 
 - **No internet, ever.** The desktop app contains no networking code: no updater, telemetry, analytics or font downloads. Its window may only talk to its own core (`connect-src ipc:` in the content security policy), Typst cannot fetch packages, and every font is bundled. Your writing never leaves your computer.
 - **Text is never code.** Everything you type (or import) reaches the typesetter only inside string literals, so it cannot run as Typst code; this is fuzzed with hostile input. The UI never inserts HTML; the preview is shown as an image.
-- **Imported files are untrusted.** Word/zip, PDF, RTF and Scrivener readers are bounds-checked, refuse decompression bombs (64 MB per entry), cannot be steered outside the project being imported, and a damaged file produces an error rather than a crash (`crates/manywrite-core/tests/security.rs`).
+- **Imported files are untrusted.** Word/zip, PDF and RTF readers are bounds-checked, refuse decompression bombs (64 MB per entry), cannot be steered outside the project being imported, and a damaged file produces an error rather than a crash (`crates/manywrite-core/tests/security.rs`).
 - **Saves are safe.** Atomic writes, conflict detection, and nothing is deleted: removed items and replaced versions go to the project's `.trash/` or `archive/`.
 - **The browser dev server** (`npm run dev`, never shipped) only answers the Many Write page on `localhost`; requests from other websites and DNS-rebinding attempts are refused. To view it through a forwarding proxy (a hosted preview), start Vite with `MW_PREVIEW=1`; the app's request header is still required.
 
 ## Licence
 
-Apache-2.0. Fonts and libraries are listed in [THIRD-PARTY.md](THIRD-PARTY.md). "Final Draft" and "Scrivener" are trademarks of their owners. Many Write is not affiliated with them.
+Apache-2.0. Fonts and libraries are listed in [THIRD-PARTY.md](THIRD-PARTY.md). "Final Draft" is a trademark of its owner. Many Write is not affiliated with it.

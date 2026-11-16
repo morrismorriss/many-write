@@ -281,7 +281,9 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
   background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
 }
 .menu.right { left: auto; right: 0; }
-.menu.issues { right: 0; left: auto; width: 320px; }
+.menu.issues { width: 320px; }
+/* Popovers are portalled to <body> and placed with inline fixed coordinates. */
+.menu.popover { z-index: 90; }
 .menu-item {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
   padding: 6px 10px; border: 0; border-radius: 5px; background: none; text-align: left; cursor: pointer; font-size: 13.5px;
@@ -536,6 +538,14 @@ figure.mw-image.ProseMirror-selectednode img { outline: 2px solid var(--accent);
 .topbar-left .crumbs { overflow: hidden; }
 .topbar-left .crumbs { flex: 1 1 auto; min-width: 0; }
 .topbar-right { gap: 2px; }
+/* When the editor column is too narrow for both groups, the right group wraps onto a second row instead of overlapping. */
+.topbar { flex-wrap: wrap; height: auto; min-height: 46px; row-gap: 0; }
+.topbar-left { flex: 1 1 0; min-width: min-content; }
+.topbar-left > .menu-anchor { flex: none; }
+/* The breadcrumbs give way (truncate) first and never force a wrap. */
+.topbar-left .crumbs { flex: 1 1 0; width: 0; min-width: 0; }
+.topbar-left, .topbar-right { min-height: 40px; }
+.topbar-right { margin-left: auto; }
 .layout-status { display: flex; align-items: center; gap: 4px; }
 .status.prod { padding: 2px 8px; font-weight: 500; }
 @media (max-width: 1280px) { .topbar-left .crumbs { display: none; } }

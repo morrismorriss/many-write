@@ -56,10 +56,19 @@ export function App() {
     });
   }, []);
 
+  /** Save and close the open project. False if a save failed and the writer chose to stay. */
+  const leaveCurrent = async () => {
+    if (!store) return true;
+    await store.flushAll().catch(() => {});
+    if (store.isDirty() && !window.confirm("Some changes could not be saved. Close this project anyway and lose them?")) return false;
+    await store.close().catch(() => {});
+    return true;
+  };
+
   const openProject = async (root: string) => {
     setError(null);
+    if (!(await leaveCurrent())) return;
     try {
-      if (store) await store.close();
       // A single markdown/text/Fountain file opens on its own; anything else is a project folder.
       const s = /\.(md|markdown|txt|fountain|spmd)$/i.test(root) ? await ProjectStore.openSingle(root) : await ProjectStore.open(root);
       setStore(s);
@@ -87,21 +96,12 @@ export function App() {
     }
   };
   const importFile = async () => {
-    const p = await pickFile("Import a document", ["docx", "fdx", "fountain", "pdf", "rtf", "md", "txt", "scriv", "scrivx"], await docsDir());
-    if (p) setImporting(p);
-  };
-  // A .scriv project is a folder on Windows and Linux, but a single "package" on a Mac,
-  // where the folder picker will not select it: there it is chosen like a file.
-  const importScrivener = async () => {
-    const mac = /Mac/.test(navigator.platform);
-    const p = mac
-      ? await pickFile("Choose a Scrivener project", ["scriv", "scrivx"], await docsDir())
-      : await pickFolder("Choose a Scrivener project folder (.scriv)", await docsDir());
+    const p = await pickFile("Import a document", ["docx", "fdx", "fountain", "pdf", "rtf", "md", "txt"], await docsDir());
     if (p) setImporting(p);
   };
 
   const closeProject = async () => {
-    if (store) await store.close();
+    if (!(await leaveCurrent())) return;
     setStore(null);
   };
 
@@ -111,16 +111,28 @@ export function App() {
     const onUnload = () => void store.flushAll();
     window.addEventListener("beforeunload", onUnload);
     let unlisten: (() => void) | undefined;
+    let gone = false;
     if (isTauri) {
       void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
         getCurrentWindow()
-          .onCloseRequested(async () => {
-            await store.flushAll();
+          .onCloseRequested(async (event) => {
+            try {
+              await store.flushAll();
+            } catch {
+              /* reported below */
+            }
+            // A failed save or an unsettled outside edit: don't lose the typing without asking.
+            if (store.isDirty() && !window.confirm("Some changes could not be saved. Close Many Write anyway and lose them?")) event.preventDefault();
           })
-          .then((u) => (unlisten = u)),
+          .then((u) => {
+            // The effect may have been cleaned up while the listener was being registered.
+            if (gone) u();
+            else unlisten = u;
+          }),
       );
     }
     return () => {
+      gone = true;
       window.removeEventListener("beforeunload", onUnload);
       unlisten?.();
     };
@@ -170,7 +182,6 @@ export function App() {
           onNewDocument={() => void newDocument()}
           onOpenDocument={() => void openDocument()}
           onImport={() => void importFile()}
-          onImportScrivener={() => void importScrivener()}
         />
       ) : (
         <Welcome key={String(startNew)} onOpen={(r) => {

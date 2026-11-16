@@ -25,6 +25,8 @@ import {
   emptyProject,
   findNode,
   isDescendant,
+  isSafeNotesPath,
+  isSafeSegment,
   manuscriptOrder,
   newId,
   nodePath,
@@ -1201,7 +1203,7 @@ export class ProjectStore {
   }
 }
 
-function normalizeData(d: ProjectFile): ProjectFile {
+export function normalizeData(d: ProjectFile): ProjectFile {
   d.app = "many-write";
   d.formatVersion = 1;
   d.title ??= "Untitled";
@@ -1215,9 +1217,17 @@ function normalizeData(d: ProjectFile): ProjectFile {
   d.binder = ROOTS.map((r) => d.binder.find((n) => n.role === r.role) ?? { id: newId(), kind: "folder" as const, title: r.title, file: r.file, role: r.role, children: [] }).concat(
     d.binder.filter((n) => !n.role),
   );
+  // Paths come from a file that may have been shared or hand-edited: keep every one inside the project.
+  for (const n of d.binder) {
+    const std = ROOTS.find((r) => r.role === n.role);
+    if (!isSafeSegment(n.file)) n.file = std?.file ?? slugify(String(n.title ?? "untitled"));
+  }
   walkNodes(d.binder, (n) => {
     n.id ??= newId();
+    if (n.kind !== "folder" && n.kind !== "doc") n.kind = n.children ? "folder" : "doc";
     if (n.kind === "folder") n.children ??= [];
+    if (!isSafeSegment(n.file)) n.file = slugify(String(n.title ?? "untitled")) + (n.kind === "doc" ? ".md" : "");
+    if (n.notes !== undefined && !isSafeNotesPath(n.notes)) delete n.notes;
   });
   return d;
 }

@@ -29,7 +29,6 @@ interface Props {
   onNewDocument: () => void;
   onOpenDocument: () => void;
   onImport: () => void;
-  onImportScrivener: () => void;
 }
 
 export function Workspace(p: Props) {
@@ -149,7 +148,6 @@ export function Workspace(p: Props) {
               onNewDocument={p.onNewDocument}
               onOpenDocument={p.onOpenDocument}
               onImport={p.onImport}
-              onImportScrivener={p.onImportScrivener}
               single={store.single}
               exports={store.template.exports}
               onExport={(f) => void exportProject(store, f)}

@@ -10,6 +10,7 @@ import { findInBlocks, replaceInBlocks, searchRegex, type Match } from "../forma
 import type { SearchHighlight } from "../editor/extensions";
 import { TEMPLATES, type ExportFormat } from "../formats/templates";
 import { FORMAT_INFO } from "./Menus";
+import { Popover } from "./Popover";
 import type { CompileReport } from "./Preview";
 import { ArrowDown, ArrowUp, BarChart, Check, Close, FileIcon, Lock, Search, TargetIcon, Tomato } from "./icons";
 
@@ -17,9 +18,14 @@ import { ArrowDown, ArrowUp, BarChart, Check, Close, FileIcon, Lock, Search, Tar
 function usePopover() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  // The panel is rendered in a portal, outside `ref`, so clicks inside it count as inside too.
+  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
-    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const down = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
+    };
     const key = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
     window.addEventListener("mousedown", down);
     window.addEventListener("keydown", key);
@@ -28,7 +34,7 @@ function usePopover() {
       window.removeEventListener("keydown", key);
     };
   }, [open]);
-  return { open, setOpen, ref };
+  return { open, setOpen, ref, panelRef };
 }
 
 // ------------------------------------------------------------------- File
@@ -38,7 +44,6 @@ interface FileMenuProps {
   onNewDocument: () => void;
   onOpenDocument: () => void;
   onImport: () => void;
-  onImportScrivener: () => void;
   onOpenFolder: () => void;
   onOpen: (root: string) => void;
   onClose: () => void;
@@ -52,7 +57,7 @@ interface FileMenuProps {
 }
 
 export function FileMenu(p: FileMenuProps) {
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, panelRef } = usePopover();
   const [recent, setRecent] = useState<RecentProject[]>([]);
   useEffect(() => {
     if (open) void readRecent().then(setRecent);
@@ -67,7 +72,7 @@ export function FileMenu(p: FileMenuProps) {
         <FileIcon /> File
       </button>
       {open && (
-        <div className="menu file-menu">
+        <Popover anchor={ref} panelRef={panelRef} className="file-menu">
           <button className="menu-item" onClick={run(p.onNew)} data-testid="file-new">
             New project…
           </button>
@@ -83,9 +88,6 @@ export function FileMenu(p: FileMenuProps) {
           <button className="menu-item two-line" onClick={run(p.onImport)} data-testid="file-import">
             <span>Import…</span>
             <small>Word, Final Draft, Fountain, PDF, RTF</small>
-          </button>
-          <button className="menu-item" onClick={run(p.onImportScrivener)} data-testid="file-import-scriv">
-            Import Scrivener project…
           </button>
           <div className="menu-sep" />
           <div className="menu-label">Recent projects</div>
@@ -120,7 +122,7 @@ export function FileMenu(p: FileMenuProps) {
           <button className="menu-item" onClick={run(p.onClose)}>
             Close project
           </button>
-        </div>
+        </Popover>
       )}
     </div>
   );
@@ -135,7 +137,7 @@ interface ProductionProps {
 }
 
 export function ProductionMenu({ store, onLock }: ProductionProps) {
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, panelRef } = usePopover();
   const prod = store.production;
   const active = store.inProduction;
   const script = store.template.mode === "script";
@@ -147,7 +149,7 @@ export function ProductionMenu({ store, onLock }: ProductionProps) {
         <Lock /> {active ? `${prod!.revision} revision` : "Production"}
       </button>
       {open && (
-        <div className="menu panel production-panel">
+        <Popover anchor={ref} panelRef={panelRef} className="panel production-panel">
           <div className="panel-title">Production mode</div>
           {!script ? (
             <p className="panel-text">Production mode is for stage plays and screenplays, where page numbers must not move between drafts.</p>
@@ -204,7 +206,7 @@ export function ProductionMenu({ store, onLock }: ProductionProps) {
               </button>
             </>
           )}
-        </div>
+        </Popover>
       )}
     </div>
   );
@@ -261,7 +263,7 @@ function RevisedPages({ store, onClose }: { store: ProjectStore; onClose: () => 
 // ------------------------------------------------------------------ Goals
 
 export function GoalsWidget({ store }: { store: ProjectStore }) {
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, panelRef } = usePopover();
   const total = store.manuscriptWords();
   const g = store.goals;
   const today = wordsToday(g, total);
@@ -282,7 +284,7 @@ export function GoalsWidget({ store }: { store: ProjectStore }) {
         </span>
       </button>
       {open && (
-        <div className="menu panel goals-panel">
+        <Popover anchor={ref} panelRef={panelRef} align="right" className="panel goals-panel">
           <div className="panel-title">
             <TargetIcon /> Writing goals
           </div>
@@ -322,7 +324,7 @@ export function GoalsWidget({ store }: { store: ProjectStore }) {
               </div>
             ))}
           </div>
-        </div>
+        </Popover>
       )}
     </div>
   );
@@ -381,7 +383,7 @@ export function chime() {
 }
 
 export function Pomodoro({ settings, onChange, notify }: { settings: PomodoroSettings; onChange: (s: PomodoroSettings) => void; notify: (text: string) => void }) {
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, panelRef } = usePopover();
   const [phase, setPhase] = useState<Phase>("focus");
   const [left, setLeft] = useState(settings.focus * 60);
   const [running, setRunning] = useState(false);
@@ -440,7 +442,7 @@ export function Pomodoro({ settings, onChange, notify }: { settings: PomodoroSet
         <Tomato /> {running || left !== length(phase) ? mmss : "Focus"}
       </button>
       {open && (
-        <div className="menu panel pomodoro-panel">
+        <Popover anchor={ref} panelRef={panelRef} align="right" className="panel pomodoro-panel">
           <div className="panel-title">
             <Tomato /> {PHASE_LABEL[phase]}
           </div>
@@ -468,7 +470,7 @@ export function Pomodoro({ settings, onChange, notify }: { settings: PomodoroSet
             {num("long", "Long break")}
             {num("every", "Long break every")}
           </div>
-        </div>
+        </Popover>
       )}
     </div>
   );
@@ -477,7 +479,7 @@ export function Pomodoro({ settings, onChange, notify }: { settings: PomodoroSet
 // ------------------------------------------------------------------ Stats
 
 export function StatsPanel({ store, report, ids }: { store: ProjectStore; report: CompileReport | null; ids: string[] }) {
-  const { open, setOpen, ref } = usePopover();
+  const { open, setOpen, ref, panelRef } = usePopover();
   const rows = useMemo(() => {
     if (!open) return [];
     // Page span of every document from where its lines landed.
@@ -515,7 +517,7 @@ export function StatsPanel({ store, report, ids }: { store: ProjectStore; report
         <BarChart />
       </button>
       {open && (
-        <div className="menu panel stats-panel right" data-testid="stats-panel">
+        <Popover anchor={ref} panelRef={panelRef} align="right" className="panel stats-panel" data-testid="stats-panel">
           <div className="panel-title">
             <BarChart /> Words and pages
           </div>
@@ -558,7 +560,7 @@ export function StatsPanel({ store, report, ids }: { store: ProjectStore; report
               ))}
           </div>
           <p className="panel-hint">A page is counted for every scene that has a line on it. Script running time is roughly a minute a page.</p>
-        </div>
+        </Popover>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Popover } from "./Popover";
 import type { SceneBreakStyle } from "../project/model";
 import { call, fsApi, imageUrl, join, pickImage, pickSavePath } from "../lib/backend";
 import { essayDate, generateTypst } from "../formats/typst";
@@ -52,20 +53,21 @@ export async function exportProject(store: ProjectStore, fmt: ExportFormat) {
 
 export function ExportMenu({ store }: { store: ProjectStore }) {
   const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
   return (
-    <div className="menu-anchor">
+    <div className="menu-anchor" ref={anchor}>
       <button className="btn ghost small" onClick={() => setOpen((v) => !v)} data-testid="export-btn">
         <Download /> Export
       </button>
       {open && (
-        <div className="menu right" onMouseLeave={() => setOpen(false)}>
+        <Popover anchor={anchor} align="right" onMouseLeave={() => setOpen(false)}>
           {store.template.exports.map((f) => (
             <button key={f} className="menu-item two-line" data-testid={`export-${f}`} onClick={() => { setOpen(false); void exportProject(store, f); }}>
               <span>{FORMAT_INFO[f].label}</span>
               <small>{FORMAT_INFO[f].note}</small>
             </button>
           ))}
-        </div>
+        </Popover>
       )}
     </div>
   );
@@ -81,13 +83,14 @@ interface ThemeMenuProps {
 
 export function ThemeMenu({ themes, current, onPick, onBuild, onDelete }: ThemeMenuProps) {
   const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLDivElement>(null);
   return (
-    <div className="menu-anchor">
+    <div className="menu-anchor" ref={anchor}>
       <button className="icon-btn" onClick={() => setOpen((v) => !v)} data-testid="theme-btn" title={`Theme: ${current.name}`}>
         <Palette />
       </button>
       {open && (
-        <div className="menu right" onMouseLeave={() => setOpen(false)}>
+        <Popover anchor={anchor} align="right" onMouseLeave={() => setOpen(false)}>
           {themes.map((t) => (
             <div key={t.id} className={t.id === current.id ? "menu-item theme-item active" : "menu-item theme-item"}>
               <button className="theme-pick" onClick={() => { onPick(t); setOpen(false); }} data-testid={`theme-${t.id}`}>
@@ -107,7 +110,7 @@ export function ThemeMenu({ themes, current, onPick, onBuild, onDelete }: ThemeM
           <button className="menu-item" onClick={() => { setOpen(false); onBuild(current); }} data-testid="theme-build">
             <Plus /> {current.builtIn ? "Build your own…" : `Edit “${current.name}”…`}
           </button>
-        </div>
+        </Popover>
       )}
     </div>
   );

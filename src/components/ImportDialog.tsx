@@ -4,7 +4,7 @@ import { TEMPLATE_ORDER, TEMPLATES, type TemplateId } from "../formats/templates
 import { createFromImport, FORMAT_NAMES, formatOf, planImport, type ImportPlan } from "../project/importers";
 import { Close } from "./icons";
 
-/** Turn a Word, Final Draft, Fountain, PDF, RTF or Scrivener file into a new project. */
+/** Turn a Word, Final Draft, Fountain, PDF or RTF file into a new project. */
 export function ImportDialog({ path, onDone, onCancel }: { path: string; onDone: (root: string) => void; onCancel: () => void }) {
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [error, setError] = useState<string | null>(null);

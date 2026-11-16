@@ -150,7 +150,7 @@ export function imageUrl(absPath: string): Promise<string> {
   return p;
 }
 
-/** Ask for a file to open (with a type filter) or, for packages such as .scriv, a folder. */
+/** Ask for a file to open (with a type filter) or a folder. */
 export async function pickFile(title: string, extensions: string[], defaultPath?: string): Promise<string | null> {
   if (isTauri) {
     const { open } = await import("@tauri-apps/plugin-dialog");

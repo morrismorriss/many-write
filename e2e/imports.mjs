@@ -1,4 +1,4 @@
-// Import Word, Final Draft, Fountain, PDF, RTF and Scrivener files through the UI,
+// Import Word, Final Draft, Fountain, PDF, and RTF files through the UI,
 // and open a plain document on its own. Same environment as smoke.mjs.
 import { createRequire } from "node:module";
 import fs from "node:fs";
@@ -87,42 +87,6 @@ for (const [k, t] of script) {
 r = await api("export.pdf", { source: src, elements: els, path: path.join(FIX, "PDF Play.pdf") });
 ok(r.ok, "pdf fixture written");
 fs.writeFileSync(path.join(FIX, "Letter.rtf"), String.raw`{\rtf1\ansi{\fonttbl{\f0 Times;}}\f0 Dear Sam,\par I \i really\i0  liked it.\par Yours, Ann\par}`);
-// A minimal Scrivener 3 project package.
-const scriv = path.join(FIX, "Novel.scriv");
-const uuids = ["A1", "B2", "C3", "D4", "E5", "F6", "G7"];
-fs.mkdirSync(scriv, { recursive: true });
-fs.writeFileSync(
-  path.join(scriv, "Novel.scrivx"),
-  `<?xml version="1.0" encoding="UTF-8"?><ScrivenerProject><Binder>
-  <BinderItem UUID="DRAFT" Type="DraftFolder"><Title>Draft</Title><Children>
-    <BinderItem UUID="${uuids[0]}" Type="Folder"><Title>Part One</Title><Children>
-      <BinderItem UUID="${uuids[1]}" Type="Text"><Title>Arrival</Title></BinderItem>
-      <BinderItem UUID="${uuids[2]}" Type="Text"><Title>The Letter</Title></BinderItem>
-    </Children></BinderItem>
-  </Children></BinderItem>
-  <BinderItem UUID="RES" Type="ResearchFolder"><Title>Research</Title><Children>
-    <BinderItem UUID="${uuids[3]}" Type="Text"><Title>Places</Title></BinderItem>
-  </Children></BinderItem>
-  <BinderItem UUID="${uuids[5]}" Type="Folder"><Title>Characters</Title><Children>
-    <BinderItem UUID="${uuids[6]}" Type="Text"><Title>Mara</Title></BinderItem>
-  </Children></BinderItem>
-  <BinderItem UUID="TR" Type="TrashFolder"><Title>Trash</Title><Children>
-    <BinderItem UUID="${uuids[4]}" Type="Text"><Title>Deleted</Title></BinderItem>
-  </Children></BinderItem>
-</Binder></ScrivenerProject>`,
-);
-const rtfDoc = (s) => `{\\rtf1\\ansi{\\fonttbl{\\f0 Cochin;}}\\f0 ${s}}`;
-const put = (u, file, body) => {
-  fs.mkdirSync(path.join(scriv, "Files/Data", u), { recursive: true });
-  fs.writeFileSync(path.join(scriv, "Files/Data", u, file), body);
-};
-put(uuids[1], "content.rtf", rtfDoc("The train was late.\\par She waited.\\par"));
-put(uuids[1], "synopsis.txt", "Mara arrives in town.");
-put(uuids[1], "notes.rtf", rtfDoc("Check the timetable.\\par"));
-put(uuids[2], "content.rtf", rtfDoc("The letter was \\b unsigned\\b0 .\\par"));
-put(uuids[3], "content.rtf", rtfDoc("The station, the square.\\par"));
-put(uuids[4], "content.rtf", rtfDoc("Gone.\\par"));
-put(uuids[6], "content.rtf", rtfDoc("Mara, thirty, a ticket clerk.\\par"));
 
 // ---- Import each through File > Import
 async function importVia(fixture, expectTemplate, choose = null) {
@@ -180,17 +144,6 @@ ok(files.join(",") === "01-beginnings.md,02-endings.md", `imported as a Book, it
 root = await importVia("Letter.rtf", "document");
 files = filesUnder(path.join(root, "manuscript"));
 ok(read(path.join(root, "manuscript", files[0])).includes("I *really* liked it."), "rtf with italics");
-
-// Choosing the .scrivx file inside the project works too (how Windows users often pick it).
-root = await importVia("Novel.scriv/Novel.scrivx", "book");
-files = filesUnder(path.join(root, "manuscript"));
-ok(files.join(",") === "01-part-one/01-arrival.md,01-part-one/02-the-letter.md", `scrivener binder kept (${files})`);
-ok(read(path.join(root, "manuscript/01-part-one/02-the-letter.md")).includes("The letter was **unsigned**."), "scrivener text with bold");
-ok(filesUnder(path.join(root, "research")).length === 1, "scrivener research imported; trash skipped");
-ok(filesUnder(path.join(root, "characters")).length === 1 && read(path.join(root, "characters", "mara.md")).includes("Mara, thirty, a ticket clerk."), "a top-level Characters folder goes to Characters");
-const notes = fs.readdirSync(path.join(root, "notes"));
-ok(notes.some((n) => read(path.join(root, "notes", n)).includes("Mara arrives in town.") && read(path.join(root, "notes", n)).includes("Check the timetable.")), "scrivener synopsis and notes become the scene's notes");
-await page.screenshot({ path: path.join(SHOTS, "31-import-scrivener.png") });
 
 // ---- A plain document on its own
 const single = path.join(FIX, "Shopping list.md");

@@ -1,5 +1,5 @@
 // Importing other formats as new Many Write projects. The original file is
-// only read. Word, PDF and Scrivener are parsed by the core; Final Draft and
+// only read. Word, PDF and RTF are parsed by the core; Final Draft and
 // Fountain here.
 
 import { call, fsApi, join } from "../lib/backend";
@@ -8,12 +8,12 @@ import { TEMPLATES, type TemplateId } from "../formats/templates";
 import { desiredName, emptyProject, newId, rootOf, serializeProject, slugify, type BinderNode, type Role } from "./model";
 import { projectReadme } from "./readme";
 
-export type ImportFormat = "docx" | "fdx" | "fountain" | "pdf" | "scrivener" | "markdown" | "rtf";
+export type ImportFormat = "docx" | "fdx" | "fountain" | "pdf" | "markdown" | "rtf";
 
 export function formatOf(path: string): ImportFormat | null {
   const ext = path.toLowerCase().replace(/\/+$/, "").split(".").pop();
   return (
-    ({ docx: "docx", fdx: "fdx", fountain: "fountain", spmd: "fountain", pdf: "pdf", scriv: "scrivener", scrivx: "scrivener", md: "markdown", markdown: "markdown", txt: "markdown", rtf: "rtf" } as const)[
+    ({ docx: "docx", fdx: "fdx", fountain: "fountain", spmd: "fountain", pdf: "pdf", md: "markdown", markdown: "markdown", txt: "markdown", rtf: "rtf" } as const)[
       ext ?? ""
     ] ?? null
   );
@@ -24,7 +24,6 @@ export const FORMAT_NAMES: Record<ImportFormat, string> = {
   fdx: "Final Draft script",
   fountain: "Fountain script",
   pdf: "PDF",
-  scrivener: "Scrivener project",
   markdown: "Markdown / text",
   rtf: "Rich text (RTF)",
 };
@@ -43,7 +42,7 @@ export interface ImportPlan {
   template: TemplateId;
   manuscript: ImportNode[];
   research: ImportNode[];
-  /** Optional other sections (Scrivener projects often have these as top-level folders). */
+  /** Optional other sections. */
   characters?: ImportNode[];
   front?: ImportNode[];
   back?: ImportNode[];
@@ -317,84 +316,6 @@ export async function importPdf(path: string): Promise<ImportPlan> {
   return { title, template: "document", manuscript: [{ kind: "doc", title, blocks }], research: [], summary: `${paras.length} paragraphs from a ${all[all.length - 1].page}-page PDF.` };
 }
 
-interface ScrivItem {
-  title: string;
-  kind: string;
-  text: Para[];
-  notes: Para[];
-  synopsis: string;
-  children: ScrivItem[];
-}
-
-export async function importScrivener(path: string): Promise<ImportPlan> {
-  const items = await call<ScrivItem[]>("import.scrivener", { path });
-  const allText = (its: ScrivItem[]): string[] => its.flatMap((i) => [...i.text.map(text), ...allText(i.children)]);
-  const draft = items.find((i) => i.kind === "DraftFolder");
-  const script = looksLikeScript(allText(draft ? [draft] : items));
-  const toBlocks = (paras: Para[]): Block[] => {
-    if (script) return scriptFromLines(paras.map((p) => ({ text: text(p), gapBefore: false, runs: p.runs })));
-    return paras.filter((p) => text(p).trim()).map((p) => ({ type: "paragraph", runs: p.runs.map((r) => ({ ...r, text: r.text.replace(/\t/g, " ") })) }));
-  };
-  const notesOf = (i: ScrivItem) => [i.synopsis && `> [!note] ${i.synopsis.replace(/\n+/g, " ")}`, ...i.notes.map(text).filter((t) => t.trim())].filter(Boolean).join("\n\n");
-  const convert = (i: ScrivItem): ImportNode => {
-    const blocks = toBlocks(i.text);
-    if (i.children.length) {
-      const kids = i.children.map(convert);
-      // A text that has children: its own text comes first inside the folder.
-      if (blocks.length) kids.unshift({ kind: "doc", title: i.title, blocks, notes: notesOf(i) });
-      return { kind: "folder", title: i.title, children: kids, notes: blocks.length ? undefined : notesOf(i) };
-    }
-    return { kind: i.kind.includes("Folder") ? "folder" : "doc", title: i.title, blocks, notes: notesOf(i), children: i.kind.includes("Folder") ? [] : undefined };
-  };
-  const manuscript = (draft?.children ?? []).map(convert);
-  // Top-level folders named like Many Write's sections go to those sections; the rest to Research.
-  const section = (i: ScrivItem) => {
-    const t = i.title.trim().toLowerCase();
-    if (i.kind !== "Folder") return null;
-    if (/^characters?$/.test(t)) return "characters";
-    if (/^front[ -]?matter$/.test(t)) return "front";
-    if (/^back[ -]?matter$/.test(t)) return "back";
-    if (/^templates?$/.test(t)) return "skip";
-    return null;
-  };
-  const others = items.filter((i) => i !== draft && i.kind !== "TrashFolder");
-  const research = others.filter((i) => !section(i)).flatMap((i) => (i.kind === "ResearchFolder" ? i.children : [i])).map(convert);
-  const pick = (name: string) => others.filter((i) => section(i) === name).flatMap((i) => i.children).map(convert);
-  const characters = pick("characters");
-  const front = pick("front");
-  const back = pick("back");
-  const scriv1 = items.length === 1 && draft && draft.children.every((c) => /^Document \d+$/.test(c.title));
-  let template: TemplateId = "book";
-  if (script) {
-    const blocks = manuscript.flatMap(function flat(n): Block[] {
-      return n.blocks ?? (n.children ?? []).flatMap(flat);
-    });
-    template = scriptTemplate(blocks);
-    // Screenplays call directions "action".
-    if (template === "screenplay") {
-      const fix = (n: ImportNode) => {
-        n.blocks = n.blocks && adaptScriptTypes({ blocks: n.blocks, frontMatter: null }, "action").blocks;
-        n.children?.forEach(fix);
-      };
-      manuscript.forEach(fix);
-    }
-  }
-  const count = (ns: ImportNode[]): number => ns.reduce((k, n) => k + (n.kind === "doc" ? 1 : 0) + count(n.children ?? []), 0);
-  const extra = [characters.length && `${count(characters)} characters`, front.length + back.length && `${count(front) + count(back)} front/back matter pages`].filter(Boolean).join(", ");
-  return {
-    title: fileTitle(path.replace(/\/[^/]*\.scrivx$/i, "")).replace(/\.scriv$/i, ""),
-    template,
-    manuscript,
-    research,
-    characters,
-    front,
-    back,
-    summary: scriv1
-      ? `${count(manuscript)} documents from a Scrivener 1 project. Scrivener 1 keeps titles in a format Many Write cannot read, so documents are numbered; open the project in Scrivener 3 and save it first to keep the titles.`
-      : `${count(manuscript)} documents in the draft, ${count(research)} in research${extra ? `, ${extra}` : ""}, from Scrivener.`,
-  };
-}
-
 export async function importRtf(path: string): Promise<ImportPlan> {
   const paras = await call<Para[]>("import.rtf", { path });
   const lines = paras.map(text);
@@ -414,8 +335,6 @@ export async function planImport(path: string): Promise<ImportPlan> {
       return importDocx(path);
     case "pdf":
       return importPdf(path);
-    case "scrivener":
-      return importScrivener(path);
     case "rtf":
       return importRtf(path);
     case "markdown": {
@@ -425,7 +344,7 @@ export async function planImport(path: string): Promise<ImportPlan> {
       return { title: fileTitle(path), template: "document", manuscript: [{ kind: "doc", title: fileTitle(path), blocks: [] }], research: [], summary: "A markdown or text file.", raw: src };
     }
     default:
-      throw new Error("Many Write can import .docx, .fdx, .fountain, .pdf, .rtf, .md/.txt files and Scrivener .scriv projects.");
+      throw new Error("Many Write can import .docx, .fdx, .fountain, .pdf, .rtf and .md/.txt files.");
   }
 }
 

@@ -151,7 +151,6 @@ impl Core {
                 let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
                 Ok(serde_json::to_value(import::pdf(bytes)?).unwrap())
             }
-            "import.scrivener" => Ok(serde_json::to_value(import::scrivener(&path_arg(args, "path")?)?).unwrap()),
             "import.rtf" => {
                 let path = path_arg(args, "path")?;
                 let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;

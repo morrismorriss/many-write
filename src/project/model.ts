@@ -165,6 +165,20 @@ export function isDescendant(data: ProjectFile, ancestorId: string, id: string):
 }
 
 /** The file name a child should have at position `index` in its folder. */
+/**
+ * True when `name` is one plain file or folder name. project.json is read from
+ * disk and may come from someone else, so a binder entry must never be able to
+ * point outside its folder ("../", "/etc/…", "C:…").
+ */
+export function isSafeSegment(name: unknown): name is string {
+  return typeof name === "string" && name.length > 0 && name.length <= 255 && name !== "." && name !== ".." && !/[/\\:\0]/.test(name);
+}
+
+/** A notes file lives directly in the project's notes folder. */
+export function isSafeNotesPath(p: unknown): p is string {
+  return typeof p === "string" && p.startsWith("notes/") && isSafeSegment(p.slice(6)) && p.toLowerCase().endsWith(".md");
+}
+
 export function desiredName(node: BinderNode, index: number, numbered: boolean, taken: Set<string>): string {
   const ext = node.kind === "doc" ? ".md" : "";
   const prefix = numbered ? `${String(index + 1).padStart(2, "0")}-` : "";

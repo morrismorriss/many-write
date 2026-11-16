@@ -7,6 +7,7 @@ import { useStore } from "../lib/useStore";
 import { ChevronLeft, ChevronRight, Warning } from "./icons";
 import { StatsPanel } from "./Widgets";
 import { ExportMenu } from "./Menus";
+import { Popover } from "./Popover";
 
 export interface CompileReport {
   ok: boolean;
@@ -41,6 +42,7 @@ export function Preview({ store, theme, cursor, follow, onJump, onReport }: Prop
   const [page, setPage] = useState(0);
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
   const [issuesOpen, setIssuesOpen] = useState(false);
+  const statusRef = useRef<HTMLDivElement>(null);
   const busy = useRef(false);
   const pending = useRef(false);
   const latest = useRef<() => Promise<void>>(async () => {});
@@ -134,7 +136,7 @@ export function Preview({ store, theme, cursor, follow, onJump, onReport }: Prop
           </button>
 
         </div>
-        <div className="layout-status">
+        <div className="layout-status" ref={statusRef}>
           {store.inProduction && <span className="status prod" title="Page numbers are locked">Locked</span>}
           {report && !report.ok ? (
             <span className="status warn" title={report.errors.map((e) => e.message).join("\n")}>
@@ -148,13 +150,13 @@ export function Preview({ store, theme, cursor, follow, onJump, onReport }: Prop
           <StatsPanel store={store} report={report} ids={ids} />
           <ExportMenu store={store} />
           {issuesOpen && issues.length > 0 && (
-            <div className="menu issues" onMouseLeave={() => setIssuesOpen(false)}>
+            <Popover anchor={statusRef} align="right" className="issues" onMouseLeave={() => setIssuesOpen(false)}>
               {issues.map((i, k) => (
                 <button key={k} className="menu-item" onClick={() => { setPage(i.page - 1); onJump(i.id); setIssuesOpen(false); }}>
                   {i.message}
                 </button>
               ))}
-            </div>
+            </Popover>
           )}
         </div>
       </div>

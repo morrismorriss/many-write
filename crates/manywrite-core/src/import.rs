@@ -1,5 +1,5 @@
 //! Reading other formats so they can become Many Write projects:
-//! Word (.docx), PDF (text with positions), and Scrivener (.scriv, with its RTF files).
+//! Word (.docx), PDF (text with positions), and RTF.
 //! The originals are only ever read, never changed.
 
 use std::path::Path;
@@ -453,94 +453,6 @@ fn cp1252(b: u8) -> char {
     }
 }
 
-// ----------------------------------------------------------- Scrivener
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScrivItem {
-    pub title: String,
-    /// Scrivener's type: DraftFolder, ResearchFolder, TrashFolder, Folder, Text, …
-    pub kind: String,
-    pub text: Vec<Para>,
-    pub notes: Vec<Para>,
-    pub synopsis: String,
-    pub children: Vec<ScrivItem>,
-}
-
-/// Read a Scrivener project: the .scriv folder (or package), or the .scrivx file inside it.
-/// Scrivener 2 and 3 are read fully; Scrivener 1 keeps its binder in an Apple
-/// binary archive, so only its documents' text is read, in order.
-pub fn scrivener(path: &Path) -> Result<Vec<ScrivItem>, String> {
-    let dir = if path.extension().is_some_and(|x| x.eq_ignore_ascii_case("scrivx")) { path.parent().unwrap_or(path) } else { path };
-    if !dir.join("Files").is_dir() && dir.join("binder.scrivproj").is_file() {
-        return scrivener1(dir);
-    }
-    let scrivx = std::fs::read_dir(dir)
-        .map_err(|e| format!("Could not open {}: {e}", dir.display()))?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("scrivx")))
-        .ok_or("This folder has no .scrivx file. Choose the .scriv project itself.")?;
-    let xml = std::fs::read_to_string(&scrivx).map_err(|e| e.to_string())?;
-    let xml = xml.trim_start_matches('\u{feff}');
-    let doc = roxmltree::Document::parse(xml).map_err(|e| format!("The Scrivener project could not be read: {e}"))?;
-    let binder = doc.descendants().find(|n| n.has_tag_name("Binder")).ok_or("No binder in the Scrivener project")?;
-    let read_rtf = |p: &Path| -> Vec<Para> { std::fs::read(p).map(|b| rtf(&String::from_utf8_lossy(&b))).unwrap_or_default() };
-    fn walk(node: roxmltree::Node, dir: &Path, read_rtf: &dyn Fn(&Path) -> Vec<Para>) -> Vec<ScrivItem> {
-        node.children()
-            .filter(|n| n.has_tag_name("BinderItem"))
-            .map(|n| {
-                let title = n.children().find(|c| c.has_tag_name("Title")).and_then(|t| t.text()).unwrap_or("Untitled").to_string();
-                let kind = n.attribute("Type").unwrap_or("Text").to_string();
-                // Scrivener 3: Files/Data/<UUID>/content.rtf. Scrivener 2: Files/Docs/<ID>.rtf.
-                // IDs name files inside the project; anything that is not a plain ID is ignored,
-                // so a crafted project cannot point outside its own folder.
-                let plain = |id: &str| !id.is_empty() && id.len() < 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
-                let (text, notes, synopsis) = if let Some(uuid) = n.attribute("UUID").filter(|u| plain(u)) {
-                    let d = dir.join("Files/Data").join(uuid);
-                    (read_rtf(&d.join("content.rtf")), read_rtf(&d.join("notes.rtf")), std::fs::read_to_string(d.join("synopsis.txt")).unwrap_or_default())
-                } else if let Some(id) = n.attribute("ID").filter(|u| plain(u)) {
-                    let d = dir.join("Files/Docs");
-                    (read_rtf(&d.join(format!("{id}.rtf"))), read_rtf(&d.join(format!("{id}_notes.rtf"))), std::fs::read_to_string(d.join(format!("{id}_synopsis.txt"))).unwrap_or_default())
-                } else {
-                    (Vec::new(), Vec::new(), String::new())
-                };
-                let children = n.children().find(|c| c.has_tag_name("Children")).map(|c| walk(c, dir, read_rtf)).unwrap_or_default();
-                ScrivItem { title, kind, text, notes, synopsis: synopsis.trim().to_string(), children }
-            })
-            .collect()
-    }
-    Ok(walk(binder, dir, &read_rtf))
-}
-
-/// Scrivener 1: documents are `<n>.rtfd/TXT.rtf` (or `<n>.rtf`); titles live in a binary archive.
-fn scrivener1(dir: &Path) -> Result<Vec<ScrivItem>, String> {
-    let mut docs: Vec<(u64, std::path::PathBuf)> = std::fs::read_dir(dir)
-        .map_err(|e| format!("Could not open {}: {e}", dir.display()))?
-        .filter_map(|e| e.ok())
-        .filter_map(|e| {
-            let p = e.path();
-            let stem = p.file_stem()?.to_str()?.to_string();
-            let n: u64 = stem.parse().ok()?;
-            let rtf = if p.is_dir() { p.join("TXT.rtf") } else if p.extension().is_some_and(|x| x == "rtf") { p.clone() } else { return None };
-            rtf.is_file().then_some((n, rtf))
-        })
-        .collect();
-    docs.sort();
-    let children = docs
-        .into_iter()
-        .map(|(n, p)| ScrivItem {
-            title: format!("Document {n}"),
-            kind: "Text".into(),
-            text: std::fs::read(&p).map(|b| rtf(&String::from_utf8_lossy(&b))).unwrap_or_default(),
-            notes: Vec::new(),
-            synopsis: std::fs::read_to_string(dir.join(format!("{n}_synopsis.txt"))).unwrap_or_default().trim().to_string(),
-            children: Vec::new(),
-        })
-        .collect();
-    Ok(vec![ScrivItem { title: "Draft".into(), kind: "DraftFolder".into(), text: Vec::new(), notes: Vec::new(), synopsis: String::new(), children }])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,26 +518,6 @@ mod tests {
             }
         }
         assert!(unzip_entry(b"not a zip", "x").is_err());
-    }
-
-    #[test]
-    fn scrivener_ids_cannot_reach_outside_the_project() {
-        let base = std::env::temp_dir().join(format!("mw-scriv-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        let proj = base.join("Evil.scriv");
-        std::fs::create_dir_all(proj.join("Files/Data")).unwrap();
-        // A secret next to the project that a crafted UUID tries to read.
-        std::fs::create_dir_all(base.join("secret")).unwrap();
-        std::fs::write(base.join("secret/content.rtf"), r"{\rtf1 TOP SECRET\par}").unwrap();
-        std::fs::write(
-            proj.join("Evil.scrivx"),
-            r#"<ScrivenerProject><Binder><BinderItem UUID="../../../secret" Type="Text"><Title>x</Title></BinderItem><BinderItem ID="../../../secret/content" Type="Text"><Title>y</Title></BinderItem></Binder></ScrivenerProject>"#,
-        )
-        .unwrap();
-        let items = scrivener(&proj).unwrap();
-        let all: String = items.iter().flat_map(|i| i.text.iter().map(|p| p.text())).collect();
-        assert!(!all.contains("SECRET"), "read a file outside the project: {all}");
-        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
