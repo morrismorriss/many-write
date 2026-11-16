@@ -41,6 +41,7 @@ async function create(template, title) {
 // ---- Screenplay
 {
   const root = await create("screenplay", "Test Screenplay");
+  await type("INT. LOCATION - DAY");
   await page.keyboard.press("Enter");
   ok((await pill()) === "Action", "screenplay: heading -> action");
   await type("Rain hammers the window.");

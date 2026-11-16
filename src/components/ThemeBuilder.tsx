@@ -7,6 +7,7 @@ import {
   DEFAULT_BACKGROUND_STRENGTH,
   FONT_STACKS,
   parseHex,
+  sideText,
   type Theme,
   type WritingFont,
 } from "../themes/themes";
@@ -141,7 +142,7 @@ export function ThemeBuilder({ initial, onSave, onCancel, themeFolder }: Props) 
           </div>
           <div className="tb-side">
             <div className="tb-sample" style={{ background: t.colors.background, color: t.colors.text }}>
-              <div className="tb-sample-side" style={{ background: t.colors.sidebar }}>
+              <div className="tb-sample-side" style={{ background: t.colors.sidebar, color: sideText(t.colors.text, t.colors.sidebar) }}>
                 <div className="tb-sample-item" style={{ background: mixAccent(t) }}>Scene 1</div>
                 <div className="tb-sample-item">Scene 2</div>
               </div>

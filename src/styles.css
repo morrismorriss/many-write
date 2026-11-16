@@ -12,6 +12,8 @@
   --active: #e8e8e6;
   --accent-soft: #e5eefc;
   --pane: #f4f4f2;
+  --side-text: #37352f; --side-muted: #8f8d88; --side-faint: #c3c2bf; --side-border: #e9e9e7; --side-hover: #efefed; --side-active: #e8e8e6;
+  --main-text: #37352f; --main-muted: #8f8d88; --main-faint: #c3c2bf; --main-border: #e9e9e7; --main-hover: #efefed; --main-active: #e8e8e6;
   --writing-font: "Literata", Georgia, serif;
   --ui-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --radius: 6px;
@@ -66,6 +68,18 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
 .workspace {
   position: relative; display: grid; height: 100%;
   transition: grid-template-columns 0.18s ease;
+}
+/* Side panels: their own text and shades, mixed from the sidebar colour (see applyTheme). */
+.sidebar, .preview-pane {
+  --text: var(--side-text); --muted: var(--side-muted); --faint: var(--side-faint);
+  --border: var(--side-border); --hover: var(--side-hover); --active: var(--side-active);
+  color: var(--text);
+}
+/* Menus and dialogs opened from a side panel sit on the page background, so they use the main colours. */
+.sidebar :is(.menu, .modal-backdrop, .rename), .preview-pane :is(.menu, .modal-backdrop) {
+  --text: var(--main-text); --muted: var(--main-muted); --faint: var(--main-faint);
+  --border: var(--main-border); --hover: var(--main-hover); --active: var(--main-active);
+  color: var(--text);
 }
 .sidebar {
   background: var(--sidebar); display: flex; flex-direction: column; min-width: 0; overflow: hidden;
@@ -122,7 +136,7 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
   border-radius: var(--radius); cursor: pointer; user-select: none;
 }
 .binder-row:hover { background: var(--hover); }
-.binder-row.selected { background: var(--active); font-weight: 500; }
+.binder-row.selected { background: var(--side-selected, var(--active)); font-weight: 500; }
 .binder-row.missing .row-title { color: var(--muted); text-decoration: line-through; }
 .binder-row.drop-before::before, .binder-row.drop-after::after {
   content: ""; position: absolute; left: 8px; right: 4px; height: 2px; background: var(--accent); border-radius: 1px;
@@ -181,9 +195,12 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
 .mw-editor { outline: none; font-family: var(--writing-font); font-size: 17px; line-height: 1.65; caret-color: var(--accent); }
 .mw-editor p { margin: 0; position: relative; min-height: 1.65em; }
 .mw-editor p.is-empty::before {
-  content: attr(data-placeholder); position: absolute; left: 0; right: 0; text-align: inherit;
+  content: attr(data-placeholder); position: absolute; left: var(--ph-left, 0); right: 0; top: var(--ph-top, 0); text-align: inherit;
   color: var(--faint); pointer-events: none; font-style: normal;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* Clickable web addresses. */
+.mw-editor .mw-link { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; cursor: pointer; }
 .mw-suggest { color: var(--faint); pointer-events: none; }
 
 /* Stage play — the screen mirrors the page */
@@ -494,7 +511,7 @@ mark, .search-hit { background: rgba(255, 196, 0, 0.35); color: inherit; border-
 .mode-notes .el-heading { font-size: 1.4em; font-weight: 600; line-height: 1.3; margin-top: 1em; }
 .mode-notes .el-subheading { font-size: 1.15em; font-weight: 600; margin-top: 0.8em; }
 .mode-notes > .el-title:first-child, .mode-notes > .el-heading:first-child { margin-top: 0; }
-.mode-notes .el-bullet, .mode-notes .el-numbered, .mode-notes .el-todo, .mode-notes .el-todo_done { padding-left: 26px; }
+.mode-notes .el-bullet, .mode-notes .el-numbered, .mode-notes .el-todo, .mode-notes .el-todo_done { padding-left: 26px; --ph-left: 26px; }
 .mode-notes .el-bullet::after { content: ""; position: absolute; left: 9px; top: 0.72em; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .mode-notes .el-numbered::after { content: attr(data-num); position: absolute; left: 0; width: 20px; text-align: right; top: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
 .mode-notes .el-todo::after, .mode-notes .el-todo_done::after {
@@ -503,7 +520,7 @@ mark, .search-hit { background: rgba(255, 196, 0, 0.35); color: inherit; border-
 .mode-notes .el-todo_done::after { background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E") center/12px no-repeat; border-color: var(--accent); }
 .mode-notes .el-todo_done { color: var(--muted); text-decoration: line-through; }
 .mode-notes .el-quote { border-left: 3px solid var(--text); padding-left: 14px; margin-top: 6px; }
-.mode-notes .el-callout { background: var(--hover); border-radius: 6px; padding: 10px 14px 10px 42px; margin-top: 8px; }
+.mode-notes .el-callout { background: var(--hover); border-radius: 6px; padding: 10px 14px 10px 42px; margin-top: 8px; --ph-left: 42px; --ph-top: 10px; }
 .mode-notes .el-callout::after { content: "💡"; position: absolute; left: 14px; top: 10px; }
 .el-divider { height: 1.4em; min-height: 0 !important; }
 .el-divider::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--border); }
@@ -560,3 +577,18 @@ figure.mw-image.ProseMirror-selectednode img { outline: 2px solid var(--accent);
 .goal-day.today small { color: var(--accent); font-weight: 600; }
 .goal-day.future small { opacity: 0.5; }
 .pomodoro-panel .hear { position: absolute; top: 10px; right: 10px; width: auto; margin: 0; font-size: 12px; }
+
+/* ===================================================== version 0.5 additions */
+.binder-item { position: relative; }
+.binder-item > .preset-menu { top: 28px; z-index: 20; }
+/* An empty document's hint: grey text where the writer will type. */
+.mw-editor p.is-hint::before { color: var(--faint); }
+.recent-item { display: flex; align-items: center; gap: 2px; }
+.recent-item > .menu-item { flex: 1; min-width: 0; }
+.recent-item > .row-action { opacity: 0; margin-right: 4px; }
+.recent-item:hover > .row-action, .recent-item > .row-action:focus-visible { opacity: 1; }
+.donate-heart { color: #e0457b; vertical-align: -3px; }
+.menu-item .donate-heart { margin-left: auto; }
+.modal.donate h2 { display: flex; align-items: center; gap: 8px; }
+.modal.donate p { line-height: 1.55; }
+.modal.donate .btn.primary svg { margin-right: 4px; }

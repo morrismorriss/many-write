@@ -18,6 +18,8 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
   const [creating, setCreating] = useState(!!startNew);
   const [template, setTemplate] = useState<TemplateId>("stage-play");
   const [essayStyle, setEssayStyle] = useState<EssayStyle>("mla");
+  /** A stage play project holding several plays (a trilogy…), each with its own title page and front matter. */
+  const [collection, setCollection] = useState(false);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [location, setLocation] = useState("");
@@ -33,7 +35,7 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
     setBusy(true);
     setErr(null);
     try {
-      const root = await createProject(location, title.trim() || "Untitled", template, author.trim(), { essayStyle });
+      const root = await createProject(location, title.trim() || "Untitled", template, author.trim(), { essayStyle, collection: template === "stage-play" && collection });
       onOpen(root);
     } catch (e) {
       setErr((e as Error).message);
@@ -95,12 +97,39 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
         ) : (
           <div className="new-project">
             <div className="template-grid">
-              {TEMPLATE_ORDER.map((id) => (
-                <button key={id} className={template === id ? "template-card on" : "template-card"} onClick={() => setTemplate(id)} data-testid={`tmpl-${id}`}>
-                  <span className="template-name">{TEMPLATES[id].name}</span>
-                  <span className="template-desc">{TEMPLATES[id].description}</span>
-                </button>
-              ))}
+              {TEMPLATE_ORDER.flatMap((id) => {
+                const card = (
+                  <button
+                    key={id}
+                    className={template === id && !(id === "stage-play" && collection) ? "template-card on" : "template-card"}
+                    onClick={() => {
+                      setTemplate(id);
+                      setCollection(false);
+                    }}
+                    data-testid={`tmpl-${id}`}
+                  >
+                    <span className="template-name">{TEMPLATES[id].name}</span>
+                    <span className="template-desc">{TEMPLATES[id].description}</span>
+                  </button>
+                );
+                if (id !== "stage-play") return [card];
+                // A collection of plays is a stage play project with a folder per play.
+                return [
+                  card,
+                  <button
+                    key="play-collection"
+                    className={template === "stage-play" && collection ? "template-card on" : "template-card"}
+                    onClick={() => {
+                      setTemplate("stage-play");
+                      setCollection(true);
+                    }}
+                    data-testid="tmpl-play-collection"
+                  >
+                    <span className="template-name">Play collection</span>
+                    <span className="template-desc">Several plays in one book, like a trilogy: each with its own title page, front matter and acts. Import a Final Draft file into each.</span>
+                  </button>,
+                ];
+              })}
             </div>
             {template === "essay" && (
               <div className="field" data-testid="essay-style">
@@ -135,6 +164,7 @@ export function Welcome({ onOpen, error, startNew, onOpenDocument, onImport }: P
             <p className="muted small-text">
               Creates <code>{join(location, (title.trim() || "Untitled").replace(/[\\/:*?"<>|]+/g, "-"))}</code> with one markdown file per{" "}
               {TEMPLATES[template].docNoun.toLowerCase()}
+              {template === "stage-play" && collection && <>, and three plays to start with (add more with the masks button above the manuscript)</>}
               {template === "essay" && <>, and a {ESSAY_STYLES.find((s) => s.id === essayStyle)!.sources} page in the back matter</>}.
             </p>
             <div className="welcome-actions">

@@ -7,6 +7,8 @@ import type { EssayStyle, Template } from "./templates";
 
 export type ManuscriptItem =
   | { kind: "folder"; id: string; title: string; depth: number }
+  /** A whole play inside a collection: its own title page; its front matter and acts follow. */
+  | { kind: "play"; id: string; title: string }
   | { kind: "doc"; id: string; title: string; blocks: Block[] }
   /** A front or back matter page: typeset as plain prose on its own page. */
   | { kind: "matter"; id: string; title: string; blocks: Block[]; where: "front" | "back" };
@@ -19,6 +21,10 @@ export interface ProjectMeta {
   paper: "us-letter" | "a4";
   /** Essays only. */
   essay?: { style: EssayStyle; instructor: string; course: string; date: string };
+  /** Scripts: every scene starts on a new page. */
+  sceneNewPage?: boolean;
+  /** Scripts: a cue repeated after a direction, with no other speaker between, gets (CONT'D). */
+  autoContd?: boolean;
   /** Books only: the scene break divider. */
   sceneBreak?: { style: "asterisks" | "line" | "hearts" | "image"; image?: string };
 }
@@ -86,6 +92,52 @@ function utf8Length(s: string): number {
   return n;
 }
 
+/** Web addresses in text, for clickable links. Trailing punctuation is not part of the link. */
+export const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"]*[^\s<>".,;:!?)\]}'’”]/gi;
+
+/** The address a link opens: "www.example.com" gets https://. */
+export function linkTarget(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+}
+
+/** A piece of text as Typst string literals, with web addresses made into links. */
+function textToTypst(t: string): string {
+  let out = "";
+  let last = 0;
+  URL_RE.lastIndex = 0;
+  for (let m: RegExpExecArray | null; (m = URL_RE.exec(t)); ) {
+    if (m.index > last) out += `#${str(t.slice(last, m.index))}`;
+    out += `#link(${str(linkTarget(m[0]))})[#${str(m[0])}]`;
+    last = m.index + m[0].length;
+  }
+  if (last < t.length) out += `#${str(t.slice(last))}`;
+  return out;
+}
+
+/** A cue's name without its extension: "ANNA (V.O.)" -> "ANNA". */
+export function cueName(text: string): string {
+  return text.trim().toUpperCase().replace(/\s*\(.*\)\s*$/, "").trim();
+}
+
+/**
+ * Lines of a scene whose cue should read (CONT'D): the same character speaks
+ * again with only directions between, and the cue has no extension of its own.
+ */
+export function contdLines(blocks: Block[]): Set<number> {
+  const out = new Set<number>();
+  let last: string | null = null;
+  blocks.forEach((b, i) => {
+    if (b.type === "scene_heading" || b.type === "transition") last = null;
+    if (b.type !== "character") return;
+    const text = blockText(b).trim();
+    const name = cueName(text);
+    if (!name) return;
+    if (name === last && !/\(.*\)\s*$/.test(text)) out.add(i);
+    last = name;
+  });
+  return out;
+}
+
 /** Typst markup for a run list. Text always goes in string literals, so nothing the writer types can be read as Typst code. */
 export function runsToTypst(runs: Run[], preserveSpaces = false): string {
   let out = "";
@@ -98,7 +150,7 @@ export function runsToTypst(runs: Run[], preserveSpaces = false): string {
           // Keep indentation and repeated spaces exactly (poems).
           t = t.replace(/\t/g, "    ").replace(/ {2,}/g, (m) => " ".repeat(m.length)).replace(/^ /, " ");
         }
-        return t ? `#${str(t)}` : "";
+        return t ? textToTypst(t) : "";
       })
       .join("#linebreak()");
     if (!inner) continue;
@@ -156,9 +208,30 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
   let first = true;
   let matterImported = false;
   let lastWhere: "front" | "body" | "back" = "front";
+  // The kinds of empty lines kept as blank space on the page (pressing Enter twice).
+  const blankKinds = new Set(["paragraph", "centered"]);
+  /** Index of the last line with text: empty lines after it are not printed. */
+  const lastFilled = (blocks: Block[]) => {
+    for (let i = blocks.length - 1; i >= 0; i--) if (blockText(blocks[i]).trim() || blocks[i].type === "image" || blocks[i].type === "scene_break" || blocks[i].type === "divider") return i;
+    return -1;
+  };
+  const blank = `#hide("x")`;
+  let afterHeading = false;
   for (const item of items) {
-    const where = item.kind === "matter" ? item.where : "body";
+    const where = item.kind === "matter" ? item.where : item.kind === "play" ? "front" : "body";
     const script = template.mode === "script";
+    if (item.kind === "play") {
+      // A play of a collection: its title page, then its own front matter (unnumbered).
+      lockFor(elementId(item.id, headingIndex));
+      const hstart = bytes;
+      emit(`#mw-play(${str(item.title)}, ${str(meta.author || "")}, first: ${first})\n`);
+      elements.push({ id: elementId(item.id, headingIndex), kind: "play_title", start: hstart, end: bytes });
+      first = false;
+      lastWhere = "front";
+      afterHeading = true;
+      prev = "none";
+      continue;
+    }
     // Scripts: front matter is unnumbered and the script itself starts at page 1.
     if (script && first && where === "front") emit(`#mw-front-start()\n`);
     if (script && lastWhere === "front" && where !== "front" && !first) emit(`#mw-body-start()\n`);
@@ -176,18 +249,22 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       lockFor(elementId(item.id, headingIndex));
       const hstart = bytes;
       emit(`#matter-start(${str(item.title)}, first: ${first}, centered: ${centered})\n`);
+      afterHeading = false;
       elements.push({ id: elementId(item.id, headingIndex), kind: "heading", start: hstart, end: bytes });
       first = false;
       let mprev = "none";
+      const mlast = lastFilled(item.blocks);
       item.blocks.forEach((b, index) => {
         if (b.type === "image") {
           if (b.src) emit(image(b));
           return;
         }
-        if (!blockText(b).trim() && b.type !== "scene_break") return;
+        const empty = !blockText(b).trim();
+        // An empty paragraph is a blank line on the page; trailing ones are not printed.
+        if (empty && b.type !== "scene_break" && (!blankKinds.has(b.type) || index > mlast)) return;
         lockFor(elementId(item.id, index));
         const start = bytes;
-        emit(`#matter-el(${str(b.type)}, ${mprev})[${runsToTypst(b.runs)}]\n`);
+        emit(`#matter-el(${str(b.type)}, ${mprev})[${empty && b.type !== "scene_break" ? blank : runsToTypst(b.runs)}]\n`);
         elements.push({ id: elementId(item.id, index), kind: b.type, start, end: bytes });
         mprev = str(b.type);
       });
@@ -200,11 +277,18 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       emit(`#folder(${str(item.title)}, ${item.depth}, first: ${first})\n`);
       elements.push({ id: elementId(item.id, headingIndex), kind: "folder_heading", start: hstart, end: bytes });
       first = false;
+      afterHeading = true;
       prev = '"folder_heading"';
       continue;
     }
-    emit(`#doc-start(${str(item.title)}, first: ${first})\n`);
+    if (script) {
+      // A scene starts on a new page, except straight after its act's heading.
+      emit(`#doc-start(${str(item.title)}, first: ${first || afterHeading}, new-page: ${meta.sceneNewPage ? "true" : "false"})\n`);
+    } else {
+      emit(`#doc-start(${str(item.title)}, first: ${first})\n`);
+    }
     first = false;
+    afterHeading = false;
     if (template.id === "book") prev = '"chapter"';
 
     if (poem) {
@@ -238,16 +322,21 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       continue;
     }
 
+    const contd = template.mode === "script" && meta.autoContd ? contdLines(item.blocks) : null;
+    const last = lastFilled(item.blocks);
     item.blocks.forEach((b, index) => {
       if (b.type === "image") {
         if (b.src) emit(image(b));
         return;
       }
       const empty = !blockText(b).trim();
-      if (empty && b.type !== "scene_break" && b.type !== "divider") return;
+      // An empty paragraph (Enter pressed twice) is kept as a blank line, except at the very end.
+      const blankLine = empty && template.mode !== "script" && blankKinds.has(b.type) && index < last;
+      if (empty && b.type !== "scene_break" && b.type !== "divider" && !blankLine) return;
       lockFor(elementId(item.id, index));
       const start = bytes;
-      emit(`#el(${str(b.type)}, ${prev})[${revMark(item.id, index)}${runsToTypst(b.runs)}]\n`);
+      const body = blankLine ? blank : runsToTypst(contd?.has(index) ? [...b.runs, { text: " (CONT'D)" }] : b.runs);
+      emit(`#el(${str(b.type)}, ${prev})[${revMark(item.id, index)}${body}]\n`);
       elements.push({ id: elementId(item.id, index), kind: b.type, start, end: bytes });
       prev = str(b.type);
     });

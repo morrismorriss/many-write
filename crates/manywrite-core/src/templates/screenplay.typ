@@ -1,6 +1,6 @@
 // Screenplay: scene heading, action, character, parenthetical, dialogue, transition.
 // Industry layout: Courier 12pt, 1.5in left margin, dialogue 2.5in from the page edge.
-#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start
+#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play
 
 #let line-h = 12pt
 
@@ -50,4 +50,7 @@
 }
 
 #let folder(title, depth, first: false) = none
-#let doc-start(title, first: false) = none
+// Each scene starts on a new page (Project settings can turn this off).
+#let doc-start(title, first: false, new-page: true) = {
+  if new-page and not first { pagebreak(weak: true) }
+}

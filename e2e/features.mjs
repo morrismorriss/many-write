@@ -41,6 +41,7 @@ await page.getByTestId("create-project").click();
 await editor.waitFor();
 await editor.click();
 await page.keyboard.press("Control+End");
+await type("Scene 1");
 await page.keyboard.press("Enter");
 await type("A kitchen.");
 await page.keyboard.press("Enter");
@@ -89,6 +90,8 @@ await page.getByTestId("add-doc-characters").click();
 await sleep(600);
 await editor.waitFor();
 await page.keyboard.press("Control+End");
+ok((await page.locator(".mw-editor p.is-hint").getAttribute("data-placeholder")) === "Character name", "a new character page is empty, with grey hint text");
+await type("Anna");
 await page.keyboard.press("Enter");
 await type("/todo");
 await page.keyboard.press("Enter");
@@ -116,7 +119,7 @@ const charFile = fs.readdirSync(path.join(root, "characters"))[0];
 const charMd = read(`characters/${charFile}`);
 ok(charMd.includes("- [x] Find a surname\n- [ ] Decide her age"), "to-dos saved as markdown checkboxes, ticked by clicking");
 ok(charMd.includes("- Hates the sea") && charMd.includes("> [!note] Never apologises."), "bullets and callouts saved Obsidian-style");
-ok(charMd.startsWith("# Name\n\n**Age:**") && charMd.includes("## About"), "new character pages start from the name / age / about template");
+ok(charMd.startsWith("# Anna\n"), "the name typed over the hint is the page's heading");
 await page.screenshot({ path: path.join(SHOTS, "20-character-page.png") });
 
 // ---- Images with /image

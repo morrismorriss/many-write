@@ -48,6 +48,7 @@ with a blank line.
 | --- | --- | --- |
 | Scene heading | A markdown heading | `## Scene 2` |
 | Character cue | A line in CAPITALS, with dialogue directly under it (no blank line) | `ANNA` |
+| Cue with an extension | The name, then the extension in brackets | `ANNA (V.O.)`, `BEN (O.S.)`, `ANNA (CONT'D)` |
 | Parenthetical | A line in (brackets) between the cue and the dialogue | `(quietly)` |
 | Dialogue | The lines directly under a cue | `I told you already.` |
 | Stage direction / action | Any other paragraph | `She crosses to the window.` |
@@ -63,6 +64,10 @@ Rules for lines that could be either a character cue or a direction:
 
 Emphasis uses markdown: `*italic*`, `**bold**`, `_underline_`.
 
+The automatic (CONT'D) (`settings.autoContd`) is added on the page and in exports
+only; it is never written into the files. `settings.sceneNewPage` (on unless set
+to `false`) starts each scene on a new page.
+
 ## How poem files are written
 
 The first line may be a title (`# Title`). Every other line is a line of the
@@ -73,6 +78,14 @@ Emphasis uses markdown: `*italic*`, `**bold**`.
 
 Ordinary markdown: `##` headings, paragraphs separated by blank lines,
 `> ` for quotations, `* * *` for a scene break, `*italic*` and `**bold**`.
+
+An empty paragraph (Enter pressed twice) is a blank line on the page, and is
+written `&nbsp;` on a line of its own, which Obsidian and other markdown apps also
+show as an empty line. Empty paragraphs at the very end of a file are not kept.
+The same applies to documents, notes and front and back matter.
+
+Web addresses (`https://…`, `www.…`) are plain text in the file. The editor shows
+them as links (click to open, Alt-click to edit) and the PDF makes them clickable.
 
 ## Notes, characters and research pages
 
@@ -97,6 +110,21 @@ In front and back matter, a `- ` line is a source in a Works Cited list or bibli
 
 Books, articles and essays write text-message bubbles the same way as documents: `> [!text-left] text` and `> [!text-right] text`.
 A book's scene-break style is a project setting (`settings.sceneBreak`: `asterisks`, `line`, `hearts` or `image`, with `settings.sceneBreakImage` pointing into `assets/`); the file always says `* * *`.
+
+## Play collections
+
+A stage play project can hold several plays (a trilogy, an evening of one-acts).
+Each play is a folder in the manuscript marked `"play": true` in `project.json`;
+it is typeset with its own title page (its folder title and the project's author).
+Inside it, a folder marked `"matter": true` holds that play's front matter (cast
+list, time and place…), written like any other front matter page and typeset after
+the play's title page, unnumbered. The play's acts and scenes follow, numbered from 1.
+
+```json
+{ "kind": "folder", "title": "The Crossing", "file": "02-the-crossing", "play": true, "children": [
+  { "kind": "folder", "title": "Front matter", "file": "01-front-matter", "matter": true, "children": [] },
+  { "kind": "folder", "title": "Act One", "file": "02-act-one", "children": [] } ] }
+```
 
 ## Essays
 

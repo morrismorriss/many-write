@@ -1,5 +1,5 @@
 // Stage play: character cue, dialogue, stage direction, scene heading, transition.
-#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start
+#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play
 
 #let line-h = 12pt
 
@@ -57,4 +57,7 @@
     align(center, strong(underline(upper(title)))))
 }
 
-#let doc-start(title, first: false) = none
+// Each scene starts on a new page (Project settings can turn this off).
+#let doc-start(title, first: false, new-page: true) = {
+  if new-page and not first { pagebreak(weak: true) }
+}

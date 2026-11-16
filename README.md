@@ -8,6 +8,7 @@ A local-first desktop writing app for **stage plays, screenplays, essays, books,
 - **Production mode**: lock page numbers for revisions. Rewrites go onto A-pages (12A, 12B…), changed lines get a margin asterisk, and the header names the revision colour.
 - **Notion-style pages**: type `/` anywhere for blocks. Characters and research pages have to-dos, lists, callouts, dividers and images.
 - **Open and import**: open a single document on its own, or import Word, Final Draft, Fountain, PDF and RTF files.
+- **Play collections**: a trilogy or an evening of one-acts in one project. Each play has its own title page and front matter; import a Final Draft or Fountain file straight into each play.
 - **Plain files**: every scene is a markdown file in a folder you own. No account, no cloud, no lock-in.
 
 ![Stage play in the light theme](docs/screenshots/stage-play-light.png)
@@ -32,13 +33,19 @@ A local-first desktop writing app for **stage plays, screenplays, essays, books,
 | **Tab** / **Shift-Tab**, or the type menu | Change the current line's type |
 | **⌘⌥1…6** (Ctrl+Alt on Windows/Linux) | Jump to a specific type |
 | A character line | A list of the names you have used; type to filter, **↑ ↓** and **Enter** (or click) to pick |
+| **(** after a name, or a whole name | **(CONT'D)**, **(V.O.)**, **(O.S.)** and **(O.C.)** to add after it |
 | **/** at the start of a line | The block menu: type to filter (`/trans`, `/todo`, `/image`), **Enter** to apply |
 
-Screenplays have their own Enter/Tab flow. Poems keep every line break and indent exactly (Tab indents). Books and articles use paragraphs, headings and quotes. Books, articles and documents also have **text-message bubbles** (`/text`, left or right), and a book's scene breaks can be asterisks, a line, three hearts or your own picture (File › Project settings).
+Each scene starts on a new page, and a character who speaks again after a stage direction can get **(CONT'D)** automatically on the page (both in File › Project settings). Screenplays have their own Enter/Tab flow. Poems keep every line break and indent exactly (Tab indents). Books and articles use paragraphs, headings and quotes. Books, articles and documents also have **text-message bubbles** (`/text`, left or right), and a book's scene breaks can be asterisks, a line, three hearts or your own picture (File › Project settings).
 
 **Essays** come in **MLA** or **Chicago** style, chosen when you create the project: double-spaced 12pt pages, MLA's heading block and "Surname 1" running header, or Chicago's title page. A **Works Cited** (MLA) or **Bibliography** (Chicago) page is added to the back matter with example entries; each `- ` line is one source with a hanging indent. Both are also offered for any project under Back matter › +. Instructor, course and date are in File › Project settings.
 
 ## Around the editor
+
+- **New pages start empty**: a new scene, chapter, character or front matter page has no text in it, just grey hint text (its name, “For …” on a dedication, an example source on a Works Cited page) that disappears as you type.
+- **Blank lines are kept**: press Enter twice for an empty line, and it stays an empty line on the page and in Word, EPUB and PDF exports.
+- **Links**: web addresses are clickable in the editor (Alt-click to edit one) and in exported PDFs.
+- **Several windows**: File › New window, or the window button next to a recent project, opens another project side by side.
 
 - **Binder**: front matter (cast list, dedication, time and place…), the manuscript, back matter, characters, research and an **archive** for old drafts. Drag to reorder, nest or archive. New scenes go next to the one you're on.
 - **Notes**: every binder item has a notes page below the binder, with the same `/` blocks.
@@ -63,6 +70,12 @@ When a script is going into rehearsal or production, choose **Production › Loc
 - **Leave production mode** lets pages flow freely again.
 
 Locks follow their lines even when you add or cut lines above them.
+
+## Play collections
+
+Choose **Play collection** when you create a project (or press the masks button above the manuscript in any stage play) to add a whole play: a folder with its own title page, a **Front matter** folder for that play's cast list and time and place, and Act One. Each play's acts and scenes are numbered from page 1.
+
+To bring in an existing script, hover over a play and press the import button: its scenes go into that play (replacing the empty Scene 1 of a new play), and the play takes its title from the Final Draft title page. Fountain, Word, PDF and RTF scripts work the same way.
 
 ## Open and import
 

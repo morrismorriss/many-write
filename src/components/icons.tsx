@@ -32,6 +32,28 @@ export const Search = base(<><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-
 export const Lock = base(<><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 018 0v3" /></>);
 export const ArrowUp = base(<path d="M12 19V5M6 11l6-6 6 6" />);
 export const ArrowDown = base(<path d="M12 5v14M6 13l6 6 6-6" />);
+// Binder icons: each kind of item has its own shape.
+/** A script page: a scene in a play or screenplay. */
+export const SceneIcon = base(<><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 8h6M8.5 12h7M10 16h4" /></>);
+/** An open book page with text: a chapter. */
+export const ChapterIcon = base(<><path d="M3 5.5C5.5 4.5 8.5 4.5 12 6.5c3.5-2 6.5-2 9-1V19c-2.5-1-5.5-1-9 1-3.5-2-6.5-2-9-1z" /><path d="M12 6.5V20M6 9h3M6 12.5h3M15 9h3M15 12.5h3" /></>);
+/** A sheet with ruled lines: sections, pages and front/back matter. */
+export const PageIcon = base(<><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></>);
+/** A quill: a poem. */
+export const QuillIcon = base(<><path d="M20 4c-6 0-11 4.5-12.5 11.5L6.5 20" /><path d="M20 4c0 6-3.5 10.5-11 11.5M12.5 10.5L9 14" /></>);
+/** A person: a character page. */
+export const PersonIcon = base(<><circle cx="12" cy="8" r="3.6" /><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6" /></>);
+/** A light bulb: a research note. */
+export const BulbIcon = base(<><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 00-3.6 10.8c.6.5 1.1 1.3 1.1 2.2h5c0-.9.5-1.7 1.1-2.2A6 6 0 0012 3z" /></>);
+/** A theatre mask: a whole play inside a collection. */
+export const MasksIcon = base(<><path d="M5 4.5c4.5-1.3 9.5-1.3 14 0V11a7 7 0 01-14 0z" /><path d="M8.5 9.5h2M13.5 9.5h2M9 13.5c1.8 1.6 4.2 1.6 6 0" /></>);
+/** A stack of pages: an act, part or sequence. */
+export const StackIcon = base(<><path d="M12 3l9 4.5-9 4.5-9-4.5z" /><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" /></>);
+/** A heart: donations. */
+export const HeartIcon = base(<path d="M12 20s-7.5-4.6-9-9.4C2 7.3 4.2 4.5 7.3 4.5c2 0 3.6 1.1 4.7 2.8 1.1-1.7 2.7-2.8 4.7-2.8 3.1 0 5.3 2.8 4.3 6.1C19.5 15.4 12 20 12 20z" />);
+/** Two overlapping windows: open in a new window. */
+export const WindowsIcon = base(<><rect x="8" y="8" width="13" height="12" rx="2" /><path d="M16 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2h3" /></>);
+export const ImportIcon = base(<><path d="M12 3v11M7 9l5 5 5-5" /><path d="M5 15v4a2 2 0 002 2h10a2 2 0 002-2v-4" /></>);
 export const ArchiveIcon = base(<><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11a1 1 0 001 1h12a1 1 0 001-1V8M10 12h4" /></>);
 
 /** The pomodoro timer's tomato: an outline like the other icons, with a stem, two leaves and a divot at the bottom. */
