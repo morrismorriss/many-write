@@ -47,10 +47,11 @@ Each scene starts on a new page, and a character who speaks again after a stage 
 - **Links**: web addresses are clickable in the editor (Alt-click to edit one) and in exported PDFs.
 - **Several windows**: File › New window, or the window button next to a recent project, opens another project side by side.
 
-- **Binder**: front matter (cast list, dedication, time and place…), the manuscript, back matter, characters, research and an **archive** for old drafts. Drag to reorder, nest or archive. New scenes go next to the one you're on.
+- **Binder**: front matter (cast list, dedication, time and place…), the manuscript, back matter, characters, research and an **archive** for old drafts. Drag to reorder, nest or archive. **⌘/Ctrl-click** or **Shift-click** to select several items and drag, archive or trash them together; drop at the bottom of a section to take items out of a folder. Click an item's **icon** to choose a different one. New scenes go next to the one you're on.
 - **Notes**: every binder item has a notes page below the binder, with the same `/` blocks.
 - **Find & replace** (⌘F, or ⌘⇧F for the whole script): match case, whole words, every result listed, replace one or all. Bold and italics are kept.
 - **Words and pages**: the chart button above the preview lists words and pages for each scene, with totals and a running-time estimate for scripts.
+- **Subtitle**: File › Project settings › Subtitle prints under the title on the title page (and in Word, EPUB and Final Draft exports). Front and back matter pages, like scenes, don't print their binder titles.
 - **Copyright page**: Front matter › + › Copyright lets you tick the clauses you want (all rights reserved, fiction, moral rights, external content, designations, edition, ISBN). They are common wording, not legal advice: you decide what to keep or add.
 - **Archive button**: the box icon next to the trash can moves a chapter or scene to the Archive.
 - **Theme pictures**: a custom theme can have a background picture behind the editor, with a slider for how strongly it shows.

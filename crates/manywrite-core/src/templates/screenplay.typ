@@ -5,7 +5,7 @@
 #let line-h = 12pt
 
 #let conf(
-  title: none, author: none, contact: none, date: none, title-page: true,
+  title: none, subtitle: none, author: none, contact: none, date: none, title-page: true,
   font: "Courier Prime", paper: "us-letter",
   page-fill: white, text-fill: black,
   revision: none,
@@ -21,7 +21,7 @@
     header: script-header(revision),
     foreground: rev-marks)
   if title-page and title != none {
-    script-title-page(title, author, contact, date)
+    script-title-page(title, author, contact, date, subtitle: subtitle)
   }
   body
 }

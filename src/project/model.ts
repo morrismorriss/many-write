@@ -34,6 +34,8 @@ export interface BinderNode {
   play?: boolean;
   /** A folder of front matter pages inside a play (cast list, time and place…). */
   matter?: boolean;
+  /** An icon the writer picked for this item (a key of BINDER_ICONS); absent means the default for its kind. */
+  icon?: string;
   children?: BinderNode[];
 }
 
@@ -62,6 +64,8 @@ export interface ProjectFile {
   formatVersion: 1;
   id: string;
   title: string;
+  /** Printed under the title on the title page. */
+  subtitle?: string;
   author: string;
   contact: string;
   template: TemplateId;

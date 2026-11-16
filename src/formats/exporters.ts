@@ -10,6 +10,8 @@ const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
 export function toFountain(template: Template, meta: ProjectMeta, items: ManuscriptItem[]): string {
   const out: string[] = [];
   const tp = [`Title: ${meta.title || "Untitled"}`];
+  // Fountain titles may run onto indented lines; the subtitle is the second line.
+  if (meta.subtitle?.trim()) tp[0] = `Title:\n    ${meta.title || "Untitled"}\n    ${meta.subtitle.trim()}`;
   if (meta.author) tp.push(`Author: ${meta.author}`);
   if (meta.contact) tp.push(`Contact: ${meta.contact.replace(/\n/g, "\n    ")}`);
   out.push(tp.join("\n"), "");
@@ -91,6 +93,7 @@ export function toFdx(meta: ProjectMeta, items: ManuscriptItem[]): string {
   }
   const tp = [
     `      <Paragraph Alignment="Center" Type="Title Page"><Text>${xml((meta.title || "Untitled").toUpperCase())}</Text></Paragraph>`,
+    ...(meta.subtitle?.trim() ? [`      <Paragraph Alignment="Center" Type="Title Page"><Text>${xml(meta.subtitle.trim())}</Text></Paragraph>`] : []),
     `      <Paragraph Alignment="Center" Type="Title Page"><Text></Text></Paragraph>`,
     `      <Paragraph Alignment="Center" Type="Title Page"><Text>by</Text></Paragraph>`,
     `      <Paragraph Alignment="Center" Type="Title Page"><Text>${xml(meta.author || "")}</Text></Paragraph>`,
@@ -116,6 +119,8 @@ ${tp.join("\n")}
 export interface ExportBlock {
   kind: string;
   runs: Run[];
+  /** The e-book's table of contents entry, for a block that prints nothing. */
+  label?: string;
 }
 
 export interface ExportDoc {
@@ -135,7 +140,7 @@ export interface ExportDoc {
 function essayOpening(meta: ProjectMeta): ExportBlock[] {
   const e = meta.essay ?? { style: "mla" as const, instructor: "", course: "", date: "" };
   const date = e.date.trim() || essayDate(e.style);
-  const title = meta.title || "Untitled";
+  const title = (meta.title || "Untitled") + (meta.subtitle?.trim() ? `: ${meta.subtitle.trim()}` : "");
   const line = (kind: string, text: string): ExportBlock => ({ kind, runs: [{ text }] });
   if (e.style === "mla") {
     return [...[meta.author, e.instructor, e.course, date].filter((l) => l.trim()).map((l) => line("essay_heading", l)), line("essay_title", title)];
@@ -155,6 +160,7 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
   if (essay) blocks.push(...essayOpening(meta));
   if (meta.titlePage && (script || template.id === "book")) {
     blocks.push({ kind: "title", runs: [{ text: meta.title || "Untitled" }] });
+    if (meta.subtitle?.trim()) blocks.push({ kind: script ? "centered" : "subheading", runs: [{ text: meta.subtitle.trim() }] });
     if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
   }
   /** An empty paragraph keeps its place as a blank line (a no-break space, so Word and e-readers don't drop it). */
@@ -178,7 +184,9 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
       continue;
     }
     if (item.kind === "matter") {
-      blocks.push({ kind: "matter_title", runs: [{ text: item.title }] });
+      // Front and back matter pages start a new page but don't print their titles, like scenes;
+      // an essay's Works Cited or Bibliography page keeps its required heading.
+      blocks.push(essay ? { kind: "matter_title", runs: [{ text: item.title }] } : { kind: "matter_title", runs: [], label: item.title });
       item.blocks.forEach((b, i, all) => {
         if (keptBlank(b, i, all)) blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: blankLine });
         else if (blockText(b).trim() || b.type === "scene_break") blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: b.runs });

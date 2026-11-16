@@ -5,7 +5,7 @@
 #let mw-break = state("mw-break", (style: "asterisks", image: none))
 
 #let conf(
-  title: none, author: none, contact: none, date: none, title-page: true,
+  title: none, subtitle: none, author: none, contact: none, date: none, title-page: true,
   font: "Libertinus Serif", paper: none, trim: (6in, 9in),
   page-fill: white, text-fill: black,
   scene-break: "asterisks", scene-break-image: none,
@@ -26,6 +26,7 @@
     set page(footer: none)
     v(25%)
     align(center, text(size: 24pt, title))
+    if subtitle != none and subtitle != "" { v(0.8em); align(center, text(size: 14pt, style: "italic", subtitle)) }
     if author != none and author != "" { v(1.5em); align(center, text(size: 13pt, author)) }
     pagebreak()
     // Blank verso; numbering starts at 1 on the next page.

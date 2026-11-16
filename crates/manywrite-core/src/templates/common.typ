@@ -2,11 +2,15 @@
 // Every template exports: conf, el(kind, prev)[body], folder(title, depth), doc-start(title).
 
 // A centred title page used by the script formats.
-#let script-title-page(title, author, contact, date) = {
+#let script-title-page(title, author, contact, date, subtitle: none) = {
   set page(header: none, footer: none)
   v(1fr)
   align(center)[
     #upper(strong(title))
+    #if subtitle != none and subtitle != "" [
+      #v(1em)
+      #subtitle
+    ]
     #if author != none and author != "" [
       #v(2em)
       by

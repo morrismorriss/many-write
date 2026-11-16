@@ -145,9 +145,9 @@ await page.getByTestId("add-doc-front").click();
 await page.getByTestId("preset-Cast of characters").click();
 await sleep(1500);
 ok(fs.existsSync(path.join(root, "front-matter/01-cast-of-characters.md")), "front matter page created from a preset");
-let found = false;
-for (let i = 0; i < 4 && !found; i++) found = ((await api("typst.pageText", { index: i })) ?? "").includes("CAST OF CHARACTERS");
-ok(found, "front matter is typeset before the script");
+let titled = false;
+for (let i = 0; i < 4; i++) titled ||= ((await api("typst.pageText", { index: i })) ?? "").includes("CAST OF CHARACTERS");
+ok(!titled, "a front matter page's title is left off the page, like a scene's");
 
 // ---- Archive: drag a scene into it
 await page.getByTestId("binder-Act One").click();

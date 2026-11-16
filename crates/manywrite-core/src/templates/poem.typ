@@ -2,7 +2,7 @@
 // nothing is reflowed or justified. Long lines wrap with a hanging indent.
 
 #let conf(
-  title: none, author: none, contact: none, date: none, title-page: false,
+  title: none, subtitle: none, author: none, contact: none, date: none, title-page: false,
   font: "Libertinus Serif", paper: "us-letter",
   page-fill: white, text-fill: black,
   body,
@@ -15,6 +15,7 @@
     footer: context align(center, text(size: 10pt, counter(page).display())))
   if title-page and title != none {
     align(center, text(size: 20pt, title))
+    if subtitle != none and subtitle != "" { align(center, text(size: 13pt, subtitle)) }
     if author != none and author != "" { align(center, emph(author)) }
     v(3em)
   }
