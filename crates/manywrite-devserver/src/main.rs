@@ -17,6 +17,13 @@ fn main() {
             let _ = req.respond(tiny_http::Response::from_string("not found").with_status_code(404));
             continue;
         };
+        // The server can read and write files, so only the Many Write page on this
+        // machine may use it: other websites in the same browser (cross-site requests)
+        // and DNS-rebinding tricks are refused.
+        if let Err(why) = allowed(&req) {
+            let _ = req.respond(tiny_http::Response::from_string(why).with_status_code(403));
+            continue;
+        }
         let cmd = cmd.to_string();
         let mut body = String::new();
         let _ = req.as_reader().read_to_string(&mut body);
@@ -28,4 +35,33 @@ fn main() {
         let header = tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap();
         let _ = req.respond(tiny_http::Response::from_string(out.to_string()).with_header(header));
     }
+}
+
+fn header<'a>(req: &'a tiny_http::Request, name: &str) -> Option<&'a str> {
+    req.headers().iter().find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name)).map(|h| h.value.as_str())
+}
+
+fn is_local(host: &str) -> bool {
+    let h = host.rsplit_once(':').filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit())).map_or(host, |(h, _)| h);
+    matches!(h, "localhost" | "127.0.0.1" | "[::1]")
+}
+
+fn allowed(req: &tiny_http::Request) -> Result<(), &'static str> {
+    if *req.method() != tiny_http::Method::Post {
+        return Err("POST only");
+    }
+    // A custom header cannot be sent cross-site without a CORS preflight, which this server never grants.
+    if header(req, "X-Many-Write") != Some("1") {
+        return Err("missing X-Many-Write header");
+    }
+    if !header(req, "Host").is_some_and(is_local) {
+        return Err("bad Host");
+    }
+    if let Some(origin) = header(req, "Origin") {
+        let host = origin.strip_prefix("http://").unwrap_or("");
+        if !is_local(host) {
+            return Err("cross-site request refused");
+        }
+    }
+    Ok(())
 }

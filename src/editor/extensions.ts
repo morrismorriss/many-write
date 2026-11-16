@@ -337,7 +337,6 @@ class PopupView {
         b.className = i === info.index ? "menu-item active" : "menu-item";
         b.setAttribute("role", "option");
         b.dataset.value = it.value;
-        b.innerHTML = "";
         const l = document.createElement("span");
         l.textContent = it.label;
         b.appendChild(l);

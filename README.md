@@ -167,6 +167,14 @@ This builds installers for the current platform. CI builds macOS, Windows and Li
 
 **How "No orphan lines" is measured.** After each layout, the core walks every glyph on every page and traces it back to the line you typed, using Typst source spans. It then counts the lines of each paragraph on each page and checks that every cue, parenthetical and heading shares a page with what follows it. The status reflects that measurement. It is not a setting. A test in `crates/manywrite-core/tests/layout.rs` switches the rules off and confirms the checker catches the problems.
 
+## Privacy and security
+
+- **No internet, ever.** The desktop app contains no networking code: no updater, telemetry, analytics or font downloads. Its window may only talk to its own core (`connect-src ipc:` in the content security policy), Typst cannot fetch packages, and every font is bundled. Your writing never leaves your computer.
+- **Text is never code.** Everything you type (or import) reaches the typesetter only inside string literals, so it cannot run as Typst code; this is fuzzed with hostile input. The UI never inserts HTML; the preview is shown as an image.
+- **Imported files are untrusted.** Word/zip, PDF, RTF and Scrivener readers are bounds-checked, refuse decompression bombs (64 MB per entry), cannot be steered outside the project being imported, and a damaged file produces an error rather than a crash (`crates/manywrite-core/tests/security.rs`).
+- **Saves are safe.** Atomic writes, conflict detection, and nothing is deleted: removed items and replaced versions go to the project's `.trash/` or `archive/`.
+- **The browser dev server** (`npm run dev`, never shipped) only answers the Many Write page on `localhost`; requests from other websites and DNS-rebinding attempts are refused.
+
 ## Licence
 
 Apache-2.0. Fonts and libraries are listed in [THIRD-PARTY.md](THIRD-PARTY.md). "Final Draft" and "Scrivener" are trademarks of their owners. Many Write is not affiliated with them.

@@ -39,8 +39,17 @@ impl Core {
         &self.config_dir
     }
 
-    /// Run one command. Errors are user-facing strings.
+    /// Run one command. Errors are user-facing strings. A bug or a hostile
+    /// file can never crash the app: a panic becomes an error message.
     pub fn call(&self, cmd: &str, args: &Value) -> Result<Value, String> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.dispatch(cmd, args)))
+            .unwrap_or_else(|p| {
+                let why = p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+                Err(format!("Many Write hit an internal error ({cmd}): {why}"))
+            })
+    }
+
+    fn dispatch(&self, cmd: &str, args: &Value) -> Result<Value, String> {
         match cmd {
             "app.paths" => {
                 let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
@@ -71,14 +80,14 @@ impl Core {
                 let to = path_arg(args, "to")?;
                 let bytes = std::fs::read(&from).map_err(|e| format!("Could not read {}: {e}", from.display()))?;
                 fs::write(&to, &bytes, None, true)?;
-                self.preview.lock().unwrap().clear_files();
+                self.preview.lock().unwrap_or_else(|e| e.into_inner()).clear_files();
                 Ok(Value::Null)
             }
             "fs.writeBase64" => {
                 let data: String = arg(args, "data")?;
                 let bytes = base64_decode(&data).ok_or("Invalid file data")?;
                 fs::write(&path_arg(args, "path")?, &bytes, None, true)?;
-                self.preview.lock().unwrap().clear_files();
+                self.preview.lock().unwrap_or_else(|e| e.into_inner()).clear_files();
                 Ok(Value::Null)
             }
             "fs.readBase64" => {
@@ -118,19 +127,19 @@ impl Core {
                 let source: String = arg(args, "source")?;
                 let elements: Vec<ElementSpan> = arg(args, "elements")?;
                 let root: Option<String> = arg(args, "root")?;
-                let mut engine = self.preview.lock().unwrap();
+                let mut engine = self.preview.lock().unwrap_or_else(|e| e.into_inner());
                 engine.set_root(root.map(PathBuf::from));
                 let report = engine.compile(&source, &elements);
                 Ok(serde_json::to_value(report).unwrap())
             }
             "typst.page" => {
                 let index: usize = arg(args, "index")?;
-                let svg = self.preview.lock().unwrap().page_svg(index);
+                let svg = self.preview.lock().unwrap_or_else(|e| e.into_inner()).page_svg(index);
                 Ok(json!({ "svg": svg }))
             }
             "typst.pageText" => {
                 let index: usize = arg(args, "index")?;
-                Ok(json!(self.preview.lock().unwrap().page_text(index)))
+                Ok(json!(self.preview.lock().unwrap_or_else(|e| e.into_inner()).page_text(index)))
             }
             "import.docx" => {
                 let path = path_arg(args, "path")?;
@@ -153,7 +162,7 @@ impl Core {
                 let elements: Vec<ElementSpan> = arg(args, "elements")?;
                 let path = path_arg(args, "path")?;
                 let root: Option<String> = arg(args, "root")?;
-                let mut engine = self.export.lock().unwrap();
+                let mut engine = self.export.lock().unwrap_or_else(|e| e.into_inner());
                 engine.set_root(root.map(PathBuf::from));
                 engine.clear_files();
                 let report = engine.compile(&source, &elements);

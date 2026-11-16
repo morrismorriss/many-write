@@ -47,39 +47,46 @@ fn push_text(runs: &mut Vec<Span>, text: &str, bold: bool, italic: bool, underli
 
 // ---------------------------------------------------------------- zip
 
+/// Largest entry we will decompress (a .docx body is rarely over a few MB).
+const MAX_ENTRY: usize = 64 * 1024 * 1024;
+
 /// Read one file out of a zip archive (stored or deflated entries).
+/// Every offset is bounds-checked, so a damaged or hostile file is an error, never a crash.
 pub fn unzip_entry(zip: &[u8], name: &str) -> Result<Vec<u8>, String> {
-    let le16 = |b: &[u8], o: usize| u16::from_le_bytes([b[o], b[o + 1]]) as usize;
-    let le32 = |b: &[u8], o: usize| u32::from_le_bytes([b[o], b[o + 1], b[o + 2], b[o + 3]]) as usize;
+    let bad = || "The file is damaged or not a zip (.docx) file.".to_string();
+    let le16 = |o: usize| zip.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as usize);
+    let le32 = |o: usize| zip.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
     // End of central directory: scan back from the end.
     let eocd = (0..zip.len().saturating_sub(21))
         .rev()
         .find(|&i| zip[i..].starts_with(&[0x50, 0x4b, 0x05, 0x06]))
         .ok_or("Not a zip file (is this really a .docx?)")?;
-    let count = le16(zip, eocd + 10);
-    let mut p = le32(zip, eocd + 16);
+    let count = le16(eocd + 10).ok_or_else(bad)?;
+    let mut p = le32(eocd + 16).ok_or_else(bad)?;
     for _ in 0..count {
-        if p + 46 > zip.len() || !zip[p..].starts_with(&[0x50, 0x4b, 0x01, 0x02]) {
+        if !zip.get(p..).is_some_and(|z| z.starts_with(&[0x50, 0x4b, 0x01, 0x02])) {
             break;
         }
-        let method = le16(zip, p + 10);
-        let csize = le32(zip, p + 20);
-        let nlen = le16(zip, p + 28);
-        let elen = le16(zip, p + 30);
-        let clen = le16(zip, p + 32);
-        let local = le32(zip, p + 42);
-        let entry = String::from_utf8_lossy(&zip[p + 46..p + 46 + nlen]).into_owned();
+        let method = le16(p + 10).ok_or_else(bad)?;
+        let csize = le32(p + 20).ok_or_else(bad)?;
+        let nlen = le16(p + 28).ok_or_else(bad)?;
+        let elen = le16(p + 30).ok_or_else(bad)?;
+        let clen = le16(p + 32).ok_or_else(bad)?;
+        let local = le32(p + 42).ok_or_else(bad)?;
+        let entry = zip.get(p + 46..p + 46 + nlen).ok_or_else(bad)?;
         p += 46 + nlen + elen + clen;
-        if entry != name {
+        if entry != name.as_bytes() {
             continue;
         }
-        let lnlen = le16(zip, local + 26);
-        let lelen = le16(zip, local + 28);
+        let lnlen = le16(local + 26).ok_or_else(bad)?;
+        let lelen = le16(local + 28).ok_or_else(bad)?;
         let start = local + 30 + lnlen + lelen;
-        let data = zip.get(start..start + csize).ok_or("The zip file is truncated")?;
+        let data = zip.get(start..start.saturating_add(csize)).ok_or_else(bad)?;
         return match method {
-            0 => Ok(data.to_vec()),
-            8 => miniz_oxide::inflate::decompress_to_vec(data).map_err(|e| format!("Could not decompress {name}: {e:?}")),
+            0 if data.len() <= MAX_ENTRY => Ok(data.to_vec()),
+            8 => miniz_oxide::inflate::decompress_to_vec_with_limit(data, MAX_ENTRY)
+                .map_err(|_| format!("{name} could not be decompressed (damaged, or larger than 64 MB).")),
+            0 => Err(format!("{name} is larger than 64 MB.")),
             m => Err(format!("Unsupported compression method {m} in {name}")),
         };
     }
@@ -479,10 +486,13 @@ pub fn scrivener(dir: &Path) -> Result<Vec<ScrivItem>, String> {
                 let title = n.children().find(|c| c.has_tag_name("Title")).and_then(|t| t.text()).unwrap_or("Untitled").to_string();
                 let kind = n.attribute("Type").unwrap_or("Text").to_string();
                 // Scrivener 3: Files/Data/<UUID>/content.rtf. Scrivener 2: Files/Docs/<ID>.rtf.
-                let (text, notes, synopsis) = if let Some(uuid) = n.attribute("UUID") {
+                // IDs name files inside the project; anything that is not a plain ID is ignored,
+                // so a crafted project cannot point outside its own folder.
+                let plain = |id: &str| !id.is_empty() && id.len() < 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+                let (text, notes, synopsis) = if let Some(uuid) = n.attribute("UUID").filter(|u| plain(u)) {
                     let d = dir.join("Files/Data").join(uuid);
                     (read_rtf(&d.join("content.rtf")), read_rtf(&d.join("notes.rtf")), std::fs::read_to_string(d.join("synopsis.txt")).unwrap_or_default())
-                } else if let Some(id) = n.attribute("ID") {
+                } else if let Some(id) = n.attribute("ID").filter(|u| plain(u)) {
                     let d = dir.join("Files/Docs");
                     (read_rtf(&d.join(format!("{id}.rtf"))), read_rtf(&d.join(format!("{id}_notes.rtf"))), std::fs::read_to_string(d.join(format!("{id}_synopsis.txt"))).unwrap_or_default())
                 } else {
@@ -543,5 +553,80 @@ mod tests {
         // The cue sits about 2.2in right of the action margin, dialogue about 1in.
         assert!((lines[1].x - lines[0].x - 158.4).abs() < 3.0, "{lines:?}");
         assert!((lines[2].x - lines[0].x - 72.0).abs() < 3.0, "{lines:?}");
+    }
+
+    #[test]
+    fn damaged_zip_files_are_errors_not_crashes() {
+        let good = crate::export::zip_store(&[("word/document.xml", b"<x/>".to_vec())]);
+        // Every truncation, and every single-byte corruption of the header fields, must return Ok or Err.
+        for n in 0..good.len() {
+            let _ = unzip_entry(&good[..n], "word/document.xml");
+        }
+        for i in 0..good.len() {
+            for v in [0u8, 0xff, 0x7f] {
+                let mut bad = good.clone();
+                bad[i] = v;
+                let _ = unzip_entry(&bad, "word/document.xml");
+                let _ = docx(&bad);
+            }
+        }
+        assert!(unzip_entry(b"not a zip", "x").is_err());
+    }
+
+    #[test]
+    fn scrivener_ids_cannot_reach_outside_the_project() {
+        let base = std::env::temp_dir().join(format!("mw-scriv-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let proj = base.join("Evil.scriv");
+        std::fs::create_dir_all(proj.join("Files/Data")).unwrap();
+        // A secret next to the project that a crafted UUID tries to read.
+        std::fs::create_dir_all(base.join("secret")).unwrap();
+        std::fs::write(base.join("secret/content.rtf"), r"{\rtf1 TOP SECRET\par}").unwrap();
+        std::fs::write(
+            proj.join("Evil.scrivx"),
+            r#"<ScrivenerProject><Binder><BinderItem UUID="../../../secret" Type="Text"><Title>x</Title></BinderItem><BinderItem ID="../../../secret/content" Type="Text"><Title>y</Title></BinderItem></Binder></ScrivenerProject>"#,
+        )
+        .unwrap();
+        let items = scrivener(&proj).unwrap();
+        let all: String = items.iter().flat_map(|i| i.text.iter().map(|p| p.text())).collect();
+        assert!(!all.contains("SECRET"), "read a file outside the project: {all}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn zip_bombs_are_refused() {
+        // 300 MB of zeros compresses to a few hundred KB.
+        let big = vec![0u8; 300 * 1024 * 1024];
+        let deflated = miniz_oxide::deflate::compress_to_vec(&big, 6);
+        drop(big);
+        // Build a one-entry zip by hand with method 8.
+        let mut z = Vec::new();
+        let name = b"word/document.xml";
+        z.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        z.extend_from_slice(&[20, 0, 0, 0, 8, 0, 0, 0, 0x21, 0]);
+        z.extend_from_slice(&0u32.to_le_bytes());
+        z.extend_from_slice(&(deflated.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(300u32 * 1024 * 1024).to_le_bytes());
+        z.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        z.extend_from_slice(&0u16.to_le_bytes());
+        z.extend_from_slice(name);
+        z.extend_from_slice(&deflated);
+        let cd = z.len() as u32;
+        z.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        z.extend_from_slice(&[20, 0, 20, 0, 0, 0, 8, 0, 0, 0, 0x21, 0]);
+        z.extend_from_slice(&0u32.to_le_bytes());
+        z.extend_from_slice(&(deflated.len() as u32).to_le_bytes());
+        z.extend_from_slice(&(300u32 * 1024 * 1024).to_le_bytes());
+        z.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        z.extend_from_slice(&[0u8; 12]);
+        z.extend_from_slice(&0u32.to_le_bytes());
+        z.extend_from_slice(name);
+        let cd_size = z.len() as u32 - cd;
+        z.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+        z.extend_from_slice(&[0, 0, 0, 0, 1, 0, 1, 0]);
+        z.extend_from_slice(&cd_size.to_le_bytes());
+        z.extend_from_slice(&cd.to_le_bytes());
+        z.extend_from_slice(&0u16.to_le_bytes());
+        assert!(unzip_entry(&z, "word/document.xml").is_err(), "a 300 MB entry must be refused");
     }
 }

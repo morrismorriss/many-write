@@ -116,7 +116,7 @@ impl World for MwWorld {
         }
         // Project files (images). Only plain paths inside the project folder.
         let root = self.root.as_ref().ok_or_else(|| FileError::NotFound(Default::default()))?;
-        if let Some(b) = self.files.lock().unwrap().get(&id) {
+        if let Some(b) = self.files.lock().unwrap_or_else(|e| e.into_inner()).get(&id) {
             return Ok(b.clone());
         }
         let rel = id.vpath().get_without_slash().to_string();
@@ -126,7 +126,7 @@ impl World for MwWorld {
         let path = root.join(&rel);
         let data = std::fs::read(&path).map_err(|e| FileError::from_io(e, &path))?;
         let bytes = Bytes::new(data);
-        self.files.lock().unwrap().insert(id, bytes.clone());
+        self.files.lock().unwrap_or_else(|e| e.into_inner()).insert(id, bytes.clone());
         Ok(bytes)
     }
 
@@ -237,13 +237,13 @@ impl Engine {
     pub fn set_root(&mut self, root: Option<std::path::PathBuf>) {
         if self.world.root != root {
             self.world.root = root;
-            self.world.files.lock().unwrap().clear();
+            self.world.files.lock().unwrap_or_else(|e| e.into_inner()).clear();
         }
     }
 
     /// Forget cached project files (after an image is added or replaced).
     pub fn clear_files(&mut self) {
-        self.world.files.lock().unwrap().clear();
+        self.world.files.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     pub fn compile(&mut self, source: &str, elements: &[ElementSpan]) -> CompileReport {

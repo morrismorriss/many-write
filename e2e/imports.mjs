@@ -28,7 +28,7 @@ const page = await browser.newPage({ viewport: { width: 1480, height: 920 } });
 page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
 let answer = null;
 page.on("dialog", (d) => (d.type() === "prompt" ? d.accept(answer ?? d.defaultValue()) : d.accept()));
-const api = (cmd, args) => page.evaluate(([c, a]) => fetch(`/api/${c}`, { method: "POST", body: JSON.stringify(a) }).then((r) => r.json()), [cmd, args]);
+const api = (cmd, args) => page.evaluate(([c, a]) => fetch(`/api/${c}`, { method: "POST", headers: { "X-Many-Write": "1" }, body: JSON.stringify(a) }).then((r) => r.json()), [cmd, args]);
 await page.goto(URL);
 
 // ---- Fixtures

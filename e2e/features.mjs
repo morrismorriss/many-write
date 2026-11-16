@@ -28,7 +28,7 @@ page.on("dialog", (d) => d.accept());
 const type = (t) => page.keyboard.type(t, { delay: 4 });
 const pill = async () => (await page.getByTestId("type-pill").innerText()).trim();
 const popup = page.locator(".popup-menu:visible");
-const api = (cmd, args) => page.evaluate(([c, a]) => fetch(`/api/${c}`, { method: "POST", body: JSON.stringify(a) }).then((r) => r.json()).then((j) => j.value), [cmd, args]);
+const api = (cmd, args) => page.evaluate(([c, a]) => fetch(`/api/${c}`, { method: "POST", headers: { "X-Many-Write": "1" }, body: JSON.stringify(a) }).then((r) => r.json()).then((j) => j.value), [cmd, args]);
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 const editor = page.getByTestId("editor");
 

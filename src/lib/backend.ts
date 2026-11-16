@@ -19,7 +19,8 @@ export async function call<T = unknown>(cmd: string, args: Record<string, unknow
       throw new BackendError(String(e));
     }
   }
-  const res = await fetch(`/api/${cmd}`, { method: "POST", body: JSON.stringify(args) });
+  // The header proves the request comes from this page (the dev server refuses others).
+  const res = await fetch(`/api/${cmd}`, { method: "POST", headers: { "X-Many-Write": "1" }, body: JSON.stringify(args) });
   const json = await res.json();
   if (!json.ok) throw new BackendError(json.error);
   return json.value as T;

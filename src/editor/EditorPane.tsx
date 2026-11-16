@@ -5,7 +5,7 @@ import Bold from "@tiptap/extension-bold";
 import Italic from "@tiptap/extension-italic";
 import Underline from "@tiptap/extension-underline";
 import HardBreak from "@tiptap/extension-hard-break";
-import History from "@tiptap/extension-history";
+import { UndoRedo } from "@tiptap/extensions";
 import { ElementNode, ImageNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, setLineType, type SearchHighlight } from "./extensions";
 import { elementLabel, type ElementType, type Template } from "../formats/templates";
 import { parseDoc, serializeDoc } from "../formats/markdown";
@@ -27,7 +27,7 @@ function extensions(store: ProjectStore, opts: { template: () => Template; names
     Italic,
     Underline,
     HardBreak,
-    History,
+    UndoRedo,
     ScriptKeys.configure({
       getTemplate: opts.template,
       getNames: opts.names,
@@ -112,7 +112,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
     if (!editor || doc.externalRev === extRev.current) return;
     extRev.current = doc.externalRev;
     const { from } = editor.state.selection;
-    editor.commands.setContent(blocksToContent(doc.blocks, template), false);
+    editor.commands.setContent(blocksToContent(doc.blocks, template), { emitUpdate: false });
     const max = editor.state.doc.content.size - 1;
     editor.commands.setTextSelection(Math.max(1, Math.min(from, max)));
   }, [editor, doc.externalRev, doc.blocks, template]);
@@ -185,7 +185,7 @@ export function NotesEditor({ store, nodeId, markdown, template, spellcheck, onC
   useEffect(() => {
     if (!editor || markdown === last.current) return;
     last.current = markdown;
-    editor.commands.setContent(blocksToContent(parseDoc(markdown, "notes").blocks, template), false);
+    editor.commands.setContent(blocksToContent(parseDoc(markdown, "notes").blocks, template), { emitUpdate: false });
   }, [editor, markdown, template]);
   void nodeId;
   return <EditorContent editor={editor} className="notes-scroll" />;
