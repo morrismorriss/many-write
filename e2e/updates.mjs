@@ -273,7 +273,7 @@ await sleep(2500);
 texts = await pageTexts();
 const crossing = texts.findIndex((t) => /THE CROSSING\s+by\s+Sam Writer/.test(t));
 ok(crossing > 0, "the play has its own title page with the author");
-ok(texts[crossing + 1]?.includes("CAST OF CHARACTERS") && texts[crossing + 1].includes("MARA, a pilot."), "followed by its own front matter");
+ok(texts[crossing + 1]?.includes("MARA, a pilot.") && !texts[crossing + 1].includes("CAST OF CHARACTERS"), "followed by its own front matter, with no printed title");
 ok(texts.some((t) => t.includes("PLAY ONE")) && texts.some((t) => t.includes("PLAY THREE")), "every play is typeset in the collection");
 await page.screenshot({ path: path.join(SHOTS, "52-collection.png") });
 

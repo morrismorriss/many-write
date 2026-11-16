@@ -592,6 +592,7 @@ export class ProjectStore {
   meta(): ProjectMeta {
     return {
       title: this.data.title,
+      subtitle: this.data.subtitle ?? "",
       author: this.data.author,
       contact: this.data.contact,
       titlePage: this.data.settings.titlePage,
@@ -1003,7 +1004,7 @@ export class ProjectStore {
     this.emit();
   }
 
-  async updateMeta(patch: Partial<Pick<ProjectFile, "title" | "author" | "contact" | "theme">> & { settings?: Partial<ProjectFile["settings"]> }) {
+  async updateMeta(patch: Partial<Pick<ProjectFile, "title" | "subtitle" | "author" | "contact" | "theme">> & { settings?: Partial<ProjectFile["settings"]> }) {
     const { settings, ...rest } = patch;
     Object.assign(this.data, rest);
     if (settings) Object.assign(this.data.settings, settings);
@@ -1235,6 +1236,43 @@ export class ProjectStore {
     this.emit();
   }
 
+  /**
+   * Drag and drop of several items at once. They keep their binder order and land
+   * together: the first goes before/after/inside the target, the rest follow it.
+   * An item inside a folder that is also moving travels with its folder.
+   */
+  async moveMany(ids: string[], targetId: string, where: "before" | "after" | "inside") {
+    const picked = new Set(ids);
+    const order: string[] = [];
+    walkNodes(this.data.binder, (n) => {
+      if (picked.has(n.id) && !n.role) order.push(n.id);
+    });
+    const list = order.filter(
+      (id) => id !== targetId && !isDescendant(this.data, id, targetId) && !order.some((o) => o !== id && isDescendant(this.data, o, id)),
+    );
+    let anchor = targetId;
+    let pos = where;
+    for (const id of list) {
+      await this.move(id, anchor, pos);
+      if (where !== "inside") {
+        anchor = id;
+        pos = "after";
+      }
+    }
+  }
+
+  /** Give binder items an icon of the writer's choosing; undefined restores the default for their kind. */
+  setIcon(ids: string[], icon: string | undefined) {
+    for (const id of ids) {
+      const n = this.node(id);
+      if (!n || n.role) continue;
+      if (icon) n.icon = icon;
+      else delete n.icon;
+    }
+    this.emit();
+    void this.saveProject();
+  }
+
   /** Move a document or folder to the end of the Archive section. */
   async archive(id: string) {
     const archive = rootOf(this.data, "archive");
@@ -1363,6 +1401,7 @@ export function normalizeData(d: ProjectFile): ProjectFile {
   d.formatVersion = 1;
   d.title ??= "Untitled";
   d.author ??= "";
+  if (typeof d.subtitle !== "string") delete d.subtitle;
   d.contact ??= "";
   d.template = (TEMPLATES[d.template] ? d.template : "stage-play") as TemplateId;
   d.settings = Object.assign({ titlePage: true, paper: "us-letter" }, d.settings ?? {});
@@ -1383,6 +1422,7 @@ export function normalizeData(d: ProjectFile): ProjectFile {
     if (n.kind === "folder") n.children ??= [];
     if (!isSafeSegment(n.file)) n.file = slugify(String(n.title ?? "untitled")) + (n.kind === "doc" ? ".md" : "");
     if (n.notes !== undefined && !isSafeNotesPath(n.notes)) delete n.notes;
+    if (n.icon !== undefined && typeof n.icon !== "string") delete n.icon;
   });
   return d;
 }

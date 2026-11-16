@@ -148,6 +148,17 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
 .twisty:hover { background: var(--active); }
 .row-icon { color: var(--muted); display: grid; place-items: center; flex: none; }
 .row-icon svg { width: 15px; height: 15px; }
+.row-icon.pickable { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: none; cursor: pointer; }
+.row-icon.pickable:hover { background: var(--active); color: var(--text); }
+.binder-end { height: 10px; margin: 0 4px; border-radius: 3px; }
+.binder-end.drop-here { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.icon-picker { min-width: 0; width: 236px; }
+.icon-picker-head { font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding: 4px 6px 6px; }
+.icon-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.icon-choice { display: grid; place-items: center; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--text); cursor: pointer; }
+.icon-choice:hover { background: var(--hover); }
+.icon-choice.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.icon-choice svg { width: 16px; height: 16px; }
 .row-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-actions { display: flex; opacity: 0; }
 .binder-row:hover .row-actions { opacity: 1; }

@@ -119,6 +119,7 @@ export function ThemeMenu({ themes, current, onPick, onBuild, onDelete }: ThemeM
 export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore; onClose: () => void }) {
   const d = store.data;
   const [title, setTitle] = useState(d.title);
+  const [subtitle, setSubtitle] = useState(d.subtitle ?? "");
   const [author, setAuthor] = useState(d.author);
   const [contact, setContact] = useState(d.contact);
   const [titlePage, setTitlePage] = useState(d.settings.titlePage);
@@ -153,7 +154,7 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
     const essaySettings = essay ? { essayStyle, instructor, course, date } : {};
     const bookSettings = book ? { sceneBreak: sceneBreak === "image" && !breakImage ? ("asterisks" as const) : sceneBreak, sceneBreakImage: breakImage } : {};
     const scriptSettings = script ? { sceneNewPage, autoContd } : {};
-    await store.updateMeta({ title: title.trim() || "Untitled", author, contact, settings: { titlePage, paper, ...essaySettings, ...bookSettings, ...scriptSettings } });
+    await store.updateMeta({ title: title.trim() || "Untitled", subtitle: subtitle.trim(), author, contact, settings: { titlePage, paper, ...essaySettings, ...bookSettings, ...scriptSettings } });
     onClose();
   };
   return (
@@ -168,6 +169,10 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
         <label className="field">
           <span>Title</span>
           <input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Subtitle</span>
+          <input value={subtitle} placeholder="Optional: printed under the title" onChange={(e) => setSubtitle(e.target.value)} data-testid="settings-subtitle" />
         </label>
         <label className="field">
           <span>Author</span>

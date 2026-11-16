@@ -290,3 +290,28 @@ fn book_chapter_titles_are_centred() {
     assert!(offset(1) > 80.0, "chapter title offset {}", offset(1));
     assert!(offset(2) < 1.0, "body text offset {}", offset(2));
 }
+
+#[test]
+fn every_template_prints_a_subtitle() {
+    let cases = [
+        ("stage-play", "title-page: true", "paragraph"),
+        ("screenplay", "title-page: true", "action"),
+        ("book", "title-page: true", "paragraph"),
+        ("poem", "title-page: true", "line"),
+        ("article", "title-page: false", "paragraph"),
+        ("essay", "title-page: true, style: \"chicago\"", "paragraph"),
+        ("essay", "style: \"mla\"", "paragraph"),
+        ("document", "title-page: false", "paragraph"),
+    ];
+    for (t, extra, kind) in cases {
+        let header = format!("#import \"/mw/{t}.typ\": *\n#show: conf.with(title: \"Rivers\", subtitle: \"A Play in Two Acts\", author: \"A\", {extra})\n");
+        let (src, els) = build(&header, &[(kind, "Some words.".to_string())]);
+        let mut engine = Engine::new();
+        let r = engine.compile(&src, &els);
+        assert!(r.ok, "{t}: {:?}", r.errors);
+        if t != "document" {
+            let first = engine.page_text(0).unwrap();
+            assert!(first.contains("A Play in Two Acts"), "{t} {extra}: subtitle missing from page 1: {first}");
+        }
+    }
+}

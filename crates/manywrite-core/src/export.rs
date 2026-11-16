@@ -24,6 +24,10 @@ pub struct Block {
     pub kind: String,
     #[serde(default)]
     pub runs: Vec<Run>,
+    /// A name for the e-book's table of contents when the block itself prints nothing
+    /// (a front or back matter page, whose title is left off the page).
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -506,11 +510,20 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             if let Some(c) = current.take() {
                 chapters.push(c);
             }
-            let title = if starts_chapter { plain(&b.runs) } else { doc.title.clone() };
+            let title = if starts_chapter {
+                b.label.clone().filter(|l| !l.trim().is_empty()).unwrap_or_else(|| plain(&b.runs))
+            } else {
+                doc.title.clone()
+            };
             current = Some((title, String::new()));
         }
         let html = &mut current.as_mut().unwrap().1;
         let inline = epub_inline(&b.runs, poem);
+        // A matter page whose title is left off the page: it only starts a new chapter.
+        if b.kind == "matter_title" && plain(&b.runs).trim().is_empty() {
+            prev_kind = "chapter".to_string();
+            continue;
+        }
         match b.kind.as_str() {
             "chapter" | "title" | "matter_title" | "essay_title" | "essay_cover_title" => html.push_str(&format!("<h1>{inline}</h1>\n")),
             "essay_heading" => html.push_str(&format!("<p class=\"first\">{inline}</p>\n")),

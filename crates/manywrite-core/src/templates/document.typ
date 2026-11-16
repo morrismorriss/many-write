@@ -6,7 +6,7 @@
 #let mw-num = counter("mw-num")
 
 #let conf(
-  title: none, author: none, contact: none, date: none, title-page: false,
+  title: none, subtitle: none, author: none, contact: none, date: none, title-page: false,
   font: "Libertinus Serif", paper: "us-letter",
   page-fill: white, text-fill: black,
   body,

@@ -19,13 +19,15 @@
 }
 
 #let conf(
-  title: none, author: none, contact: none, date: none, title-page: false,
+  title: none, subtitle: none, author: none, contact: none, date: none, title-page: false,
   style: "mla", instructor: "", course: "",
   font: "Libertinus Serif", paper: "us-letter",
   page-fill: white, text-fill: black,
   body,
 ) = {
   let title = if title != none and title != "" { title } else { "Untitled" }
+  // MLA and Chicago both join a subtitle to the title with a colon.
+  if subtitle != none and subtitle != "" { title = title + ": " + subtitle }
   let author = if author != none { author } else { "" }
   let date = if date != none { date } else { "" }
   let chicago = style == "chicago"

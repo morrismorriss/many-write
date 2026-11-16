@@ -64,3 +64,67 @@ export const Tomato = base(
     <path d="M12 5.9c-1.1-1.5-3-1.9-4.6-1.1M12 5.9c1.1-1.5 3-1.9 4.6-1.1" />
   </>,
 );
+
+// Extra shapes offered in the binder's icon picker.
+export const StarIcon = base(<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />);
+export const FlagIcon = base(<><path d="M5 21V4" /><path d="M5 4h11l-2 4 2 4H5" /></>);
+export const MusicIcon = base(<><path d="M9 18V5l11-2v13" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="17.5" cy="16" r="2.5" /></>);
+export const PinIcon = base(<><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0113 0c0 5-6.5 11-6.5 11z" /><circle cx="12" cy="10" r="2.3" /></>);
+export const MoonIcon = base(<path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z" />);
+export const SunIcon = base(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>);
+export const FlameIcon = base(<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.6 3-5.6 3.6-9.3 2.4 1.4 3.4 3.5 3.4 5.6 1-.6 1.7-1.8 1.9-3.1 2.3 1.8 3.6 4.2 3.6 6.8 0 3.6-2.6 6.2-6 6.2z" />);
+export const LeafIcon = base(<><path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15" /><path d="M5 19l8-8" /></>);
+export const BoltIcon = base(<path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12z" />);
+export const MapIcon = base(<><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></>);
+export const CameraIcon = base(<><path d="M4 8h3l2-3h6l2 3h3a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V9a1 1 0 011-1z" /><circle cx="12" cy="13" r="3.5" /></>);
+export const ChatIcon = base(<path d="M4 5h16v11H9l-5 4z" />);
+export const KeyIcon = base(<><circle cx="8" cy="15" r="4" /><path d="M11 12l9-9M16 7l3 3M14 9l2 2" /></>);
+export const CrownIcon = base(<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z" />);
+export const HomeIcon = base(<><path d="M3 11l9-7 9 7" /><path d="M5 10v10h14V10M10 20v-5h4v5" /></>);
+export const GlobeIcon = base(<><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></>);
+export const SwordIcon = base(<><path d="M20 4l-9.5 9.5M20 4h-4M20 4v4" /><path d="M7 14l3 3M5 19l3.5-3.5M8.5 12.5l3 3" /></>);
+export const EyeIcon = base(<><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>);
+export const ClockIcon = base(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>);
+export const QuestionIcon = base(<><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1.2-1.5 2.3M12 17h.01" /></>);
+
+type IconComponent = ReturnType<typeof base>;
+
+/** Icons a binder item can wear. The keys are stored in project.json, so never rename one. */
+export const BINDER_ICONS: Record<string, { label: string; Icon: IconComponent }> = {
+  folder: { label: "Folder", Icon: FolderIcon },
+  stack: { label: "Stack", Icon: StackIcon },
+  scene: { label: "Scene", Icon: SceneIcon },
+  page: { label: "Page", Icon: PageIcon },
+  chapter: { label: "Chapter", Icon: ChapterIcon },
+  book: { label: "Book", Icon: Book },
+  quill: { label: "Quill", Icon: QuillIcon },
+  note: { label: "Note", Icon: NoteIcon },
+  masks: { label: "Masks", Icon: MasksIcon },
+  person: { label: "Person", Icon: PersonIcon },
+  bulb: { label: "Idea", Icon: BulbIcon },
+  heart: { label: "Heart", Icon: HeartIcon },
+  star: { label: "Star", Icon: StarIcon },
+  flag: { label: "Flag", Icon: FlagIcon },
+  music: { label: "Music", Icon: MusicIcon },
+  pin: { label: "Place", Icon: PinIcon },
+  map: { label: "Map", Icon: MapIcon },
+  home: { label: "Home", Icon: HomeIcon },
+  globe: { label: "World", Icon: GlobeIcon },
+  sun: { label: "Day", Icon: SunIcon },
+  moon: { label: "Night", Icon: MoonIcon },
+  clock: { label: "Time", Icon: ClockIcon },
+  flame: { label: "Flame", Icon: FlameIcon },
+  bolt: { label: "Bolt", Icon: BoltIcon },
+  leaf: { label: "Leaf", Icon: LeafIcon },
+  chat: { label: "Dialogue", Icon: ChatIcon },
+  camera: { label: "Camera", Icon: CameraIcon },
+  eye: { label: "Eye", Icon: EyeIcon },
+  key: { label: "Key", Icon: KeyIcon },
+  crown: { label: "Crown", Icon: CrownIcon },
+  sword: { label: "Sword", Icon: SwordIcon },
+  question: { label: "Question", Icon: QuestionIcon },
+  target: { label: "Target", Icon: TargetIcon },
+  lock: { label: "Lock", Icon: Lock },
+  warning: { label: "Warning", Icon: Warning },
+  archive: { label: "Box", Icon: ArchiveIcon },
+};

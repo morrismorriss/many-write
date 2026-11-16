@@ -15,6 +15,7 @@ export type ManuscriptItem =
 
 export interface ProjectMeta {
   title: string;
+  subtitle?: string;
   author: string;
   contact: string;
   titlePage: boolean;
@@ -173,6 +174,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
 
   const confArgs = [
     `title: ${str(meta.title || "Untitled")}`,
+    ...(meta.subtitle?.trim() ? [`subtitle: ${str(meta.subtitle.trim())}`] : []),
     `author: ${str(meta.author || "")}`,
     `contact: ${str(meta.contact || "")}`,
     `title-page: ${meta.titlePage ? "true" : "false"}`,
@@ -248,7 +250,9 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       const centered = filled.length > 0 && filled.every((b) => b.type === "centered" || b.type === "quote");
       lockFor(elementId(item.id, headingIndex));
       const hstart = bytes;
-      emit(`#matter-start(${str(item.title)}, first: ${first}, centered: ${centered})\n`);
+      // Matter page titles stay off the page, like scene titles; an essay's
+      // Works Cited or Bibliography page keeps the heading its style requires.
+      emit(`#matter-start(${str(template.id === "essay" ? item.title : "")}, first: ${first}, centered: ${centered})\n`);
       afterHeading = false;
       elements.push({ id: elementId(item.id, headingIndex), kind: "heading", start: hstart, end: bytes });
       first = false;

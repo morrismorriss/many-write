@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { ProjectStore } from "../project/store";
 import { inMatterFolder, roleOf, type BinderNode, type Role } from "../project/model";
 import { useStore } from "../lib/useStore";
 import { pickFile } from "../lib/backend";
 import { planImport } from "../project/importers";
+import { Popover } from "./Popover";
 import {
   ArchiveIcon,
+  BINDER_ICONS,
   BulbIcon,
   ChapterIcon,
   ChevronDown,
@@ -31,6 +33,12 @@ type DropPos = "before" | "after" | "inside";
 
 /** Each kind of binder item has its own icon: scenes, chapters, poems, pages, characters, research notes, plays. */
 function NodeIcon({ store, node }: { store: ProjectStore; node: BinderNode }) {
+  const chosen = node.icon ? BINDER_ICONS[node.icon] : undefined;
+  if (chosen) return <chosen.Icon />;
+  return <DefaultIcon store={store} node={node} />;
+}
+
+function DefaultIcon({ store, node }: { store: ProjectStore; node: BinderNode }) {
   if (node.kind === "folder") return node.play ? <MasksIcon /> : <FolderIcon />;
   const role = roleOf(store.data, node.id);
   if (role === "characters") return <PersonIcon />;
@@ -63,13 +71,82 @@ async function importIntoFolder(store: ProjectStore, node: BinderNode) {
 
 export function Binder({ store }: { store: ProjectStore }) {
   useStore(store);
-  const [dragId, setDragId] = useState<string | null>(null);
+  /** The items being dragged: the whole selection when the dragged row is part of it. */
+  const [dragIds, setDragIds] = useState<string[] | null>(null);
+  /** Rows picked with ⌘/Ctrl-click or Shift-click. The open document is always one of them. */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(store.selectedId ? [store.selectedId] : []));
+  /** Where a Shift-click range starts. */
+  const [rangeFrom, setRangeFrom] = useState<string | null>(store.selectedId);
+  /** The icon picker: the rows it changes and the icon it hangs from. */
+  const [iconFor, setIconFor] = useState<{ ids: string[]; anchor: RefObject<HTMLElement | null>; current?: string } | null>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  // The icon picker closes on a click elsewhere or Escape.
+  useEffect(() => {
+    if (!iconFor) return;
+    const down = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (pickerRef.current?.contains(t) || iconFor.anchor.current?.contains(t)) return;
+      setIconFor(null);
+    };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && setIconFor(null);
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key);
+    };
+  }, [iconFor]);
+  // Opening a document some other way (a new scene, search…) starts a fresh selection.
+  useEffect(() => {
+    const id = store.selectedId;
+    setPicked((p) => (id && p.has(id) ? p : new Set(id ? [id] : [])));
+  }, [store.selectedId]);
   const [drop, setDrop] = useState<{ id: string; pos: DropPos } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   /** The section ("front"/"back") or play front matter folder (its id) whose page menu is open. */
   const [presetsFor, setPresetsFor] = useState<string | null>(null);
   const [copyrightFor, setCopyrightFor] = useState<{ parentId: string; role: Role } | null>(null);
   const script = store.template.mode === "script";
+
+  /** Rows as they are shown (collapsed folders hide their children), for Shift-click ranges. */
+  const visibleOrder = () => {
+    const out: string[] = [];
+    const rec = (nodes: BinderNode[]) => {
+      for (const n of nodes) {
+        out.push(n.id);
+        if (n.kind === "folder" && !n.collapsed) rec(n.children ?? []);
+      }
+    };
+    for (const r of store.data.binder) if (!r.collapsed) rec(r.children ?? []);
+    return out;
+  };
+  /** The rows an action on `id` applies to: the whole selection if `id` is in it, else just `id`. */
+  const targetsOf = (id: string) => (picked.has(id) && picked.size > 1 ? visibleOrder().filter((x) => picked.has(x)) : [id]);
+  const onRowClick = (e: React.MouseEvent, node: BinderNode) => {
+    if (e.metaKey || e.ctrlKey) {
+      const next = new Set(picked);
+      if (next.has(node.id) && next.size > 1) {
+        next.delete(node.id);
+        // The open document stays picked; if it was the one removed, open another picked row.
+        if (store.selectedId === node.id) void store.select([...next][next.size - 1]);
+      } else next.add(node.id);
+      setPicked(next);
+      setRangeFrom(node.id);
+      return;
+    }
+    if (e.shiftKey && rangeFrom) {
+      const order = visibleOrder();
+      const a = order.indexOf(rangeFrom);
+      const b = order.indexOf(node.id);
+      if (a >= 0 && b >= 0) {
+        setPicked(new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1)));
+        return;
+      }
+    }
+    setPicked(new Set([node.id]));
+    setRangeFrom(node.id);
+    void store.select(node.id);
+  };
 
   /** The menu of ready-made front/back matter pages, for a section or a play's front matter folder. */
   const presetMenu = (key: string, where: "front" | "back", parentId: string, role: Role) =>
@@ -103,10 +180,14 @@ export function Binder({ store }: { store: ProjectStore }) {
     );
 
   const onDragOver = (e: React.DragEvent, node: BinderNode) => {
-    if (!dragId) return;
+    if (!dragIds) return;
     // Rows sit inside their section; the innermost target decides.
     e.stopPropagation();
-    if (dragId === node.id) return;
+    // Never onto a dragged row or into one of the dragged folders.
+    if (dragIds.includes(node.id) || dragIds.some((d) => store.node(d)?.kind === "folder" && isInside(d, node.id))) {
+      if (drop) setDrop(null);
+      return;
+    }
     e.preventDefault();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const y = (e.clientY - rect.top) / rect.height;
@@ -120,13 +201,26 @@ export function Binder({ store }: { store: ProjectStore }) {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragId && drop) void store.move(dragId, drop.id, drop.pos);
-    setDragId(null);
+    if (dragIds && drop) void store.moveMany(dragIds, drop.id, drop.pos);
+    setDragIds(null);
     setDrop(null);
   };
 
+  /** Is `id` somewhere inside the folder `folderId`? */
+  const isInside = (folderId: string, id: string) => {
+    let hit = false;
+    const rec = (nodes: BinderNode[]) => {
+      for (const n of nodes) {
+        if (n.id === id) hit = true;
+        if (!hit && n.children) rec(n.children);
+      }
+    };
+    rec(store.node(folderId)?.children ?? []);
+    return hit;
+  };
+
   const row = (node: BinderNode, depth: number): React.ReactNode => {
-    const selected = store.selectedId === node.id;
+    const selected = store.selectedId === node.id || picked.has(node.id);
     const missing = store.missing.has(node.id);
     const conflictOf = store.conflictCopies.get(node.id);
     const isFolder = node.kind === "folder";
@@ -141,17 +235,22 @@ export function Binder({ store }: { store: ProjectStore }) {
           style={{ paddingLeft: 8 + depth * 14 }}
           draggable={editing !== node.id}
           onDragStart={(e) => {
-            setDragId(node.id);
+            const ids = targetsOf(node.id);
+            if (ids.length === 1 && !picked.has(node.id)) {
+              setPicked(new Set([node.id]));
+              void store.select(node.id);
+            }
+            setDragIds(ids);
             e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", node.title);
+            e.dataTransfer.setData("text/plain", ids.length > 1 ? `${ids.length} items` : node.title);
           }}
           onDragEnd={() => {
-            setDragId(null);
+            setDragIds(null);
             setDrop(null);
           }}
           onDragOver={(e) => onDragOver(e, node)}
           onDrop={onDrop}
-          onClick={() => void store.select(node.id)}
+          onClick={(e) => onRowClick(e, node)}
           onDoubleClick={() => setEditing(node.id)}
           title={missing ? "This file is missing on disk." : conflictOf ? `A sync service made this conflict copy of “${conflictOf}”. Compare the two, keep what you need and delete the other.` : undefined}
           data-testid={`binder-${node.title}`}
@@ -170,7 +269,27 @@ export function Binder({ store }: { store: ProjectStore }) {
           ) : (
             <span className="twisty" />
           )}
-          <span className="row-icon">{conflictOf ? <Warning /> : <NodeIcon store={store} node={node} />}</span>
+          {conflictOf ? (
+            <span className="row-icon">
+              <Warning />
+            </span>
+          ) : (
+            <button
+              className="row-icon pickable"
+              title="Change icon"
+              aria-label={`Change the icon of “${node.title}”`}
+              data-testid={`icon-${node.title}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                const el = e.currentTarget;
+                const ids = targetsOf(node.id);
+                setIconFor((cur) => (cur && cur.anchor.current === el ? null : { ids, anchor: { current: el }, current: node.icon }));
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
+            >
+              <NodeIcon store={store} node={node} />
+            </button>
+          )}
           {editing === node.id ? (
             <input
               className="rename"
@@ -232,7 +351,11 @@ export function Binder({ store }: { store: ProjectStore }) {
                   data-testid={`archive-${node.title}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void store.archive(node.id).then(() => store.toast(`Moved “${node.title}” to the Archive.`));
+                    const ids = targetsOf(node.id);
+                    void (async () => {
+                      for (const id of ids) await store.archive(id);
+                      store.toast(ids.length > 1 ? `Moved ${ids.length} items to the Archive.` : `Moved “${node.title}” to the Archive.`);
+                    })();
                   }}
                 >
                   <ArchiveIcon />
@@ -243,7 +366,14 @@ export function Binder({ store }: { store: ProjectStore }) {
                 title="Move to trash"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (window.confirm(`Move “${node.title}” to the project's .trash folder?`)) void store.remove(node.id);
+                  const ids = targetsOf(node.id);
+                  const what = ids.length > 1 ? `these ${ids.length} items` : `“${node.title}”`;
+                  if (!window.confirm(`Move ${what} to the project's .trash folder?`)) return;
+                  // Items inside a folder that is also going are trashed with it.
+                  const top = ids.filter((id) => !ids.some((o) => o !== id && isInside(o, id)));
+                  void (async () => {
+                    for (const id of top) await store.remove(id);
+                  })();
                 }}
               >
                 <Trash />
@@ -320,9 +450,56 @@ export function Binder({ store }: { store: ProjectStore }) {
             {!root.collapsed && (
               <div role="group">{root.children?.length ? root.children.map((c) => row(c, 0)) : <div className="binder-empty">{empty}</div>}</div>
             )}
+            {!root.collapsed && !!root.children?.length && (
+              // Drop here to put items at the end of the section, out of any folder.
+              <div
+                className={`binder-end${drop?.id === root.id ? " drop-here" : ""}`}
+                onDragOver={(e) => {
+                  if (!dragIds) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (drop?.id !== root.id || drop.pos !== "inside") setDrop({ id: root.id, pos: "inside" });
+                }}
+                onDrop={onDrop}
+                data-testid={`end-${role}`}
+              />
+            )}
           </section>
         );
       })}
+      {iconFor && (
+        <Popover anchor={iconFor.anchor} panelRef={pickerRef} className="icon-picker" data-testid="icon-picker">
+          <div className="icon-picker-head">{iconFor.ids.length > 1 ? `Icon for ${iconFor.ids.length} items` : "Icon"}</div>
+          <div className="icon-grid">
+            {Object.entries(BINDER_ICONS).map(([key, { label, Icon }]) => (
+              <button
+                key={key}
+                className={`icon-choice${iconFor.current === key ? " on" : ""}`}
+                title={label}
+                aria-label={label}
+                data-testid={`icon-choice-${key}`}
+                onClick={() => {
+                  store.setIcon(iconFor.ids, key);
+                  setIconFor(null);
+                }}
+              >
+                <Icon />
+              </button>
+            ))}
+          </div>
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            data-testid="icon-choice-default"
+            onClick={() => {
+              store.setIcon(iconFor.ids, undefined);
+              setIconFor(null);
+            }}
+          >
+            Default icon
+          </button>
+        </Popover>
+      )}
       {copyrightFor && (
         <CopyrightDialog
           author={store.data.author}
