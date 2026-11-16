@@ -202,6 +202,7 @@ fn prose_styles(book: bool) -> Vec<Style> {
         },
         Style { id: "quote", ppr: "<w:spacing w:before=\"120\" w:after=\"120\"/><w:ind w:left=\"720\" w:right=\"720\"/>", rpr: "<w:i/>" },
         Style { id: "scene_break", ppr: "<w:jc w:val=\"center\"/><w:spacing w:before=\"240\" w:after=\"240\"/>", rpr: "" },
+        Style { id: "list", ppr: "<w:spacing w:before=\"60\" w:after=\"60\"/><w:ind w:left=\"540\" w:hanging=\"360\"/>", rpr: "" },
         // Poem lines: never justified, hanging indent for wrapped lines.
         Style { id: "line", ppr: "<w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:left=\"720\" w:hanging=\"720\"/>", rpr: "" },
         Style { id: "stanza_break", ppr: "<w:spacing w:before=\"0\" w:after=\"0\"/>", rpr: "" },

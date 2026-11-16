@@ -125,7 +125,8 @@ export function applyTheme(t: Theme, el: HTMLElement = document.documentElement)
   s.setProperty("--active", mix(c.text, c.sidebar, 0.1));
   s.setProperty("--accent-soft", mix(c.accent, c.background, 0.14));
   s.setProperty("--writing-font", FONT_STACKS[t.writingFont]);
-  s.setProperty("--pane", isDark(t) ? mix("#000000", c.background, 0.25) : mix(c.text, c.background, 0.05));
+  // Both side panels (binder on the left, preview on the right) use the sidebar colour.
+  s.setProperty("--pane", c.sidebar);
   el.dataset.scheme = isDark(t) ? "dark" : "light";
   if (el === document.documentElement) s.colorScheme = isDark(t) ? "dark" : "light";
 }

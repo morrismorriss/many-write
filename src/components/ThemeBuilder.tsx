@@ -11,7 +11,7 @@ interface Props {
 
 const FIELDS: { key: keyof Theme["colors"]; label: string; hint: string }[] = [
   { key: "background", label: "Background", hint: "Editor and page surround" },
-  { key: "sidebar", label: "Sidebar", hint: "Binder and notes" },
+  { key: "sidebar", label: "Side panels", hint: "Binder on the left, preview on the right" },
   { key: "text", label: "Text", hint: "Everything you read" },
   { key: "accent", label: "Accent", hint: "Selection, buttons, highlights" },
 ];
@@ -84,6 +84,9 @@ export function ThemeBuilder({ initial, onSave, onCancel, themeFolder }: Props) 
                 <div style={{ textAlign: "center", letterSpacing: "0.04em" }}>ANNA</div>
                 <div>I told you already. Twice.</div>
                 <div style={{ color: t.colors.accent, marginTop: 8, fontFamily: "Inter, sans-serif", fontSize: 12 }}>Accent colour</div>
+              </div>
+              <div className="tb-sample-side right" style={{ background: t.colors.sidebar }} aria-hidden="true">
+                <div className="tb-sample-page" />
               </div>
             </div>
             <div className="contrast" data-testid="contrast">

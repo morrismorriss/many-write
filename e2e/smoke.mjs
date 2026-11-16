@@ -190,6 +190,8 @@ await page.screenshot({ path: path.join(SHOTS, "04-theme-builder.png") });
 await page.getByTestId("save-theme").click();
 await sleep(600);
 ok(fs.existsSync(path.join(CONFIG, "themes/custom-night-ink.json")), "custom theme saved as a small file");
+const panels = await page.evaluate(() => [".sidebar", ".preview-pane", ".main"].map((s) => getComputedStyle(document.querySelector(s)).backgroundColor));
+ok(panels[0] === "rgb(37, 43, 59)" && panels[1] === panels[0] && panels[2] === "rgb(29, 34, 48)", `custom theme colours both side panels and the editor (${panels.join(" / ")})`);
 await page.screenshot({ path: path.join(SHOTS, "05-custom-theme.png") });
 await page.getByTestId("theme-btn").click();
 await page.getByTestId("theme-light").click();

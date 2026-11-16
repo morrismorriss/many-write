@@ -195,7 +195,7 @@ export class ProjectStore {
     if (!r.exists) throw new Error(`${path} does not exist.`);
     const dir = path.replace(/\/[^/]*$/, "") || "/";
     const name = path.split("/").pop()!;
-    const template: TemplateId = /\.(fountain|spmd)$/i.test(name) ? "screenplay" : "article";
+    const template: TemplateId = /\.(fountain|spmd)$/i.test(name) ? "screenplay" : "document";
     const data = emptyProject(name.replace(/\.[^.]+$/, ""), template, "", false);
     const ms = rootOf(data, "manuscript");
     ms.file = "";

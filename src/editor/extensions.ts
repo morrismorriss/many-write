@@ -560,6 +560,12 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               const label = tmpl.elements.find((e) => e.type === type)?.placeholder ?? elementLabel(tmpl, type);
               decos.push(Decoration.node($from.before(), $from.after(), { class: "is-empty", "data-placeholder": label }));
             }
+            // Numbered lists: each item shows its number (counted from the first item of the list).
+            let n = 0;
+            state.doc.forEach((node, pos) => {
+              n = node.type.name === "element" && node.attrs.type === "numbered" ? n + 1 : 0;
+              if (n) decos.push(Decoration.node(pos, pos + node.nodeSize, { "data-num": `${n}.` }));
+            });
             // Find & replace matches.
             const search = options.getSearch();
             if (search) {

@@ -13,7 +13,7 @@ export type ImportFormat = "docx" | "fdx" | "fountain" | "pdf" | "scrivener" | "
 export function formatOf(path: string): ImportFormat | null {
   const ext = path.toLowerCase().replace(/\/+$/, "").split(".").pop();
   return (
-    ({ docx: "docx", fdx: "fdx", fountain: "fountain", spmd: "fountain", pdf: "pdf", scriv: "scrivener", md: "markdown", markdown: "markdown", txt: "markdown", rtf: "rtf" } as const)[
+    ({ docx: "docx", fdx: "fdx", fountain: "fountain", spmd: "fountain", pdf: "pdf", scriv: "scrivener", scrivx: "scrivener", md: "markdown", markdown: "markdown", txt: "markdown", rtf: "rtf" } as const)[
       ext ?? ""
     ] ?? null
   );
@@ -43,10 +43,16 @@ export interface ImportPlan {
   template: TemplateId;
   manuscript: ImportNode[];
   research: ImportNode[];
+  /** Optional other sections (Scrivener projects often have these as top-level folders). */
+  characters?: ImportNode[];
+  front?: ImportNode[];
+  back?: ImportNode[];
   /** A sentence for the import dialog: what was found. */
   summary: string;
   /** Markdown/text imports: the file's text, copied as the single document. */
   raw?: string;
+  /** Prose split into chapters at top-level headings, used when the writer picks Book. */
+  chapters?: ImportNode[];
 }
 
 interface Para {
@@ -248,9 +254,17 @@ export async function importDocx(path: string): Promise<ImportPlan> {
     else if (/^(\*\s*){3}$|^#$/.test(t)) blocks.push({ type: "scene_break", runs: [] });
     else blocks.push({ type: "paragraph", runs: p.runs.map((r) => ({ ...r, text: r.text.replace(/\t/g, " ") })) });
   }
+  // A Word file opens as one Document; choosing Book splits it into chapters at its top headings.
+  const whole: Block[] = blocks.map(({ level, ...b }) => (level === 1 ? { ...b, type: "title" } : b));
   const chapters = proseChapters(blocks);
-  const template: TemplateId = chapters.length > 1 ? "book" : "article";
-  return { title, template, manuscript: chapters, research: [], summary: `${blocks.length} paragraphs${chapters.length > 1 ? `, ${chapters.length} chapters` : ""} from Word.` };
+  return {
+    title,
+    template: "document",
+    manuscript: [{ kind: "doc", title, blocks: whole }],
+    chapters: chapters.length > 1 ? chapters : undefined,
+    research: [],
+    summary: `${blocks.length} paragraphs${chapters.length > 1 ? ` (${chapters.length} chapters if imported as a Book)` : ""} from Word.`,
+  };
 }
 
 interface PdfLine {
@@ -300,7 +314,7 @@ export async function importPdf(path: string): Promise<ImportPlan> {
     }
   }
   const blocks = paras.map((p) => ({ type: "paragraph" as const, runs: [{ text: p }] }));
-  return { title, template: "book", manuscript: [{ kind: "doc", title: "Imported text", blocks }], research: [], summary: `${paras.length} paragraphs from a ${all[all.length - 1].page}-page PDF.` };
+  return { title, template: "document", manuscript: [{ kind: "doc", title, blocks }], research: [], summary: `${paras.length} paragraphs from a ${all[all.length - 1].page}-page PDF.` };
 }
 
 interface ScrivItem {
@@ -333,7 +347,23 @@ export async function importScrivener(path: string): Promise<ImportPlan> {
     return { kind: i.kind.includes("Folder") ? "folder" : "doc", title: i.title, blocks, notes: notesOf(i), children: i.kind.includes("Folder") ? [] : undefined };
   };
   const manuscript = (draft?.children ?? []).map(convert);
-  const research = items.filter((i) => i !== draft && i.kind !== "TrashFolder").flatMap((i) => (i.kind === "ResearchFolder" ? i.children : [i])).map(convert);
+  // Top-level folders named like Many Write's sections go to those sections; the rest to Research.
+  const section = (i: ScrivItem) => {
+    const t = i.title.trim().toLowerCase();
+    if (i.kind !== "Folder") return null;
+    if (/^characters?$/.test(t)) return "characters";
+    if (/^front[ -]?matter$/.test(t)) return "front";
+    if (/^back[ -]?matter$/.test(t)) return "back";
+    if (/^templates?$/.test(t)) return "skip";
+    return null;
+  };
+  const others = items.filter((i) => i !== draft && i.kind !== "TrashFolder");
+  const research = others.filter((i) => !section(i)).flatMap((i) => (i.kind === "ResearchFolder" ? i.children : [i])).map(convert);
+  const pick = (name: string) => others.filter((i) => section(i) === name).flatMap((i) => i.children).map(convert);
+  const characters = pick("characters");
+  const front = pick("front");
+  const back = pick("back");
+  const scriv1 = items.length === 1 && draft && draft.children.every((c) => /^Document \d+$/.test(c.title));
   let template: TemplateId = "book";
   if (script) {
     const blocks = manuscript.flatMap(function flat(n): Block[] {
@@ -350,7 +380,19 @@ export async function importScrivener(path: string): Promise<ImportPlan> {
     }
   }
   const count = (ns: ImportNode[]): number => ns.reduce((k, n) => k + (n.kind === "doc" ? 1 : 0) + count(n.children ?? []), 0);
-  return { title: fileTitle(path).replace(/\.scriv$/i, ""), template, manuscript, research, summary: `${count(manuscript)} documents in the draft and ${count(research)} in research, from Scrivener.` };
+  const extra = [characters.length && `${count(characters)} characters`, front.length + back.length && `${count(front) + count(back)} front/back matter pages`].filter(Boolean).join(", ");
+  return {
+    title: fileTitle(path.replace(/\/[^/]*\.scrivx$/i, "")).replace(/\.scriv$/i, ""),
+    template,
+    manuscript,
+    research,
+    characters,
+    front,
+    back,
+    summary: scriv1
+      ? `${count(manuscript)} documents from a Scrivener 1 project. Scrivener 1 keeps titles in a format Many Write cannot read, so documents are numbered; open the project in Scrivener 3 and save it first to keep the titles.`
+      : `${count(manuscript)} documents in the draft, ${count(research)} in research${extra ? `, ${extra}` : ""}, from Scrivener.`,
+  };
 }
 
 export async function importRtf(path: string): Promise<ImportPlan> {
@@ -358,7 +400,7 @@ export async function importRtf(path: string): Promise<ImportPlan> {
   const lines = paras.map(text);
   if (looksLikeScript(lines)) return finishScript(fileTitle(path), scriptFromLines(paras.map((p) => ({ text: text(p), gapBefore: false, runs: p.runs }))), "A script from rich text.");
   const blocks: Block[] = paras.filter((p) => text(p).trim()).map((p) => ({ type: "paragraph", runs: p.runs }));
-  return { title: fileTitle(path), template: "article", manuscript: [{ kind: "doc", title: fileTitle(path), blocks }], research: [], summary: `${blocks.length} paragraphs from rich text.` };
+  return { title: fileTitle(path), template: "document", manuscript: [{ kind: "doc", title: fileTitle(path), blocks }], research: [], summary: `${blocks.length} paragraphs from rich text.` };
 }
 
 export async function planImport(path: string): Promise<ImportPlan> {
@@ -380,7 +422,7 @@ export async function planImport(path: string): Promise<ImportPlan> {
       const src = (await fsApi.read(path)).content;
       const lines = src.split("\n");
       if (looksLikeScript(lines)) return importFountain(src, path);
-      return { title: fileTitle(path), template: "article", manuscript: [{ kind: "doc", title: fileTitle(path), blocks: [] }], research: [], summary: "A markdown or text file.", raw: src };
+      return { title: fileTitle(path), template: "document", manuscript: [{ kind: "doc", title: fileTitle(path), blocks: [] }], research: [], summary: "A markdown or text file.", raw: src };
     }
     default:
       throw new Error("Many Write can import .docx, .fdx, .fountain, .pdf, .rtf, .md/.txt files and Scrivener .scriv projects.");
@@ -394,8 +436,10 @@ function blocksFor(blocks: Block[], template: TemplateId): Block[] {
     const action = template === "screenplay" ? "action" : "direction";
     return blocks.map((b) => (b.type === "direction" || b.type === "action" || b.type === "paragraph" ? { ...b, type: action } : b));
   }
-  // Script into prose: keep the words, as paragraphs.
-  return blocks.map((b) => (["heading", "subheading", "quote", "scene_break", "paragraph"].includes(b.type) ? b : { ...b, type: "paragraph" }));
+  // Into prose: keep every block the format has; anything else becomes a paragraph.
+  const keep = new Set(t.elements.map((e) => e.type));
+  if (keep.has("todo")) keep.add("todo_done");
+  return blocks.map((b) => (keep.has(b.type) ? b : b.type === "title" && keep.has("heading") ? { ...b, type: "heading" } : { ...b, type: "paragraph" }));
 }
 
 /** Write a new project folder from an import plan; returns its root. */
@@ -409,7 +453,7 @@ export async function createFromImport(location: string, plan: ImportPlan, templ
     const taken = new Set<string>();
     for (const [i, n] of nodes.entries()) {
       const node: BinderNode = { id: newId(), kind: n.kind, title: n.title || "Untitled", file: "" };
-      node.file = desiredName(node, i, role === "manuscript", taken);
+      node.file = desiredName(node, i, role === "manuscript" || role === "front" || role === "back", taken);
       (parent.children ??= []).push(node);
       const path = join(parentDir, node.file);
       if (n.kind === "folder") {
@@ -417,7 +461,7 @@ export async function createFromImport(location: string, plan: ImportPlan, templ
         await fsApi.mkdir(path);
         await write(path, node, n.children ?? [], role);
       } else {
-        const mode = role === "manuscript" ? t.mode : "notes";
+        const mode = role === "manuscript" ? t.mode : role === "front" || role === "back" ? "prose" : "notes";
         const content = raw !== undefined && role === "manuscript" ? raw : serializeDoc({ blocks: role === "manuscript" ? blocksFor(n.blocks ?? [], template) : (n.blocks ?? []), frontMatter: null }, mode);
         await fsApi.write(path, content, null, true);
       }
@@ -428,8 +472,12 @@ export async function createFromImport(location: string, plan: ImportPlan, templ
     }
   };
   for (const r of ["front-matter", "manuscript", "back-matter", "characters", "research", "archive", "notes"]) await fsApi.mkdir(join(root, r));
-  await write(join(root, "manuscript"), rootOf(data, "manuscript"), plan.manuscript, "manuscript");
+  const manuscript = template === "book" && plan.chapters ? plan.chapters : plan.manuscript;
+  await write(join(root, "manuscript"), rootOf(data, "manuscript"), manuscript, "manuscript");
   await write(join(root, "research"), rootOf(data, "research"), plan.research, "research");
+  await write(join(root, "characters"), rootOf(data, "characters"), plan.characters ?? [], "characters");
+  await write(join(root, "front-matter"), rootOf(data, "front"), plan.front ?? [], "front");
+  await write(join(root, "back-matter"), rootOf(data, "back"), plan.back ?? [], "back");
   await fsApi.write(join(root, "README.md"), projectReadme(plan.title, t), null, true);
   await fsApi.write(join(root, "project.json"), serializeProject(data), null);
   return root;

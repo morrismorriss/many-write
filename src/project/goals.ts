@@ -57,6 +57,49 @@ export function history(g: Goals, days = 7, today = new Date()): { day: string; 
   return out;
 }
 
+export interface WeekDay {
+  key: string;
+  /** Built from the computer's own calendar (never parsed from text). */
+  date: Date;
+  words: number;
+  today: boolean;
+  future: boolean;
+}
+
+/**
+ * The first day of the week on this computer: 1 = Monday … 7 = Sunday.
+ * Uses the system locale's week information where the browser engine has it.
+ */
+export function firstDayOfWeek(locale = typeof navigator !== "undefined" ? navigator.language : "en-US"): number {
+  try {
+    const loc = new Intl.Locale(locale) as Intl.Locale & { getWeekInfo?: () => { firstDay: number }; weekInfo?: { firstDay: number } };
+    const info = loc.getWeekInfo?.() ?? loc.weekInfo;
+    if (info?.firstDay) return info.firstDay;
+    const region = loc.maximize().region ?? "";
+    // Regions whose weeks start on Sunday (where week info is unavailable).
+    if (/^(US|CA|MX|BR|JP|KR|TW|HK|IL|PH|ZA|AU|IN|SA|AE|CO|PE|VE|GT|HN|NI|PA|DO|PR|SV|BZ|JM|KE|MO|BD|PK|NP|TH|ID|KH|LA|MM|BT|AR|UM|AS|GU|VI|WS|ZW)$/.test(region)) return 7;
+  } catch {
+    /* fall through */
+  }
+  return 1;
+}
+
+/** This calendar week, starting on the computer's first day of the week. */
+export function calendarWeek(g: Goals, today = new Date(), firstDay = firstDayOfWeek()): WeekDay[] {
+  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const dow = t.getDay() === 0 ? 7 : t.getDay(); // 1 = Monday … 7 = Sunday
+  const back = (dow - firstDay + 7) % 7;
+  const out: WeekDay[] = [];
+  for (let i = 0; i < 7; i++) {
+    // Day arithmetic with the Date constructor stays correct across month ends and clock changes.
+    const date = new Date(t.getFullYear(), t.getMonth(), t.getDate() - back + i);
+    const key = dayKey(date);
+    const log = g.days[key];
+    out.push({ key, date, words: log ? Math.max(0, log.last - log.base) : 0, today: i === back, future: i > back });
+  }
+  return out;
+}
+
 /** Words per day needed to reach the project goal by the deadline. */
 export function perDayToDeadline(g: Goals, total: number, today = new Date()): number | null {
   if (!g.project || !g.deadline) return null;

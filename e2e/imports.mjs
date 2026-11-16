@@ -89,7 +89,7 @@ ok(r.ok, "pdf fixture written");
 fs.writeFileSync(path.join(FIX, "Letter.rtf"), String.raw`{\rtf1\ansi{\fonttbl{\f0 Times;}}\f0 Dear Sam,\par I \i really\i0  liked it.\par Yours, Ann\par}`);
 // A minimal Scrivener 3 project package.
 const scriv = path.join(FIX, "Novel.scriv");
-const uuids = ["A1", "B2", "C3", "D4", "E5"];
+const uuids = ["A1", "B2", "C3", "D4", "E5", "F6", "G7"];
 fs.mkdirSync(scriv, { recursive: true });
 fs.writeFileSync(
   path.join(scriv, "Novel.scrivx"),
@@ -102,6 +102,9 @@ fs.writeFileSync(
   </Children></BinderItem>
   <BinderItem UUID="RES" Type="ResearchFolder"><Title>Research</Title><Children>
     <BinderItem UUID="${uuids[3]}" Type="Text"><Title>Places</Title></BinderItem>
+  </Children></BinderItem>
+  <BinderItem UUID="${uuids[5]}" Type="Folder"><Title>Characters</Title><Children>
+    <BinderItem UUID="${uuids[6]}" Type="Text"><Title>Mara</Title></BinderItem>
   </Children></BinderItem>
   <BinderItem UUID="TR" Type="TrashFolder"><Title>Trash</Title><Children>
     <BinderItem UUID="${uuids[4]}" Type="Text"><Title>Deleted</Title></BinderItem>
@@ -119,9 +122,10 @@ put(uuids[1], "notes.rtf", rtfDoc("Check the timetable.\\par"));
 put(uuids[2], "content.rtf", rtfDoc("The letter was \\b unsigned\\b0 .\\par"));
 put(uuids[3], "content.rtf", rtfDoc("The station, the square.\\par"));
 put(uuids[4], "content.rtf", rtfDoc("Gone.\\par"));
+put(uuids[6], "content.rtf", rtfDoc("Mara, thirty, a ticket clerk.\\par"));
 
 // ---- Import each through File > Import
-async function importVia(fixture, expectTemplate) {
+async function importVia(fixture, expectTemplate, choose = null) {
   await page.goto(URL);
   answer = path.join(FIX, fixture);
   await page.getByTestId("import").click();
@@ -130,6 +134,10 @@ async function importVia(fixture, expectTemplate) {
   const tmpl = await page.getByTestId("import-template").inputValue();
   ok(tmpl === expectTemplate, `${fixture}: detected ${tmpl} (${summary.split(".")[0]})`);
   await page.getByTestId("import-location").fill(OUT);
+  if (choose) {
+    await page.getByTestId("import-template").selectOption(choose);
+    await page.getByTestId("import-title").fill(`${await page.getByTestId("import-title").inputValue()} (${choose})`);
+  }
   const title = await page.getByTestId("import-title").inputValue();
   await page.getByTestId("import-go").click();
   await page.getByTestId("file-btn").waitFor({ timeout: 10000 });
@@ -156,24 +164,30 @@ root = await importVia("Screenplay.docx", "screenplay");
 files = filesUnder(path.join(root, "manuscript"));
 ok(files.length === 2 && read(path.join(root, "manuscript", files[1])).includes("> CUT TO:"), `docx script styles become elements (${files})`);
 
-root = await importVia("Essay.docx", "book");
+root = await importVia("Essay.docx", "document");
 files = filesUnder(path.join(root, "manuscript"));
-ok(files.join(",") === "01-beginnings.md,02-endings.md" && read(path.join(root, "manuscript", files[0])).includes("It was *late*."), `docx chapters split at headings, italics kept (${files})`);
+ok(files.length === 1 && read(path.join(root, "manuscript", files[0])).startsWith("# Beginnings\n\nIt was *late*.") && read(path.join(root, "manuscript", files[0])).includes("# Endings"), `a Word file opens as one Document, headings and italics kept (${files})`);
 
 root = await importVia("PDF Play.pdf", "screenplay");
 files = filesUnder(path.join(root, "manuscript"));
 const pdfScene = files.length ? read(path.join(root, "manuscript", files[0])) : "";
 ok(files.length === 2 && pdfScene.includes("ANNA\n(quietly)\nWhere did you put it?") && pdfScene.includes("Rain on the window."), `pdf script rebuilt from text positions (${files})`);
 
-root = await importVia("Letter.rtf", "article");
+root = await importVia("Essay.docx", "document", "book");
+files = filesUnder(path.join(root, "manuscript"));
+ok(files.join(",") === "01-beginnings.md,02-endings.md", `imported as a Book, it splits into chapters (${files})`);
+
+root = await importVia("Letter.rtf", "document");
 files = filesUnder(path.join(root, "manuscript"));
 ok(read(path.join(root, "manuscript", files[0])).includes("I *really* liked it."), "rtf with italics");
 
-root = await importVia("Novel.scriv", "book");
+// Choosing the .scrivx file inside the project works too (how Windows users often pick it).
+root = await importVia("Novel.scriv/Novel.scrivx", "book");
 files = filesUnder(path.join(root, "manuscript"));
 ok(files.join(",") === "01-part-one/01-arrival.md,01-part-one/02-the-letter.md", `scrivener binder kept (${files})`);
 ok(read(path.join(root, "manuscript/01-part-one/02-the-letter.md")).includes("The letter was **unsigned**."), "scrivener text with bold");
 ok(filesUnder(path.join(root, "research")).length === 1, "scrivener research imported; trash skipped");
+ok(filesUnder(path.join(root, "characters")).length === 1 && read(path.join(root, "characters", "mara.md")).includes("Mara, thirty, a ticket clerk."), "a top-level Characters folder goes to Characters");
 const notes = fs.readdirSync(path.join(root, "notes"));
 ok(notes.some((n) => read(path.join(root, "notes", n)).includes("Mara arrives in town.") && read(path.join(root, "notes", n)).includes("Check the timetable.")), "scrivener synopsis and notes become the scene's notes");
 await page.screenshot({ path: path.join(SHOTS, "31-import-scrivener.png") });

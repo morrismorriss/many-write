@@ -138,6 +138,7 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
     }
     if (template.id === "book") blocks.push({ kind: "chapter", runs: [{ text: item.title }] });
     let prevEmpty = false;
+    let num = 0;
     for (const b of item.blocks) {
       const empty = !blockText(b).trim();
       if (template.mode === "poem") {
@@ -150,11 +151,39 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
         blocks.push({ kind: b.type === "title" ? "title" : "line", runs: b.runs });
         continue;
       }
-      if (empty && b.type !== "scene_break") continue;
+      if (empty && b.type !== "scene_break" && b.type !== "divider") continue;
+      if (template.mode === "notes") {
+        num = b.type === "numbered" ? num + 1 : 0;
+        const k = exportKind(b, num);
+        blocks.push({ kind: k.kind, runs: k.prefix ? [{ text: k.prefix }, ...b.runs] : b.runs });
+        continue;
+      }
       blocks.push({ kind: b.type, runs: normalizeRuns(b) });
     }
   }
   return { title: meta.title || "Untitled", author: meta.author, template: template.id, lang: "en", id: `urn:uuid:${projectId}`, blocks };
+}
+
+/** Notion-style blocks (Document format) as plain styles Word and e-readers understand. */
+function exportKind(b: Block, n: number): { kind: string; prefix?: string } {
+  switch (b.type) {
+    case "title":
+      return { kind: "heading" };
+    case "bullet":
+      return { kind: "list", prefix: "•\u00a0\u00a0" };
+    case "numbered":
+      return { kind: "list", prefix: `${n}.\u00a0\u00a0` };
+    case "todo":
+      return { kind: "list", prefix: "☐\u00a0\u00a0" };
+    case "todo_done":
+      return { kind: "list", prefix: "☑\u00a0\u00a0" };
+    case "callout":
+      return { kind: "quote" };
+    case "divider":
+      return { kind: "scene_break" };
+    default:
+      return { kind: b.type };
+  }
 }
 
 function normalizeRuns(b: Block): Run[] {

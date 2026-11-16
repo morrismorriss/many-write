@@ -183,12 +183,15 @@ await page.getByTestId("stats-btn").click();
 // ---- Goals
 await page.getByTestId("goals-btn").click();
 await page.getByTestId("goal-daily").fill("3000");
-await page.getByTestId("goal-set").fill("2500");
-await page.getByTestId("goal-reset").click();
-ok((await page.getByTestId("goal-today").innerText()) === "2,500 / 3,000", "today's count can be set to any number");
+ok(/ \/ 3,000$/.test(await page.getByTestId("goal-today").innerText()), "the daily goal can be set");
+// The week follows the computer's calendar: 7 days, today marked, named by the system.
+const week = await page.getByTestId("goal-week").evaluate((el) =>
+  [...el.querySelectorAll(".goal-day")].map((d) => ({ label: d.querySelector("small").textContent, today: d.classList.contains("today") })),
+);
+const todayName = await page.evaluate(() => new Date().toLocaleDateString(undefined, { weekday: "short" }));
+ok(week.length === 7 && week.filter((d) => d.today).length === 1 && week.find((d) => d.today).label === todayName, `this week, with today (${todayName}) marked: ${week.map((d) => d.label).join(" ")}`);
+ok(!week.some((d) => /Invalid/i.test(d.label)) && new Set(week.map((d) => d.label)).size === 7, "seven distinct, valid day names");
 await page.screenshot({ path: path.join(SHOTS, "24-goals.png") });
-await page.getByTestId("goal-reset").click();
-ok((await page.getByTestId("goal-today").innerText()) === "0 / 3,000", "and reset to zero");
 await sleep(2500);
 ok(JSON.parse(read("goals.json")).daily === 3000, "goals saved in the project folder");
 await page.keyboard.press("Escape");

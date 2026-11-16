@@ -27,6 +27,7 @@ pub const TEMPLATES: &[(&str, &str)] = &[
     ("book.typ", include_str!("templates/book.typ")),
     ("article.typ", include_str!("templates/article.typ")),
     ("matter.typ", include_str!("templates/matter.typ")),
+    ("document.typ", include_str!("templates/document.typ")),
 ];
 
 const BUNDLED_FONTS: &[&[u8]] = &[

@@ -5,7 +5,7 @@ import { Binder, NotesPanel } from "./Binder";
 import { Preview, type CompileReport } from "./Preview";
 import { EditorPane } from "../editor/EditorPane";
 import type { SearchHighlight } from "../editor/extensions";
-import { ExportMenu, ProjectSettingsDialog, ThemeMenu } from "./Menus";
+import { exportProject, ProjectSettingsDialog, ThemeMenu } from "./Menus";
 import { FileMenu, FindBar, GoalsWidget, Pomodoro, ProductionMenu, type FindScope } from "./Widgets";
 import { ChevronLeft, ChevronRight, FileIcon, FolderIcon, Search, Warning } from "./icons";
 import type { AppSettings, Theme } from "../themes/themes";
@@ -151,6 +151,8 @@ export function Workspace(p: Props) {
               onImport={p.onImport}
               onImportScrivener={p.onImportScrivener}
               single={store.single}
+              exports={store.template.exports}
+              onExport={(f) => void exportProject(store, f)}
               onOpenFolder={p.onOpenFolder}
               onOpen={p.onOpenProject}
               onClose={p.onClose}
@@ -182,7 +184,6 @@ export function Workspace(p: Props) {
               <Search />
             </button>
             <ThemeMenu themes={p.themes} current={p.theme} onPick={p.onPickTheme} onBuild={p.onBuildTheme} onDelete={p.onDeleteTheme} />
-            <ExportMenu store={store} />
           </div>
         </div>
         {find && (

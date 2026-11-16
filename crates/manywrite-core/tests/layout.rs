@@ -89,6 +89,7 @@ fn every_template_compiles() {
         ("poem", vec!["title", "line", "line"]),
         ("book", vec!["heading", "paragraph", "paragraph", "quote", "scene_break", "paragraph"]),
         ("article", vec!["heading", "paragraph", "quote", "subheading", "paragraph"]),
+        ("document", vec!["title", "paragraph", "bullet", "bullet", "numbered", "numbered", "todo", "todo_done", "quote", "callout", "divider", "paragraph"]),
     ] {
         let header = format!("#import \"/mw/{t}.typ\": *\n#show: conf.with(title: \"T\", author: \"A\")\n#doc-start(\"Chapter\", first: true)\n");
         let items: Vec<_> = kinds.iter().map(|k| (*k, "Some words for the text here.".to_string())).collect();

@@ -29,7 +29,7 @@ export type ElementType =
   // A picture from the project's assets folder.
   | "image";
 
-export type TemplateId = "stage-play" | "screenplay" | "poem" | "book" | "article";
+export type TemplateId = "stage-play" | "screenplay" | "poem" | "book" | "article" | "document";
 /** Templates used outside the manuscript. */
 export type AuxTemplateId = "notes" | "matter";
 
@@ -80,6 +80,8 @@ const scriptExports: ExportFormat[] = ["pdf", "docx", "fdx", "fountain", "epub"]
 const proseExports: ExportFormat[] = ["pdf", "docx", "epub"];
 
 export const TEMPLATES: Record<TemplateId, Template> = {
+  // Defined below NOTE_ELEMENTS; filled in after.
+  document: undefined as unknown as Template,
   "stage-play": {
     id: "stage-play",
     name: "Stage play",
@@ -319,7 +321,22 @@ export const MATTER_PRESETS: MatterPreset[] = [
   { title: "Notes", where: "back", content: "" },
 ];
 
-export const TEMPLATE_ORDER: TemplateId[] = ["stage-play", "screenplay", "book", "article", "poem"];
+/** A plain document, like a word processor: Notion-style blocks, typeset as a clean page. */
+TEMPLATES.document = {
+  ...NOTES_TEMPLATE,
+  id: "document",
+  name: "Document",
+  description: "A plain document, like a word processor: headings, lists, to-dos and quotes.",
+  typst: "document.typ",
+  pageFont: "Libertinus Serif",
+  docNoun: "Page",
+  folderNoun: "Part",
+  starter: () => "",
+  exports: ["pdf", "docx", "epub"],
+  titlePageDefault: false,
+};
+
+export const TEMPLATE_ORDER: TemplateId[] = ["stage-play", "screenplay", "document", "book", "article", "poem"];
 
 export function getTemplate(id: string | undefined): Template {
   return TEMPLATES[(id as TemplateId) ?? "stage-play"] ?? TEMPLATES["stage-play"];

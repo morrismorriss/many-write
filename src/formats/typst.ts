@@ -218,7 +218,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
         return;
       }
       const empty = !blockText(b).trim();
-      if (empty && b.type !== "scene_break") return;
+      if (empty && b.type !== "scene_break" && b.type !== "divider") return;
       lockFor(elementId(item.id, index));
       const start = bytes;
       emit(`#el(${str(b.type)}, ${prev})[${revMark(item.id, index)}${runsToTypst(b.runs)}]\n`);

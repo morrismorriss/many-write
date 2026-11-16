@@ -6,6 +6,7 @@ import type { Theme } from "../themes/themes";
 import { useStore } from "../lib/useStore";
 import { ChevronLeft, ChevronRight, Warning } from "./icons";
 import { StatsPanel } from "./Widgets";
+import { ExportMenu } from "./Menus";
 
 export interface CompileReport {
   ok: boolean;
@@ -145,6 +146,7 @@ export function Preview({ store, theme, cursor, follow, onJump, onReport }: Prop
             </button>
           )}
           <StatsPanel store={store} report={report} ids={ids} />
+          <ExportMenu store={store} />
           {issuesOpen && issues.length > 0 && (
             <div className="menu issues" onMouseLeave={() => setIssuesOpen(false)}>
               {issues.map((i, k) => (

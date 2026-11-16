@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectStore, RecentProject } from "../project/store";
 import { readRecent } from "../project/store";
-import { history, perDayToDeadline, wordsToday } from "../project/goals";
+import { calendarWeek, perDayToDeadline, wordsToday } from "../project/goals";
 import { REVISION_COLORS } from "../project/production";
 import { manuscriptOrder, type Role } from "../project/model";
 import { wordCount } from "../formats/exporters";
 import { blockText } from "../formats/markdown";
 import { findInBlocks, replaceInBlocks, searchRegex, type Match } from "../formats/search";
 import type { SearchHighlight } from "../editor/extensions";
-import { TEMPLATES } from "../formats/templates";
+import { TEMPLATES, type ExportFormat } from "../formats/templates";
+import { FORMAT_INFO } from "./Menus";
 import type { CompileReport } from "./Preview";
-import { ArrowDown, ArrowUp, BarChart, Check, Close, FileIcon, Lock, Search, TargetIcon, Timer } from "./icons";
+import { ArrowDown, ArrowUp, BarChart, Check, Close, FileIcon, Lock, Search, TargetIcon, Tomato } from "./icons";
 
 /** A small popover that closes on outside click or Escape. */
 function usePopover() {
@@ -46,6 +47,8 @@ interface FileMenuProps {
   onToggleSpellcheck: () => void;
   currentRoot: string;
   single?: boolean;
+  exports: ExportFormat[];
+  onExport: (f: ExportFormat) => void;
 }
 
 export function FileMenu(p: FileMenuProps) {
@@ -106,6 +109,13 @@ export function FileMenu(p: FileMenuProps) {
             <span>Check spelling as you type</span>
             {p.spellcheck && <Check />}
           </button>
+          <div className="menu-sep" />
+          <div className="menu-label">Export</div>
+          {p.exports.map((f) => (
+            <button key={f} className="menu-item" onClick={run(() => p.onExport(f))} data-testid={`file-export-${f}`}>
+              {FORMAT_INFO[f].label}
+            </button>
+          ))}
           <div className="menu-sep" />
           <button className="menu-item" onClick={run(p.onClose)}>
             Close project
@@ -256,9 +266,8 @@ export function GoalsWidget({ store }: { store: ProjectStore }) {
   const g = store.goals;
   const today = wordsToday(g, total);
   const pct = g.daily ? Math.min(1, today / g.daily) : 0;
-  const [setTo, setSetTo] = useState("");
-  const hist = history(g, 7);
-  const max = Math.max(g.daily, ...hist.map((h) => h.words), 1);
+  const week = calendarWeek(g);
+  const max = Math.max(g.daily, ...week.map((h) => h.words), 1);
   const need = perDayToDeadline(g, total);
   return (
     <div className="menu-anchor" ref={ref}>
@@ -287,22 +296,6 @@ export function GoalsWidget({ store }: { store: ProjectStore }) {
             <span>Daily goal</span>
             <input type="number" min={0} step={100} value={g.daily} onChange={(e) => store.setGoals({ daily: Math.max(0, Number(e.target.value) || 0) })} data-testid="goal-daily" />
           </label>
-          <div className="field inline">
-            <span>Today's count</span>
-            <div className="path-row">
-              <input type="number" min={0} placeholder="0" value={setTo} onChange={(e) => setSetTo(e.target.value)} data-testid="goal-set" />
-              <button
-                className="btn small"
-                data-testid="goal-reset"
-                onClick={() => {
-                  store.resetGoalToday(Number(setTo) || 0);
-                  setSetTo("");
-                }}
-              >
-                {setTo ? "Set" : "Reset to 0"}
-              </button>
-            </div>
-          </div>
           <label className="field inline">
             <span>Project goal</span>
             <input type="number" min={0} step={1000} value={g.project || ""} placeholder="e.g. 20000" onChange={(e) => store.setGoals({ project: Math.max(0, Number(e.target.value) || 0) })} />
@@ -317,11 +310,15 @@ export function GoalsWidget({ store }: { store: ProjectStore }) {
               {need !== null && ` ${need.toLocaleString()} words a day to finish by the deadline.`}
             </p>
           )}
-          <div className="goal-history" aria-label="Last seven days">
-            {hist.map((h) => (
-              <div key={h.day} className="goal-day" title={`${h.day}: ${h.words.toLocaleString()} words`}>
-                <span className={g.daily && h.words >= g.daily ? "met" : ""} style={{ height: `${Math.max(3, (h.words / max) * 100)}%` }} />
-                <small>{new Date(h.day + "T12:00").toLocaleDateString(undefined, { weekday: "narrow" })}</small>
+          <div className="goal-history" aria-label="This week" data-testid="goal-week">
+            {week.map((d) => (
+              <div
+                key={d.key}
+                className={`goal-day${d.today ? " today" : ""}${d.future ? " future" : ""}`}
+                title={`${d.date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}: ${d.words.toLocaleString()} words`}
+              >
+                <span className={g.daily && d.words >= g.daily ? "met" : ""} style={{ height: `${d.future ? 0 : Math.max(3, (d.words / max) * 100)}%` }} />
+                <small>{d.date.toLocaleDateString(undefined, { weekday: "short" })}</small>
               </div>
             ))}
           </div>
@@ -343,20 +340,41 @@ export interface PomodoroSettings {
 type Phase = "focus" | "short" | "long";
 const PHASE_LABEL: Record<Phase, string> = { focus: "Focus", short: "Short break", long: "Long break" };
 
-function chime() {
+/**
+ * A happy "ding": a rising C–E–G bell arpeggio. Each note is a few sine
+ * partials (like a small bell) with a quick strike and a long, soft ring.
+ * Synthesised on the spot, so no sound files are needed.
+ */
+export function chime() {
   try {
     const ctx = new AudioContext();
-    [0, 0.35, 0.7].forEach((t) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.frequency.value = 880;
-      g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.3);
-      o.connect(g).connect(ctx.destination);
-      o.start(ctx.currentTime + t);
-      o.stop(ctx.currentTime + t + 0.32);
+    const out = ctx.createGain();
+    out.gain.value = 0.22;
+    out.connect(ctx.destination);
+    const notes = [1046.5, 1318.5, 1568.0]; // C6, E6, G6
+    notes.forEach((f, n) => {
+      const t0 = ctx.currentTime + n * 0.14;
+      const ring = n === notes.length - 1 ? 1.8 : 1.1;
+      // Partials of a bell: fundamental, octave, a bright twelfth and a faint shimmer.
+      for (const [mult, level] of [
+        [1, 1],
+        [2, 0.35],
+        [3, 0.12],
+        [4.17, 0.06],
+      ]) {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.value = f * mult;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(level, t0 + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + ring / mult ** 0.3);
+        o.connect(g).connect(out);
+        o.start(t0);
+        o.stop(t0 + ring + 0.05);
+      }
     });
+    window.setTimeout(() => void ctx.close(), 2600);
   } catch {
     /* no audio */
   }
@@ -419,13 +437,16 @@ export function Pomodoro({ settings, onChange, notify }: { settings: PomodoroSet
   return (
     <div className="menu-anchor" ref={ref}>
       <button className={running ? "btn ghost small timer-btn running" : "btn ghost small timer-btn"} onClick={() => setOpen((v) => !v)} data-testid="pomodoro-btn" title="Pomodoro timer">
-        <Timer /> {running || left !== length(phase) ? mmss : "Focus"}
+        <Tomato /> {running || left !== length(phase) ? mmss : "Focus"}
       </button>
       {open && (
         <div className="menu panel pomodoro-panel">
           <div className="panel-title">
-            <Timer /> {PHASE_LABEL[phase]}
+            <Tomato /> {PHASE_LABEL[phase]}
           </div>
+          <button className="btn ghost small hear" onClick={chime} title="Play the ding">
+            Hear the ding
+          </button>
           <div className="pomo-time" data-testid="pomodoro-time">
             {mmss}
           </div>

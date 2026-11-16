@@ -87,11 +87,16 @@ export function App() {
     }
   };
   const importFile = async () => {
-    const p = await pickFile("Import a document", ["docx", "fdx", "fountain", "pdf", "rtf", "md", "txt", "scriv"], await docsDir());
+    const p = await pickFile("Import a document", ["docx", "fdx", "fountain", "pdf", "rtf", "md", "txt", "scriv", "scrivx"], await docsDir());
     if (p) setImporting(p);
   };
+  // A .scriv project is a folder on Windows and Linux, but a single "package" on a Mac,
+  // where the folder picker will not select it: there it is chosen like a file.
   const importScrivener = async () => {
-    const p = await pickFolder("Choose a Scrivener project (.scriv)", await docsDir());
+    const mac = /Mac/.test(navigator.platform);
+    const p = mac
+      ? await pickFile("Choose a Scrivener project", ["scriv", "scrivx"], await docsDir())
+      : await pickFolder("Choose a Scrivener project folder (.scriv)", await docsDir());
     if (p) setImporting(p);
   };
 

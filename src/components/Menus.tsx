@@ -8,7 +8,7 @@ import type { Theme } from "../themes/themes";
 import type { CompileReport } from "./Preview";
 import { Close, Download, Palette, Plus, Trash } from "./icons";
 
-const FORMAT_INFO: Record<ExportFormat, { label: string; ext: string; note: string }> = {
+export const FORMAT_INFO: Record<ExportFormat, { label: string; ext: string; note: string }> = {
   pdf: { label: "PDF", ext: "pdf", note: "Exactly as the preview, orphan rules applied" },
   docx: { label: "Word (.docx)", ext: "docx", note: "Keep-with-next and widow control set; Word repaginates" },
   epub: { label: "EPUB", ext: "epub", note: "Reflowable e-book" },

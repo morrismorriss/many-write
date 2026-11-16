@@ -467,8 +467,14 @@ pub struct ScrivItem {
     pub children: Vec<ScrivItem>,
 }
 
-/// Read a Scrivener 2 or 3 project folder (the .scriv package).
-pub fn scrivener(dir: &Path) -> Result<Vec<ScrivItem>, String> {
+/// Read a Scrivener project: the .scriv folder (or package), or the .scrivx file inside it.
+/// Scrivener 2 and 3 are read fully; Scrivener 1 keeps its binder in an Apple
+/// binary archive, so only its documents' text is read, in order.
+pub fn scrivener(path: &Path) -> Result<Vec<ScrivItem>, String> {
+    let dir = if path.extension().is_some_and(|x| x.eq_ignore_ascii_case("scrivx")) { path.parent().unwrap_or(path) } else { path };
+    if !dir.join("Files").is_dir() && dir.join("binder.scrivproj").is_file() {
+        return scrivener1(dir);
+    }
     let scrivx = std::fs::read_dir(dir)
         .map_err(|e| format!("Could not open {}: {e}", dir.display()))?
         .filter_map(|e| e.ok())
@@ -476,7 +482,8 @@ pub fn scrivener(dir: &Path) -> Result<Vec<ScrivItem>, String> {
         .find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("scrivx")))
         .ok_or("This folder has no .scrivx file. Choose the .scriv project itself.")?;
     let xml = std::fs::read_to_string(&scrivx).map_err(|e| e.to_string())?;
-    let doc = roxmltree::Document::parse(&xml).map_err(|e| format!("The Scrivener project could not be read: {e}"))?;
+    let xml = xml.trim_start_matches('\u{feff}');
+    let doc = roxmltree::Document::parse(xml).map_err(|e| format!("The Scrivener project could not be read: {e}"))?;
     let binder = doc.descendants().find(|n| n.has_tag_name("Binder")).ok_or("No binder in the Scrivener project")?;
     let read_rtf = |p: &Path| -> Vec<Para> { std::fs::read(p).map(|b| rtf(&String::from_utf8_lossy(&b))).unwrap_or_default() };
     fn walk(node: roxmltree::Node, dir: &Path, read_rtf: &dyn Fn(&Path) -> Vec<Para>) -> Vec<ScrivItem> {
@@ -504,6 +511,34 @@ pub fn scrivener(dir: &Path) -> Result<Vec<ScrivItem>, String> {
             .collect()
     }
     Ok(walk(binder, dir, &read_rtf))
+}
+
+/// Scrivener 1: documents are `<n>.rtfd/TXT.rtf` (or `<n>.rtf`); titles live in a binary archive.
+fn scrivener1(dir: &Path) -> Result<Vec<ScrivItem>, String> {
+    let mut docs: Vec<(u64, std::path::PathBuf)> = std::fs::read_dir(dir)
+        .map_err(|e| format!("Could not open {}: {e}", dir.display()))?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            let stem = p.file_stem()?.to_str()?.to_string();
+            let n: u64 = stem.parse().ok()?;
+            let rtf = if p.is_dir() { p.join("TXT.rtf") } else if p.extension().is_some_and(|x| x == "rtf") { p.clone() } else { return None };
+            rtf.is_file().then_some((n, rtf))
+        })
+        .collect();
+    docs.sort();
+    let children = docs
+        .into_iter()
+        .map(|(n, p)| ScrivItem {
+            title: format!("Document {n}"),
+            kind: "Text".into(),
+            text: std::fs::read(&p).map(|b| rtf(&String::from_utf8_lossy(&b))).unwrap_or_default(),
+            notes: Vec::new(),
+            synopsis: std::fs::read_to_string(dir.join(format!("{n}_synopsis.txt"))).unwrap_or_default().trim().to_string(),
+            children: Vec::new(),
+        })
+        .collect();
+    Ok(vec![ScrivItem { title: "Draft".into(), kind: "DraftFolder".into(), text: Vec::new(), notes: Vec::new(), synopsis: String::new(), children }])
 }
 
 #[cfg(test)]

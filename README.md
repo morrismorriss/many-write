@@ -1,6 +1,6 @@
 # Many Write
 
-A local-first desktop writing app for **stage plays, screenplays, books, articles and poems**.
+A local-first desktop writing app for **stage plays, screenplays, books, articles, poems and plain documents**.
 
 - **Binder with notes**: acts, scenes, characters and research in a sidebar, with a notes file beside each item.
 - **Script formatting with Enter/Tab flow**: type a name and press Enter for dialogue; press Enter again for the next speaker.
@@ -42,8 +42,8 @@ Screenplays have their own Enter/Tab flow. Poems keep every line break and inden
 - **Notes**: every binder item has a notes page below the binder, with the same `/` blocks.
 - **Find & replace** (⌘F, or ⌘⇧F for the whole script): match case, whole words, every result listed, replace one or all. Bold and italics are kept.
 - **Words and pages**: the chart button above the preview lists words and pages for each scene, with totals and a running-time estimate for scripts.
-- **Goals**: a daily word goal with progress ring, a project goal with a deadline, the last seven days, and "set today's count" or reset at any time.
-- **Pomodoro timer**: focus and break lengths you choose, with a chime.
+- **Goals**: a daily word goal with a progress ring, a project goal with a deadline, and this week's progress, laid out the way your computer's calendar is (Sunday- or Monday-first).
+- **Pomodoro timer**: the tomato in the top bar. Focus and break lengths you choose, and a happy ding when time is up.
 - **File menu**: new project, new or open single document, import, recent projects, spell check on or off. Spelling uses the system dictionary on macOS, Windows and Linux.
 
 ## Production mode
@@ -61,17 +61,17 @@ Locks follow their lines even when you add or cut lines above them.
 
 ## Open and import
 
-- **Open document…** edits a single `.md`, `.txt` or `.fountain` file in place, with the preview and exports, without creating a project.
+- **Open document…** edits a single `.md`, `.txt` or `.fountain` file in place, with the preview and exports, without creating a project. Plain files open in the **Document** format: headings, paragraphs, lists, to-dos, quotes and callouts, typeset as a clean page.
 - **Import…** creates a new project from:
 
 | From | What comes across |
 | --- | --- |
-| Word (.docx) | Paragraphs, bold/italic/underline, headings (split into chapters); script styles (Character, Dialogue…) become script elements |
+| Word (.docx) | Opens as one Document with its headings, paragraphs and bold/italic/underline; choose Book to split it into chapters at its top headings. Script styles (Character, Dialogue…) become script elements |
 | Final Draft (.fdx) | Every element and its emphasis, split into scenes; the title from the title page |
 | Fountain | Elements, title page, scenes |
 | PDF | The text, rebuilt into paragraphs; scripts are recognised and rebuilt into cues, dialogue, parentheticals and scenes. Scanned PDFs need text recognition first |
 | RTF | Paragraphs and emphasis |
-| Scrivener (.scriv) | The draft folder structure, research, each document's text, synopsis and notes. Trash is skipped |
+| Scrivener (.scriv) | Scrivener 2 and 3: the draft folder structure, research, Characters / Front Matter / Back Matter folders into the matching sections, each document's text, synopsis and notes; Trash and Templates are skipped. On a Mac choose the `.scriv` project itself; on Windows choose its folder or the `.scrivx` file inside. Scrivener 1 projects bring their text in order, but not their titles |
 
 The original file is never changed.
 
