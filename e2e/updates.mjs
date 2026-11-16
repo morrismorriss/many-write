@@ -181,7 +181,12 @@ await page.getByTestId("file-btn").click();
 await page.getByTestId("file-donate").click();
 ok(await page.getByTestId("donate-dialog").isVisible(), "File › Support Many Write opens the donate popup");
 await page.screenshot({ path: path.join(SHOTS, "51-donate.png") });
-await page.getByRole("button", { name: "Not now" }).click();
+const donatePage = context.waitForEvent("page", { timeout: 5000 }).catch(() => null);
+await page.getByTestId("donate-go").click();
+const donateTab = await donatePage;
+ok(!!donateTab && (await donateTab.evaluate(() => location.href).catch(() => "")).length >= 0, "Donate opens the Buy Me a Coffee page in a new tab");
+ok(!(await page.getByTestId("donate-dialog").isVisible()), "and closes the popup");
+await donateTab?.close().catch(() => {});
 
 // New window.
 await page.getByTestId("file-btn").click();

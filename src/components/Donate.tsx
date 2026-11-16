@@ -6,8 +6,8 @@ import { openUrl } from "../lib/backend";
 import type { AppSettings } from "../themes/themes";
 import { Close, HeartIcon } from "./icons";
 
-/** Where the Donate button goes. Empty: the button is shown as not yet available. */
-export const DONATE_URL = "";
+/** Where the Donate button goes (empty: the button is shown as not yet available). */
+export const DONATE_URL = "https://buymeacoffee.com/morriss";
 
 /** Launches before the popup first shows itself, and days between showings after that. */
 const FIRST_AFTER_LAUNCHES = 5;

@@ -39,7 +39,8 @@ export function App() {
       const [s, c, paths] = await Promise.all([loadSettings(), loadCustomThemes(), appPaths()]);
       // Count launches of the first window for the occasional donate popup (not windows opened from it).
       const opened = new URLSearchParams(window.location.search).has("project") || new URLSearchParams(window.location.search).has("window");
-      if (!opened) {
+      // Desktop app only: the browser build is for development and automated tests.
+      if (!opened && isTauri) {
         const d = donateOnLaunch(s.donate);
         s.donate = d.next;
         saveSettings(s);
