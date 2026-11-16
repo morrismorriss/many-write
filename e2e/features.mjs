@@ -210,40 +210,82 @@ await page.getByTestId("toggle-spellcheck").click();
 ok((await editor.getAttribute("spellcheck")) === "true", "and on again");
 await page.keyboard.press("Escape");
 
-// ---- Production mode: lock, rewrite page 1, get a 1A page
+// ---- Production mode: lock; an edited page becomes 2A, its old version goes to the Archive
 const long = Array.from({ length: 70 }, (_, i) => `${i % 2 ? "BEN" : "ANNA"}\nLine ${i}: words to fill the page and push the layout along nicely.`).join("\n\n");
-fs.writeFileSync(path.join(root, "manuscript/01-act-one/01-scene-1.md"), `## Scene 1\n\n${long}\n`);
+const scenePath = path.join(root, "manuscript/01-act-one/01-scene-1.md");
+fs.writeFileSync(scenePath, `## Scene 1\n\n${long}\n`);
 await sleep(3500);
 const before = await page.getByTestId("page-label").innerText();
 await page.getByTestId("production-btn").click();
 await page.getByTestId("lock-pages").click();
 await sleep(1500);
-const prod = JSON.parse(read("production.json"));
-ok(prod.active && prod.anchors.length >= 3, `pages locked (${prod.anchors.length} anchors, preview ${before})`);
-// The director asks for a longer opening: add speeches near the top of page 1.
-const extra = Array.from({ length: 8 }, (_, i) => `ANNA\nA new rewrite line ${i} that the director asked for.`).join("\n\n");
-fs.writeFileSync(path.join(root, "manuscript/01-act-one/01-scene-1.md"), `## Scene 1\n\n${extra}\n\n${long}\n`);
-await sleep(4000);
-const texts = [];
-for (let i = 0; i < 12; i++) texts.push((await api("typst.pageText", { index: i })) ?? "");
-const labels = texts.filter((x) => x.startsWith("White Rev.")).map((x) => (x.match(/^White Rev\. \S+ (\d+[A-Z]*)\. /) ?? [])[1] ?? "-");
-console.log("     page labels:", labels.filter(Boolean).join(", "));
-ok(labels[0] === "-" && labels[1] === "-" && labels[2] === "1A" && labels[3] === "2", "cast page and page 1 unnumbered, overflow on 1A, page 2 keeps its number");
-ok(!labels.slice(3).some((l) => /A$/.test(l)), "no other page moved");
-ok(texts.some((x) => x.includes("*")), "rewritten lines are marked with * in the margin");
-ok(texts.some((x) => x.startsWith("White Rev.")), "the header names the revision");
+let prod = JSON.parse(read("production.json"));
+ok(prod.active && prod.anchors.length >= 3 && prod.baseline, `pages locked (${prod.anchors.length} anchors, preview ${before})`);
+const labelsOf = async (rev) => {
+  const out = [];
+  for (let i = 0; i < 14; i++) {
+    const x = (await api("typst.pageText", { index: i })) ?? "";
+    if (x.startsWith(`${rev} Rev.`)) out.push((x.match(new RegExp(`^${rev} Rev\\. \\S+ (\\d+[A-Z]*)\\. `)) ?? [])[1] ?? "-");
+    if (!x) break;
+  }
+  return out;
+};
+// The director asks for more on page 2: add speeches just after the line that starts page 2.
+const page2Line = prod.anchors.find((a) => a.page === 2).index; // index of page 2's first line in the scene
+const lines = `## Scene 1\n\n${long}\n`.split("\n\n");
+const extra = Array.from({ length: 8 }, (_, i) => `ANNA\nA new rewrite line ${i} that the director asked for.`);
+lines.splice(page2Line + 1, 0, ...extra);
+fs.writeFileSync(scenePath, lines.join("\n\n"));
+await sleep(5000);
+let labels = await labelsOf("White");
+console.log("     page labels:", labels.join(", "));
+ok(labels[1] === "-" && labels[2] === "2A" && labels[3] === "2B" && labels[4] === "3", `edited page 2 prints as 2A, its overflow 2B, page 3 keeps its number (${labels.join(" ")})`);
+const archiveFiles = fs.readdirSync(path.join(root, "archive"));
+const oldPage = archiveFiles.find((f) => f.includes("page-2"));
+ok(!!oldPage, `the old page 2 was moved to the Archive (${archiveFiles})`);
+ok(oldPage && read(`archive/${oldPage}`).includes("Line ") && !read(`archive/${oldPage}`).includes("rewrite"), "the archived page holds the page as it was before the edit");
+// Choose the letter: make the revised page 2B.
+await page.getByTestId("production-btn").click();
+await page.getByTestId("revised-pages").waitFor();
+// Really on screen (not clipped by its container): the element at its centre belongs to it.
+ok(
+  await page.getByTestId("revised-pages").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+  }),
+  "the production panel is visible on screen",
+);
+await page.getByTestId("page-letter-2").selectOption({ value: "2" });
+await page.keyboard.press("Escape");
+await sleep(2500);
+labels = await labelsOf("White");
+ok(labels[2] === "2B" && labels[3] === "2C" && labels[4] === "3", `the writer can pick the letter: 2B, then 2C (${labels.join(" ")})`);
 await page.screenshot({ path: path.join(SHOTS, "26-production.png") });
 await page.getByTestId("production-btn").click();
+await page.screenshot({ path: path.join(SHOTS, "27-production-panel.png") });
+await page.getByTestId("old-version-2").click();
+await sleep(500);
+ok((await page.getByTestId("doc-title").inputValue()).startsWith("Page 2 — replaced in White revision"), "Old version opens the archived page");
+const texts = [];
+for (let i = 0; i < 14; i++) texts.push((await api("typst.pageText", { index: i })) ?? "");
+ok(texts.some((x) => x.includes("*")), "rewritten lines are marked with * in the margin");
+// Next revision: Blue. 2B stays 2B; marks clear; editing it again moves it on to 2C.
+await page.getByTestId("production-btn").click();
 await page.getByTestId("next-revision").click();
-await sleep(2500);
+await sleep(3000);
+labels = await labelsOf("Blue");
 const texts2 = [];
-for (let i = 0; i < 12; i++) texts2.push((await api("typst.pageText", { index: i })) ?? "");
-ok(texts2.some((x) => x.startsWith("Blue Rev.")) && !texts2.some((x) => x.includes("*")), "next revision: Blue, marks cleared, 1A kept");
-ok(texts2.some((x) => / 1A\. /.test(x)), "A-pages stay after a new revision");
+for (let i = 0; i < 14; i++) texts2.push((await api("typst.pageText", { index: i })) ?? "");
+ok(labels[2] === "2B" && !texts2.some((x) => x.includes("*")), `next revision: Blue, marks cleared, 2B kept (${labels.join(" ")})`);
+fs.writeFileSync(scenePath, read("manuscript/01-act-one/01-scene-1.md").replace("A new rewrite line 0 that", "A newer rewrite line 0 that"));
+await sleep(5000);
+labels = await labelsOf("Blue");
+ok(labels[2] === "2C", `editing it again in the Blue revision makes it 2C (${labels.join(" ")})`);
+ok(fs.readdirSync(path.join(root, "archive")).some((f) => f.startsWith("page-2b-replaced-in-blue")), `and page 2B as it was is archived too (${fs.readdirSync(path.join(root, "archive"))})`);
 
 // ---- File menu
 await page.getByTestId("file-btn").click();
-ok((await page.locator(".file-menu").innerText()).toLowerCase().includes("recent projects") && (await page.locator(".file-menu").innerText()).includes("Test Play"), "File menu lists recent projects");
+ok((await page.locator(".file-menu").innerText()).toLowerCase().includes("recent projects") && (await page.locator(".file-menu .two-line").count()) >= 2, "File menu lists recent projects");
 await page.getByTestId("file-new").click();
 await page.getByTestId("new-title").waitFor();
 ok(true, "File > New project opens the new-project form");

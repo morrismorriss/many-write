@@ -95,12 +95,15 @@ A page made only of centred lines or quotes (a dedication, an epigraph) is set l
 
 ## production.json
 
-Written when you lock pages for production. Each page records the line it
-started on (`docId`, its position, and a short hash of that line plus the two
-after it, so a repeated line such as a character cue is still found after lines
-are added above it), and a hash of every line at the start of the current
-revision, which is how changed lines get their margin asterisk. No script text
-is stored in it. Deleting the file leaves production mode.
+Written when you lock pages for production:
+
+- `anchors`: for each locked page, the line it started on (`docId`, its position, and a short hash of that line plus the two after it, so a repeated line such as a character cue is still found after lines are added above it).
+- `baseline`: each document's text at the start of the current revision. A page whose lines differ from it has been revised: it prints with a letter (3A) and, the first time, its old version is copied into `archive/` as "Page 3 — replaced in White revision".
+- `snapshot`: hashes of every line at the start of the revision, for the margin asterisks.
+- `pageLetters` / `currentLetters`: letters kept from earlier revisions, and the ones chosen in this revision (1 = A).
+- `archived`: which archive document holds each replaced page.
+
+Deleting the file leaves production mode; your script files are never touched by it.
 
 ## project.json
 

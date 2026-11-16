@@ -50,10 +50,11 @@ Screenplays have their own Enter/Tab flow. Poems keep every line break and inden
 
 When a script is going into rehearsal or production, choose **Production › Lock pages**. From then on:
 
-- every page keeps its number; a rewrite that runs long continues on **12A, 12B…**, and a cut leaves white space instead of renumbering;
-- changed and new lines are marked with **\*** in the right margin;
-- the header shows the revision (White, Blue, Pink, Yellow, Green, Goldenrod…) and its date;
-- **Start next revision** moves to the next colour and clears the marks; A-pages stay;
+- every page keeps its number; a cut leaves white space instead of renumbering;
+- the first time you edit a locked page, its **old version is moved to the Archive** ("Page 3 — replaced in White revision") and the page prints as **3A**; if the rewrite runs long, it continues on 3B;
+- you choose the letter: the Production panel lists every revised page with a picker (3, 3A, 3B…) and a link to its old version;
+- changed and new lines are marked with **\*** in the right margin, and the header shows the revision colour (White, Blue, Pink, Yellow, Green, Goldenrod…) and date;
+- **Start next revision** moves to the next colour and clears the marks; revised pages keep their letters, and a page edited again moves on (3A → 3B), with its previous version archived too;
 - **Leave production mode** lets pages flow freely again.
 
 Locks follow their lines even when you add or cut lines above them.

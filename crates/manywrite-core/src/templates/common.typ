@@ -33,9 +33,10 @@
 // A lock marks the line that began a page when the script was locked.
 // Hard locks start a new page; soft ones (a speech that was split across a
 // page break) say "the page after this one is page n".
-#let mw-lock(n, hard: true) = {
+// `start` is the page's letter (1 = A): an edited page 3 is "3A", and its overflow "3B".
+#let mw-lock(n, hard: true, start: 0) = {
   if hard { pagebreak(weak: true) }
-  [#metadata((page: n, hard: hard)) <mw-lock>]
+  [#metadata((page: n, hard: hard, start: start)) <mw-lock>]
 }
 
 // Marks a revised line; the page foreground draws an asterisk in the margin.
@@ -72,8 +73,8 @@
   for p in range(locks.first().location().page(), here-page + 1) {
     let hard = locks.filter(m => m.value.hard and m.location().page() == p)
     let soft = locks.filter(m => not m.value.hard and m.location().page() == p - 1)
-    if hard.len() > 0 { base = hard.first().value.page; extra = 0 }
-    else if soft.len() > 0 { base = soft.first().value.page; extra = 0 }
+    if hard.len() > 0 { base = hard.first().value.page; extra = hard.first().value.at("start", default: 0) }
+    else if soft.len() > 0 { base = soft.first().value.page; extra = soft.first().value.at("start", default: 0) }
     else if base != none { extra += 1 }
   }
   if base == none { return none }

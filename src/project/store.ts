@@ -31,7 +31,7 @@ import {
   type Role,
 } from "./model";
 import { projectReadme } from "./readme";
-import { computeAnchors, contextKey, PRODUCTION_FILE, resolveAnchors, revisedLines, snapshotOf, type ProductionState } from "./production";
+import { computeAnchors, contextKey, editedPages, flatten, hashKey, letterFor, letterName, pageRegions, PRODUCTION_FILE, resolveAnchors, revisedLines, snapshotOf, type Entry, type ProductionState } from "./production";
 import { emptyGoals, GOALS_FILE, observe, resetToday, type Goals } from "./goals";
 import { wordCount } from "../formats/exporters";
 import type { GenOptions } from "../formats/typst";
@@ -306,12 +306,81 @@ export class ProjectStore {
     return !!this.production?.active && this.template.mode === "script";
   }
 
+  private baselineCache = new Map<string, Block[]>();
+
+  /** A document as it was at the start of this revision (empty if it is new since). */
+  private baselineBlocks(docId: string): Block[] {
+    const md = this.production?.baseline?.[docId];
+    if (md === undefined) return [];
+    let b = this.baselineCache.get(docId);
+    if (!b) {
+      b = this.parse(docId, md);
+      this.baselineCache.set(docId, b);
+    }
+    return b;
+  }
+
+  /**
+   * Locked pages edited in this revision, and every page's lines as they were
+   * at the start of the revision (the "old version" that gets archived).
+   */
+  productionPages(): { edited: number[]; before: Map<number, Entry[]> } {
+    const p = this.production;
+    if (!p?.active || !p.baseline || this.template.mode !== "script") return { edited: [], before: new Map() };
+    const items = this.manuscriptItems();
+    const old = items.map((it) => (it.kind === "folder" ? it : { ...it, blocks: this.baselineBlocks(it.id) }));
+    const before = pageRegions(flatten(old), resolveAnchors(p.anchors, (id) => this.baselineBlocks(id)));
+    const after = pageRegions(flatten(items), resolveAnchors(p.anchors, (id) => this.docs.get(id)?.blocks));
+    return { edited: editedPages(before, after), before };
+  }
+
+  /** The label a locked page prints with now: "3", or "3A" once it has been edited. */
+  pageLabelFor(page: number, edited: boolean): string {
+    return `${page}${this.production ? letterName(letterFor(this.production, page, edited)) : ""}`;
+  }
+
+  /** Choose the letter of a revised page (0 = keep the plain number). */
+  async setPageLetter(page: number, letter: number) {
+    if (!this.production) return;
+    this.production = { ...this.production, currentLetters: { ...this.production.currentLetters, [page]: letter } };
+    await this.writeProduction();
+    this.emit();
+  }
+
+  private archiveTimer: number | undefined;
+  private scheduleArchive() {
+    if (!this.inProduction) return;
+    window.clearTimeout(this.archiveTimer);
+    this.archiveTimer = window.setTimeout(() => void this.archiveEditedPages(), 1500);
+  }
+
+  /** The first time a locked page is edited in a revision, keep its old version in the Archive. */
+  async archiveEditedPages() {
+    const p = this.production;
+    if (!this.inProduction || !p?.baseline) return;
+    const { edited, before } = this.productionPages();
+    for (const page of edited) {
+      const key = `${p.revision}:${page}`;
+      if (this.production!.archived?.[key]) continue;
+      const blocks = (before.get(page) ?? []).filter((e) => e.block).map((e) => e.block!);
+      if (!blocks.length) continue;
+      const content = serializeDoc({ blocks, frontMatter: null }, "script");
+      // Named after the page as it printed before this revision's edits.
+      const title = `Page ${this.pageLabelFor(page, false)} — replaced in ${p.revision} revision (${p.revisionDate})`;
+      const id = await this.addDoc(rootOf(this.data, "archive").id, undefined, "archive", { title, content }, { select: false });
+      this.production = { ...this.production!, archived: { ...this.production!.archived, [key]: id } };
+      await this.writeProduction();
+      this.toast(`Page ${page} was revised: it is now ${this.pageLabelFor(page, true)}, and the old page is in the Archive.`);
+    }
+  }
+
   /** Lock markers and revision marks for the Typst generator. */
   productionOptions(): GenOptions["production"] | undefined {
     const p = this.production;
     if (!p?.active || this.template.mode !== "script") return undefined;
     const resolved = resolveAnchors(p.anchors, (id) => this.docs.get(id)?.blocks);
-    const locks = new Map([...resolved].map(([id, a]) => [id, { page: a.page, hard: !a.split }]));
+    const edited = new Set(this.productionPages().edited);
+    const locks = new Map([...resolved].map(([id, a]) => [id, { page: a.page, hard: !a.split, letter: letterFor(p, a.page, edited.has(a.page)) }]));
     const revised = new Map<string, Set<number>>();
     for (const n of this.typesetDocs()) revised.set(n.id, revisedLines(p.snapshot[n.id], this.docs.get(n.id)?.blocks ?? []));
     return { locks, revised, label: `${p.revision} Rev. ${p.revisionDate}` };
@@ -338,23 +407,55 @@ export class ProjectStore {
       pageCount: pageCount - firstScriptPage + 1,
       anchors,
       snapshot: snapshotOf(this.typesetDocs().map((n) => ({ id: n.id, blocks: this.docs.get(n.id)?.blocks ?? [] }))),
+      baseline: this.baselineNow(),
+      pageLetters: {},
+      currentLetters: {},
+      archived: {},
     };
+    this.baselineCache.clear();
     await this.writeProduction();
-    this.toast(`Locked ${this.production.pageCount} pages. Changes now go on A-pages and are marked with *.`);
+    this.toast(`Locked ${this.production.pageCount} pages. An edited page becomes 3A, 3B… and its old version goes to the Archive.`);
     this.emit();
   }
 
-  /** Start the next revision colour: today's changes become the new baseline. Page locks stay. */
+  /** The typeset documents' markdown now: the baseline a revision is measured against. */
+  private baselineNow(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const n of this.typesetDocs()) out[n.id] = this.serialize(n.id, this.docs.get(n.id)?.blocks ?? []);
+    return out;
+  }
+
+  /**
+   * Start the next revision colour: today's script becomes the baseline, pages
+   * revised in this revision keep their letters (3A), and a page edited again
+   * moves on to the next letter (3B). Page locks stay.
+   */
   async nextRevision(revision: string) {
     if (!this.production) return;
     await this.flushAll();
+    const p = this.production;
+    const { edited } = this.productionPages();
+    const pageLetters = { ...p.pageLetters };
+    for (const page of edited) pageLetters[page] = letterFor(p, page, true);
+    // Re-key every lock to its line as it is now, so locks keep finding their lines.
+    const resolved = resolveAnchors(p.anchors, (id) => this.docs.get(id)?.blocks);
+    const anchors = [...resolved].map(([id, a]) => {
+      const [docId, idx] = id.split("#");
+      const key = this.keyAt(docId, Number(idx));
+      return key === undefined ? a : { ...a, index: Number(idx), key: hashKey(key) };
+    });
     this.production = {
-      ...this.production,
+      ...p,
       active: true,
       revision,
       revisionDate: new Date().toLocaleDateString(),
+      anchors,
       snapshot: snapshotOf(this.typesetDocs().map((n) => ({ id: n.id, blocks: this.docs.get(n.id)?.blocks ?? [] }))),
+      baseline: this.baselineNow(),
+      pageLetters,
+      currentLetters: {},
     };
+    this.baselineCache.clear();
     await this.writeProduction();
     this.emit();
   }
@@ -378,6 +479,7 @@ export class ProjectStore {
     d.externalRev++;
     this.scheduleSave(id);
     this.trackGoals();
+    this.scheduleArchive();
     this.emit();
   }
 
@@ -609,6 +711,7 @@ export class ProjectStore {
     d.rev++;
     this.scheduleSave(id);
     this.trackGoals();
+    this.scheduleArchive();
     this.emit();
   }
 
@@ -846,7 +949,7 @@ export class ProjectStore {
     return { parentId: parentOf(this.data, sel.id)!.id, afterId: sel.id };
   }
 
-  async addDoc(parentId?: string, afterId?: string, role: Role = "manuscript", preset?: { title: string; content: string }) {
+  async addDoc(parentId?: string, afterId?: string, role: Role = "manuscript", preset?: { title: string; content: string }, opts: { select?: boolean } = {}) {
     return this.enqueue(async () => {
       const parent = (parentId && this.node(parentId)) || rootOf(this.data, role);
       const r = roleOf(this.data, parent.id) ?? role;
@@ -867,7 +970,7 @@ export class ProjectStore {
       await this.syncNames(parent);
       await this.writeProject();
       this.setFromDisk(node.id, content, (await fsApi.read(this.pathOf(node.id)!)).hash);
-      this.selectedId = node.id;
+      if (opts.select !== false) this.selectedId = node.id;
       this.emit();
       return node.id;
     });
@@ -1033,7 +1136,10 @@ export class ProjectStore {
         changed = true;
       }
     }
-    if (changed) this.emit();
+    if (changed) {
+      this.scheduleArchive();
+      this.emit();
+    }
   }
 
   docState(id: string) {

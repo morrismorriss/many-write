@@ -30,6 +30,71 @@ export interface ProductionState {
   anchors: PageAnchor[];
   /** Per document, the lines as they were at the start of this revision. */
   snapshot: Record<string, string[]>;
+  /**
+   * Per document, its markdown at the start of this revision: the "old version"
+   * of a page that gets archived when the page is first edited.
+   */
+  baseline?: Record<string, string>;
+  /** Letters given to pages in earlier revisions (3 -> 1 means "3A"). */
+  pageLetters?: Record<number, number>;
+  /** Letters chosen by the writer for pages revised in this revision (0 = no letter). */
+  currentLetters?: Record<number, number>;
+  /** Archived old versions: "<revision>:<page>" -> archive document id. */
+  archived?: Record<string, string>;
+}
+
+/** One item in reading order: an act/matter heading or a line of a document. */
+export interface Entry {
+  /** Element id: `docId#index` (index -1 for a heading). */
+  id: string;
+  docId: string;
+  key: string;
+  block?: Block;
+}
+
+/** Every non-empty line (and heading) of the typeset script in order. */
+export function flatten(items: { kind: string; id: string; title: string; blocks?: Block[] }[]): Entry[] {
+  const out: Entry[] = [];
+  for (const it of items) {
+    if (it.kind === "folder") out.push({ id: `${it.id}#-1`, docId: it.id, key: `heading|${it.title}` });
+    else if (it.kind === "matter") out.push({ id: `${it.id}#-1`, docId: it.id, key: `heading|${it.title}` });
+    (it.blocks ?? []).forEach((b, i) => {
+      if (blockText(b).trim()) out.push({ id: `${it.id}#${i}`, docId: it.id, key: lineKey(b), block: b });
+    });
+  }
+  return out;
+}
+
+/** The lines on each locked page: from that page's lock up to the next one. */
+export function pageRegions(entries: Entry[], locks: Map<string, PageAnchor>): Map<number, Entry[]> {
+  const out = new Map<number, Entry[]>();
+  let page: number | null = null;
+  for (const e of entries) {
+    const lock = locks.get(e.id);
+    if (lock) page = lock.page;
+    if (page === null) continue;
+    if (!out.has(page)) out.set(page, []);
+    out.get(page)!.push(e);
+  }
+  return out;
+}
+
+/** Pages whose lines differ from the start of the revision (edited, added to or cut). */
+export function editedPages(before: Map<number, Entry[]>, after: Map<number, Entry[]>): number[] {
+  const pages = new Set([...before.keys(), ...after.keys()]);
+  const same = (a: Entry[] = [], b: Entry[] = []) => a.length === b.length && a.every((e, i) => e.key === b[i].key);
+  return [...pages].filter((p) => !same(before.get(p), after.get(p))).sort((a, b) => a - b);
+}
+
+/** The letter a page carries now: its edited letter this revision, or the one it kept from before. */
+export function letterFor(p: ProductionState, page: number, edited: boolean): number {
+  const kept = p.pageLetters?.[page] ?? 0;
+  if (!edited) return kept;
+  return p.currentLetters?.[page] ?? kept + 1;
+}
+
+export function letterName(n: number): string {
+  return n > 0 ? pageLabel(0, n).replace(/^0/, "") : "";
 }
 
 export const PRODUCTION_FILE = "production.json";

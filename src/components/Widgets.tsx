@@ -168,8 +168,9 @@ export function ProductionMenu({ store, onLock }: ProductionProps) {
           ) : (
             <>
               <p className="panel-text">
-                <b>{prod!.pageCount} pages locked.</b> {prod!.revision} revision, {prod!.revisionDate}. Edits spill onto A-pages and are marked with *.
+                <b>{prod!.pageCount} pages locked.</b> {prod!.revision} revision, {prod!.revisionDate}. An edited page gets a letter (3A), changed lines a *, and its old version goes to the Archive.
               </p>
+              <RevisedPages store={store} onClose={() => setOpen(false)} />
               <button
                 className="btn"
                 data-testid="next-revision"
@@ -195,6 +196,54 @@ export function ProductionMenu({ store, onLock }: ProductionProps) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The pages edited in this revision, with a letter picker and a link to each old version. */
+function RevisedPages({ store, onClose }: { store: ProjectStore; onClose: () => void }) {
+  const prod = store.production!;
+  const { edited } = store.productionPages();
+  if (!edited.length) return <p className="panel-hint">No pages have been edited in this revision yet.</p>;
+  return (
+    <div className="revised-pages" data-testid="revised-pages">
+      <div className="menu-label">Revised pages</div>
+      {edited.map((page) => {
+        const current = prod.currentLetters?.[page] ?? (prod.pageLetters?.[page] ?? 0) + 1;
+        const archived = prod.archived?.[`${prod.revision}:${page}`];
+        return (
+          <div key={page} className="revised-row">
+            <span>Page {page}</span>
+            <select
+              value={current}
+              onChange={(e) => void store.setPageLetter(page, Number(e.target.value))}
+              data-testid={`page-letter-${page}`}
+              title="The number this page prints with"
+            >
+              {Array.from({ length: 27 }, (_, i) => (
+                <option key={i} value={i}>
+                  {page}
+                  {i ? String.fromCharCode(64 + i) : ""}
+                </option>
+              ))}
+            </select>
+            {archived && store.node(archived) ? (
+              <button
+                className="btn ghost small"
+                onClick={() => {
+                  onClose();
+                  void store.select(archived);
+                }}
+                data-testid={`old-version-${page}`}
+              >
+                Old version
+              </button>
+            ) : (
+              <span className="muted small-text">Archiving…</span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

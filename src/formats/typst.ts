@@ -26,7 +26,7 @@ export interface GenOptions {
   /** Production mode (scripts): locked pages and revision marks. */
   production?: {
     /** Element id -> locked page number; `hard` starts a new page there. */
-    locks: Map<string, { page: number; hard: boolean }>;
+    locks: Map<string, { page: number; hard: boolean; letter?: number }>;
     /** Document id -> indices of lines changed in this revision. */
     revised: Map<string, Set<number>>;
     /** Printed at the top left of every page, e.g. "Blue Rev. 16/11/2026". */
@@ -116,7 +116,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
   if (prod) confArgs.push(`revision: ${str(prod.label)}`);
   const lockFor = (id: string) => {
     const l = prod?.locks.get(id);
-    if (l) emit(`#mw-lock(${l.page}, hard: ${l.hard})\n`);
+    if (l) emit(`#mw-lock(${l.page}, hard: ${l.hard}${l.letter ? `, start: ${l.letter}` : ""})\n`);
   };
   const revMark = (docId: string, index: number) => (prod?.revised.get(docId)?.has(index) ? "#mw-rev()" : "");
   const image = (b: Block) => `#block(above: 1em, below: 0pt, width: 100%, align(center, image(${str("/" + (b.src ?? "").replace(/^\/+/, ""))}, width: 75%)))\n`;

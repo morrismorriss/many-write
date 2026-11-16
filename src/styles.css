@@ -489,9 +489,15 @@ figure.mw-image.ProseMirror-selectednode img { outline: 2px solid var(--accent);
 .single-hint { padding: 8px 12px; line-height: 1.5; }
 
 /* Top bar: the left side gives way (breadcrumbs truncate) before anything overlaps. */
-.topbar-left { flex: 1 1 auto; overflow: hidden; }
+.topbar-left { flex: 1 1 auto; min-width: 0; }
+.topbar-left .crumbs { overflow: hidden; }
 .topbar-left .crumbs { flex: 1 1 auto; min-width: 0; }
 .topbar-right { gap: 2px; }
 .layout-status { display: flex; align-items: center; gap: 4px; }
 .status.prod { padding: 2px 8px; font-weight: 500; }
 @media (max-width: 1280px) { .topbar-left .crumbs { display: none; } }
+.production-panel { width: 340px; }
+.revised-pages { border-top: 1px solid var(--border); margin: 4px 0 10px; padding-top: 6px; }
+.revised-row { display: grid; grid-template-columns: 1fr 80px auto; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+.revised-row select { height: 28px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); padding: 0 6px; }
+.revised-row .btn { width: auto; margin: 0; }
