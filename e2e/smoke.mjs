@@ -53,6 +53,8 @@ const editor = page.getByTestId("editor");
 await editor.click();
 await page.keyboard.press("Control+End");
 ok((await pill()).trim() === "Scene heading", "cursor starts on the scene heading");
+ok((await page.locator(".mw-editor p.is-hint").getAttribute("data-placeholder")) === "Scene 1", "a new scene is empty, with its name as grey hint text");
+await type("Scene 1");
 await page.keyboard.press("Enter");
 ok((await pill()).trim() === "Stage direction", "Enter after scene heading -> stage direction");
 await type("A kitchen. Morning.");

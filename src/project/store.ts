@@ -5,25 +5,27 @@
 import { BackendError, call, configApi, fsApi, join } from "../lib/backend";
 import { blockText, parseDoc, serializeDoc, adaptScriptTypes, type Block } from "../formats/markdown";
 import {
-  BIBLIOGRAPHY_STARTER,
   getTemplate,
   hasType,
   MATTER_TEMPLATE,
   NOTES_TEMPLATE,
   TEMPLATES,
-  WORKS_CITED_STARTER,
+  presetFor,
+  type ElementType,
   type EssayStyle,
   type MatterPreset,
   type Template,
   type TemplateId,
 } from "../formats/templates";
 import type { ManuscriptItem, ProjectMeta } from "../formats/typst";
+import type { ImportNode } from "./importers";
 import {
   cloneData,
   conflictBase,
   desiredName,
   emptyProject,
   findNode,
+  inMatterFolder,
   isDescendant,
   isSafeNotesPath,
   isSafeSegment,
@@ -31,6 +33,7 @@ import {
   newId,
   nodePath,
   parentOf,
+  playOf,
   PROJECT_FILE,
   ROOTS,
   TYPESET_ROLES,
@@ -113,7 +116,7 @@ export async function createProject(
   title: string,
   templateId: TemplateId,
   author: string,
-  opts: { essayStyle?: EssayStyle } = {},
+  opts: { essayStyle?: EssayStyle; collection?: boolean } = {},
 ): Promise<string> {
   const template = TEMPLATES[templateId];
   const root = join(location, title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "Untitled");
@@ -126,7 +129,19 @@ export async function createProject(
   }
   const ms = rootOf(data, "manuscript");
   const docs: { rel: string; content: string }[] = [];
-  if (templateId === "stage-play") {
+  const dirs: string[] = [];
+  if (templateId === "stage-play" && opts.collection) {
+    // A collection (a trilogy…): each play is a folder with its own title page, front matter and acts.
+    for (const [i, name] of ["One", "Two", "Three"].entries()) {
+      const file = `0${i + 1}-play-${name.toLowerCase()}`;
+      const play: BinderNode = { id: newId(), kind: "folder", title: `Play ${name}`, file, play: true, children: [] };
+      play.children!.push({ id: newId(), kind: "folder", title: "Front matter", file: "01-front-matter", matter: true, children: [] });
+      play.children!.push({ id: newId(), kind: "folder", title: "Act One", file: "02-act-one", children: [{ id: newId(), kind: "doc", title: "Scene 1", file: "01-scene-1.md" }] });
+      ms.children!.push(play);
+      docs.push({ rel: `manuscript/${file}/02-act-one/01-scene-1.md`, content: "" });
+      dirs.push(`manuscript/${file}/01-front-matter`);
+    }
+  } else if (templateId === "stage-play") {
     const act: BinderNode = { id: newId(), kind: "folder", title: "Act One", file: "01-act-one", children: [] };
     act.children!.push({ id: newId(), kind: "doc", title: "Scene 1", file: "01-scene-1.md" });
     ms.children!.push(act);
@@ -142,9 +157,9 @@ export async function createProject(
     const title = mla ? "Works Cited" : "Bibliography";
     const file = `01-${slugify(title)}.md`;
     rootOf(data, "back").children!.push({ id: newId(), kind: "doc", title, file });
-    docs.push({ rel: `back-matter/${file}`, content: mla ? WORKS_CITED_STARTER : BIBLIOGRAPHY_STARTER });
+    docs.push({ rel: `back-matter/${file}`, content: "" });
   }
-  for (const dir of [...ROOTS.map((r) => r.file), "notes"]) await fsApi.mkdir(join(root, dir));
+  for (const dir of [...ROOTS.map((r) => r.file), "notes", ...dirs]) await fsApi.mkdir(join(root, dir));
   for (const d of docs) await fsApi.write(join(root, d.rel), d.content, null);
   await fsApi.write(join(root, "README.md"), projectReadme(title, template), null);
   await fsApi.write(join(root, PROJECT_FILE), serializeProject(data), null);
@@ -430,7 +445,13 @@ export class ProjectStore {
     const inManuscript = new Set(manuscriptOrder(this.data).map((x) => x.node.id));
     const firstIdx = ids.findIndex((id, i) => inManuscript.has(id.split("#")[0]) && first[i] > 0);
     const firstScriptPage = firstIdx >= 0 ? first[firstIdx] : this.data.settings.titlePage ? 2 : 1;
-    const anchors = computeAnchors(ids, first, last, this.keyAt, firstScriptPage, pageCount);
+    // A page is never locked to a heading from another part: an (empty) front matter page or a play's title page.
+    const sectionOf = (id: string) => {
+      const role = roleOf(this.data, id);
+      if (this.node(id)?.play) return `play:${id}`;
+      return role === "front" || role === "back" || inMatterFolder(this.data, id) ? `matter:${id}` : "body";
+    };
+    const anchors = computeAnchors(ids, first, last, this.keyAt, firstScriptPage, pageCount, sectionOf);
     this.production = {
       formatVersion: 1,
       active: true,
@@ -558,6 +579,7 @@ export class ProjectStore {
    */
   templateFor(id: string): Template {
     const role = roleOf(this.data, id);
+    if (inMatterFolder(this.data, id)) return MATTER_TEMPLATE;
     if (role === "manuscript" || role === "archive") return this.template;
     if (role === "front" || role === "back") return MATTER_TEMPLATE;
     return NOTES_TEMPLATE;
@@ -574,6 +596,8 @@ export class ProjectStore {
       contact: this.data.contact,
       titlePage: this.data.settings.titlePage,
       paper: this.data.settings.paper,
+      sceneNewPage: this.template.mode === "script" ? this.data.settings.sceneNewPage !== false : undefined,
+      autoContd: this.template.mode === "script" ? (this.data.settings.autoContd ?? this.data.template === "screenplay") : undefined,
       sceneBreak:
         this.data.template === "book" ? { style: this.data.settings.sceneBreak ?? "asterisks", image: this.data.settings.sceneBreakImage } : undefined,
       essay:
@@ -594,10 +618,20 @@ export class ProjectStore {
     const usable = (id: string) => !this.conflictCopies.has(id) && !this.missing.has(id);
     for (const where of ["front", "back"] as const) {
       if (where === "back") {
-        for (const { node, depth } of manuscriptOrder(this.data)) {
-          if (node.kind === "folder") items.push({ kind: "folder", id: node.id, title: node.title, depth });
-          else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [] });
-        }
+        const walk = (nodes: BinderNode[], depth: number) => {
+          for (const node of nodes) {
+            if (node.kind === "folder" && node.matter) {
+              // A play's own front matter: typeset like the project's, after the play's title page.
+              walkNodes(node.children ?? [], (n) => {
+                if (n.kind === "doc" && usable(n.id)) items.push({ kind: "matter", id: n.id, title: n.title, blocks: this.docs.get(n.id)?.blocks ?? [], where: "front" });
+              });
+            } else if (node.kind === "folder") {
+              items.push(node.play ? { kind: "play", id: node.id, title: node.title } : { kind: "folder", id: node.id, title: node.title, depth });
+              walk(node.children ?? [], depth + 1);
+            } else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [] });
+          }
+        };
+        walk(rootOf(this.data, "manuscript")?.children ?? [], 1);
       }
       for (const { node } of manuscriptOrder(this.data, where)) {
         if (node.kind === "doc" && usable(node.id)) items.push({ kind: "matter", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [], where });
@@ -611,15 +645,39 @@ export class ProjectStore {
     return (["front", "manuscript", "back"] as const).flatMap((r) => manuscriptOrder(this.data, r).map((x) => x.node).filter((n) => n.kind === "doc"));
   }
 
+  /**
+   * Grey text for an empty document, replaced by whatever the writer types,
+   * and the type its first line starts as. New documents are created empty.
+   */
+  hintFor(id: string): { text: string; type?: ElementType } | null {
+    const node = this.node(id);
+    if (!node) return null;
+    const role = roleOf(this.data, id);
+    if (role === "front" || role === "back" || inMatterFolder(this.data, id)) {
+      const p = presetFor(node.title);
+      return p?.hint ? { text: p.hint, type: p.firstType } : null;
+    }
+    if (role === "characters") return { text: "Character name", type: "title" };
+    if (role === "research") return { text: node.title, type: "title" };
+    if (role === "manuscript" || role === "archive") {
+      const t = this.template;
+      if (t.mode === "script") return { text: t.id === "screenplay" ? "INT. LOCATION - DAY" : node.title };
+      if (t.mode === "poem") return { text: node.title, type: "title" };
+    }
+    return null;
+  }
+
   /** Character names used anywhere in the manuscript, most frequent first. */
-  characterNames(): string[] {
+  characterNames(exceptDocId?: string): string[] {
     const counts = new Map<string, number>();
-    for (const d of this.docs.values())
+    for (const [id, d] of this.docs.entries()) {
+      if (id === exceptDocId) continue;
       for (const b of d.blocks)
         if (b.type === "character") {
           const name = blockText(b).trim().toUpperCase().replace(/\s*\(.*\)$/, "");
           if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
         }
+    }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
   }
 
@@ -997,19 +1055,20 @@ export class ProjectStore {
     return this.enqueue(async () => {
       const parent = (parentId && this.node(parentId)) || rootOf(this.data, role);
       const r = roleOf(this.data, parent.id) ?? role;
-      const tmpl = r === "manuscript" || r === "archive" ? this.template : r === "front" || r === "back" ? MATTER_TEMPLATE : NOTES_TEMPLATE;
+      const matter = inMatterFolder(this.data, parent.id);
       let count = 0;
-      walkNodes(rootOf(this.data, r).children ?? [], (n) => {
-        if (n.kind === "doc") count++;
+      // Scenes are numbered within their play.
+      const play = playOf(this.data, parent.id);
+      walkNodes((play ?? rootOf(this.data, r)).children ?? [], (n) => {
+        if (n.kind === "doc" && !inMatterFolder(this.data, n.id)) count++;
       });
-      const noun = r === "manuscript" || r === "archive" ? tmpl.docNoun : r === "characters" ? "Character" : r === "research" ? "Note" : "Page";
+      const noun = matter ? "Page" : r === "manuscript" || r === "archive" ? this.template.docNoun : r === "characters" ? "Character" : r === "research" ? "Note" : "Page";
       const node: BinderNode = { id: newId(), kind: "doc", title: preset?.title ?? `${noun} ${count + 1}`, file: `~new-${newId()}.md` };
       const kids = (parent.children ??= []);
       const at = afterId ? kids.findIndex((k) => k.id === afterId) + 1 : kids.length;
       kids.splice(at > 0 ? at : kids.length, 0, node);
-      const content =
-        preset?.content ??
-        (r === "manuscript" || r === "archive" ? tmpl.starter(count + 1) : r === "characters" ? CHARACTER_STARTER : r === "research" ? `# ${node.title}\n` : "");
+      // New pages start empty; the editor shows grey hint text until the writer types (hintFor).
+      const content = preset?.content ?? (r === "manuscript" || r === "archive" ? this.template.starter(count + 1) : "");
       await fsApi.write(join(this.pathOf(parent.id)!, node.file), content, null);
       await this.syncNames(parent);
       await this.writeProject();
@@ -1025,7 +1084,7 @@ export class ProjectStore {
       const parent = (parentId && this.node(parentId)) || rootOf(this.data, role);
       const r = roleOf(this.data, parent.id) ?? role;
       const noun = r === "manuscript" ? this.template.folderNoun : "Folder";
-      const n = (parent.children ?? []).filter((c) => c.kind === "folder").length + 1;
+      const n = (parent.children ?? []).filter((c) => c.kind === "folder" && !c.matter && !c.play).length + 1;
       const title = noun === "Act" ? `Act ${["One", "Two", "Three", "Four", "Five", "Six"][n - 1] ?? n}` : `${noun} ${n}`;
       const node: BinderNode = { id: newId(), kind: "folder", title, file: `~new-${newId()}`, children: [] };
       (parent.children ??= []).push(node);
@@ -1034,6 +1093,102 @@ export class ProjectStore {
       await this.writeProject();
       this.emit();
       return node.id;
+    });
+  }
+
+  /**
+   * A whole play inside the project (a trilogy, a collection of one-acts): a
+   * folder with its own title page, a front matter folder and Act One.
+   */
+  async addPlay() {
+    return this.enqueue(async () => {
+      const ms = rootOf(this.data, "manuscript");
+      const n = (ms.children ?? []).filter((c) => c.play).length + 1;
+      const words = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+      const play: BinderNode = { id: newId(), kind: "folder", title: `Play ${words[n - 1] ?? n}`, file: `~new-${newId()}`, play: true, children: [] };
+      const front: BinderNode = { id: newId(), kind: "folder", title: "Front matter", file: `~new-${newId()}`, matter: true, children: [] };
+      const scene: BinderNode = { id: newId(), kind: "doc", title: "Scene 1", file: `~new-${newId()}.md` };
+      const act: BinderNode = { id: newId(), kind: "folder", title: this.template.folderNoun === "Act" ? "Act One" : `${this.template.folderNoun} 1`, file: `~new-${newId()}`, children: [scene] };
+      play.children = [front, act];
+      (ms.children ??= []).push(play);
+      const dir = join(this.pathOf(ms.id)!, play.file);
+      await fsApi.mkdir(dir);
+      await fsApi.mkdir(join(dir, front.file));
+      await fsApi.mkdir(join(dir, act.file));
+      await fsApi.write(join(dir, act.file, scene.file), "", null);
+      // Inner folders first, so each rename happens under its parent's current name.
+      await this.syncNames(act);
+      await this.syncNames(play);
+      await this.syncNames(ms);
+      await this.writeProject();
+      this.setFromDisk(scene.id, "", (await fsApi.read(this.pathOf(scene.id)!)).hash);
+      this.selectedId = play.id;
+      this.emit();
+      return play.id;
+    });
+  }
+
+  /**
+   * Put imported scenes (Final Draft, Fountain…) into a folder, e.g. one play
+   * of a collection. A folder that only holds empty scenes is filled instead.
+   */
+  async importInto(folderId: string, scenes: ImportNode[], title?: string) {
+    await this.flushAll();
+    return this.enqueue(async () => {
+      const folder = this.node(folderId);
+      if (!folder || folder.kind !== "folder") return;
+      const t = this.template;
+      const action: ElementType = t.elements.some((e) => e.type === "action") ? "action" : "direction";
+      // An untouched new play: put the scenes in its first act, replacing the empty Scene 1.
+      let target = folder;
+      const acts = (folder.children ?? []).filter((c) => c.kind === "folder" && !c.matter);
+      const docsIn: BinderNode[] = [];
+      walkNodes(folder.children ?? [], (n) => {
+        if (n.kind === "doc" && !inMatterFolder(this.data, n.id)) docsIn.push(n);
+      });
+      const empty = docsIn.every((d) => !(this.docs.get(d.id)?.blocks ?? []).some((b) => blockText(b).trim()));
+      if (empty && acts.length) {
+        target = acts[0];
+        for (const d of docsIn) {
+          const parent = parentOf(this.data, d.id)!;
+          if (!this.missing.has(d.id)) await fsApi.trash(this.pathOf(d.id)!, this.root);
+          parent.children = parent.children!.filter((c) => c.id !== d.id);
+          this.docs.delete(d.id);
+          await this.syncNames(parent);
+        }
+      }
+      const created: BinderNode[] = [];
+      const add = async (parent: BinderNode, nodes: ImportNode[]) => {
+        for (const n of nodes) {
+          const node: BinderNode = { id: newId(), kind: n.kind, title: n.title || "Untitled", file: `~new-${newId()}${n.kind === "doc" ? ".md" : ""}` };
+          (parent.children ??= []).push(node);
+          if (n.kind === "folder") {
+            node.children = [];
+            await fsApi.mkdir(this.pathOf(node.id)!);
+            await add(node, n.children ?? []);
+            await this.syncNames(node);
+          } else {
+            const blocks = (n.blocks ?? []).map((b) => (b.type === "direction" || b.type === "action" || b.type === "paragraph" ? { ...b, type: action } : b));
+            const content = serializeDoc({ blocks, frontMatter: null }, t.mode);
+            await fsApi.write(this.pathOf(node.id)!, content, null, true);
+            created.push(node);
+          }
+        }
+      };
+      await add(target, scenes);
+      await this.syncNames(target);
+      if (title && folder.play && /^Play \w+$/.test(folder.title)) {
+        folder.title = title;
+        const parent = parentOf(this.data, folder.id);
+        if (parent) await this.syncNames(parent);
+      }
+      folder.collapsed = false;
+      target.collapsed = false;
+      await this.writeProject();
+      for (const n of created) await this.readDoc(n.id);
+      this.selectedId = created[0]?.id ?? this.selectedId;
+      this.emit();
+      return created.length;
     });
   }
 
@@ -1235,13 +1390,5 @@ export function normalizeData(d: ProjectFile): ProjectFile {
 function stripRuntime(d: ProjectFile): ProjectFile {
   return d;
 }
-
-/** A new character page: Notion-style headings to fill in. */
-export const CHARACTER_STARTER = `# Name
-
-**Age:** 
-
-## About
-`;
 
 export type { MatterPreset };

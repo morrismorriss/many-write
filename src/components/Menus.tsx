@@ -123,6 +123,9 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
   const [contact, setContact] = useState(d.contact);
   const [titlePage, setTitlePage] = useState(d.settings.titlePage);
   const [paper, setPaper] = useState(d.settings.paper);
+  const script = store.template.mode === "script";
+  const [sceneNewPage, setSceneNewPage] = useState(d.settings.sceneNewPage !== false);
+  const [autoContd, setAutoContd] = useState(d.settings.autoContd ?? store.template.id === "screenplay");
   const essay = store.template.id === "essay";
   const book = store.template.id === "book";
   const [sceneBreak, setSceneBreak] = useState<SceneBreakStyle>(d.settings.sceneBreak ?? "asterisks");
@@ -149,7 +152,8 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
   const save = async () => {
     const essaySettings = essay ? { essayStyle, instructor, course, date } : {};
     const bookSettings = book ? { sceneBreak: sceneBreak === "image" && !breakImage ? ("asterisks" as const) : sceneBreak, sceneBreakImage: breakImage } : {};
-    await store.updateMeta({ title: title.trim() || "Untitled", author, contact, settings: { titlePage, paper, ...essaySettings, ...bookSettings } });
+    const scriptSettings = script ? { sceneNewPage, autoContd } : {};
+    await store.updateMeta({ title: title.trim() || "Untitled", author, contact, settings: { titlePage, paper, ...essaySettings, ...bookSettings, ...scriptSettings } });
     onClose();
   };
   return (
@@ -209,6 +213,21 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
             <label className="check">
               <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
               <span>Title page</span>
+            </label>
+          </>
+        )}
+        {script && (
+          <>
+            <label className="check">
+              <input type="checkbox" checked={sceneNewPage} onChange={(e) => setSceneNewPage(e.target.checked)} data-testid="scene-new-page" />
+              <span>Start each scene on a new page</span>
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={autoContd} onChange={(e) => setAutoContd(e.target.checked)} data-testid="auto-contd" />
+              <span>
+                Add (CONT'D) when a character speaks again after a direction
+                <span className="clause-text">On the page and in exports; your files are not changed. Type “(” after a name for (V.O.), (O.S.) or (CONT'D) yourself.</span>
+              </span>
             </label>
           </>
         )}

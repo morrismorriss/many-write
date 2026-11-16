@@ -91,7 +91,7 @@ export interface Template {
   pageFont: string;
   docNoun: string;
   folderNoun: string;
-  /** New documents in the manuscript start with this content (markdown). */
+  /** New documents in the manuscript start with this content (markdown). Empty: the page shows grey hint text instead. */
   starter: (n: number) => string;
   exports: ExportFormat[];
   titlePageDefault: boolean;
@@ -144,7 +144,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
     pageFont: "Courier Prime",
     docNoun: "Scene",
     folderNoun: "Act",
-    starter: (n) => `## Scene ${n}\n`,
+    starter: () => "",
     exports: scriptExports,
     titlePageDefault: true,
   },
@@ -176,7 +176,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
     pageFont: "Courier Prime",
     docNoun: "Scene",
     folderNoun: "Sequence",
-    starter: () => `## INT. LOCATION - DAY\n`,
+    starter: () => "",
     exports: scriptExports,
     titlePageDefault: true,
   },
@@ -197,7 +197,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
     pageFont: "Libertinus Serif",
     docNoun: "Poem",
     folderNoun: "Section",
-    starter: () => `# Untitled\n\n`,
+    starter: () => "",
     exports: proseExports,
     titlePageDefault: false,
   },
@@ -429,27 +429,38 @@ export function copyrightPage(author: string, year: number, clauseIds: string[])
 /** Ready-made front and back matter pages offered in the binder. */
 export interface MatterPreset {
   title: string;
+  /** Starting text. Empty for every preset: the page shows `hint` in grey until the writer types. */
   content: string;
   where: "front" | "back";
   forTemplates?: TemplateId[];
+  /** Grey text shown on the empty page, replaced by whatever the writer types. */
+  hint?: string;
+  /** The type of the page's first line (a dedication is centred, a source has a hanging indent). */
+  firstType?: ElementType;
 }
 
 export const MATTER_PRESETS: MatterPreset[] = [
-  { title: "Dedication", where: "front", content: "-> For … <-\n" },
-  { title: "Epigraph", where: "front", content: "> A line that sets the tone.\n\n-> — Its author <-\n" },
+  { title: "Dedication", where: "front", content: "", firstType: "centered", hint: "For …" },
+  { title: "Epigraph", where: "front", content: "", firstType: "quote", hint: "A line that sets the tone. — Its author" },
   // Content comes from the copyright dialog (copyrightPage); this is the fallback.
-  { title: "Copyright", where: "front", content: "Copyright © 2026 by the author. All rights reserved.\n" },
-  { title: "Cast of characters", where: "front", forTemplates: ["stage-play", "screenplay"], content: "ANNA, thirties, a teacher.\n\nBEN, her brother.\n" },
-  { title: "Time and place", where: "front", forTemplates: ["stage-play"], content: "A kitchen in a small town. The present.\n" },
-  { title: "Production history", where: "front", forTemplates: ["stage-play"], content: "First performed at …\n" },
-  { title: "Preface", where: "front", forTemplates: ["book", "article"], content: "" },
-  { title: "Acknowledgements", where: "back", content: "" },
+  { title: "Copyright", where: "front", content: "", hint: "Copyright © 2026 by the author. All rights reserved." },
+  { title: "Cast of characters", where: "front", forTemplates: ["stage-play", "screenplay"], content: "", hint: "ANNA, thirties, a teacher." },
+  { title: "Time and place", where: "front", forTemplates: ["stage-play"], content: "", hint: "A kitchen in a small town. The present." },
+  { title: "Production history", where: "front", forTemplates: ["stage-play"], content: "", hint: "First performed at …" },
+  { title: "Preface", where: "front", forTemplates: ["book", "article"], content: "", hint: "Why this book, and how to read it…" },
+  { title: "Acknowledgements", where: "back", content: "", hint: "Thank you to…" },
   { title: "Afterword", where: "back", forTemplates: ["book"], content: "" },
-  { title: "About the author", where: "back", content: "" },
+  { title: "About the author", where: "back", content: "", hint: "A few lines about you…" },
   { title: "Notes", where: "back", content: "" },
-  { title: "Works Cited", where: "back", content: WORKS_CITED_STARTER },
-  { title: "Bibliography", where: "back", content: BIBLIOGRAPHY_STARTER },
+  { title: "Works Cited", where: "back", content: "", firstType: "citation", hint: "Surname, First Name. Title of Book. Publisher, Year." },
+  { title: "Bibliography", where: "back", content: "", firstType: "citation", hint: "Surname, First Name. Title of Book. City: Publisher, Year." },
 ];
+
+/** The preset a front or back matter page was made from, found by its title. */
+export function presetFor(title: string): MatterPreset | undefined {
+  const t = title.trim().toLowerCase();
+  return MATTER_PRESETS.find((p) => p.title.toLowerCase() === t);
+}
 
 /** A plain document, like a word processor: Notion-style blocks, typeset as a clean page. */
 TEMPLATES.document = {

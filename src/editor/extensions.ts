@@ -5,6 +5,8 @@ import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { Fragment, Slice, type Node as PMNode, type Schema } from "@tiptap/pm/model";
 import { cycleNext, elementLabel, hasType, type ElementType, type Template } from "../formats/templates";
 import { parseDoc, serializeDoc, adaptScriptTypes, type Block, type Run } from "../formats/markdown";
+import { linkTarget, URL_RE } from "../formats/typst";
+import { openUrl } from "../lib/backend";
 
 // --------------------------------------------------------------- schema
 
@@ -189,8 +191,16 @@ export interface MenuItem {
   value: string;
 }
 
+/** Character extensions offered after a name: "ANNA (V.O.)". */
+export const CUE_EXTENSIONS: { value: string; hint: string }[] = [
+  { value: "CONT'D", hint: "continued" },
+  { value: "V.O.", hint: "voice-over" },
+  { value: "O.S.", hint: "off stage / screen" },
+  { value: "O.C.", hint: "off camera" },
+];
+
 interface PopupInfo {
-  kind: "slash" | "names";
+  kind: "slash" | "names" | "ext";
   /** Range of the text the pick replaces. */
   from: number;
   to: number;
@@ -213,6 +223,8 @@ export interface ScriptKeysOptions {
   getSearch: () => SearchHighlight | null;
   /** Ask for an image, copy it into the project and return its relative path. */
   pickImage: () => Promise<string | null>;
+  /** Grey text for an empty document, and the type its first line starts as. */
+  getHint: () => { text: string; type?: ElementType } | null;
 }
 
 export interface SearchHighlight {
@@ -249,7 +261,29 @@ function popupInfo(state: EditorState, opts: ScriptKeysOptions): PopupInfo | nul
   if ($from.parent.attrs.type === "character" && $from.pos === lineEnd) {
     const typed = $from.parent.textContent.toUpperCase().trim();
     if (ps.dismissed === typed) return null;
-    const names = opts.getNames().filter((n) => n.startsWith(typed) && n !== typed).slice(0, 8);
+    // "ANNA (" or "ANNA (V": offer the extensions.
+    const open = typed.match(/^(.*\S)\s*\(([^)]*)$/);
+    if (open) {
+      const q = open[2].trim();
+      const exts = CUE_EXTENSIONS.filter((e) => e.value.startsWith(q) || e.value.replace(/\W/g, "").startsWith(q.replace(/\W/g, "")));
+      if (!exts.length) return null;
+      const items = exts.map((e) => ({ label: `(${e.value})`, hint: e.hint, value: `${open[1]} (${e.value})` }));
+      return { kind: "ext", from: lineStart, to: lineEnd, items, index: Math.min(ps.index ?? 0, items.length - 1) };
+    }
+    // Names used elsewhere: other documents (from the store) and other lines of this one, never the line being typed.
+    const here = new Map<string, number>();
+    state.doc.forEach((n) => {
+      if (n === $from.parent || n.type.name !== "element" || n.attrs.type !== "character") return;
+      const name = n.textContent.toUpperCase().trim().replace(/\s*\(.*\)$/, "");
+      if (name) here.set(name, (here.get(name) ?? 0) + 1);
+    });
+    const all = [...new Set([...[...here.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n), ...opts.getNames()])];
+    // A whole name typed: offer its extensions, with none highlighted so Enter still moves on to dialogue.
+    if (typed && all.includes(typed)) {
+      const items = CUE_EXTENSIONS.map((e) => ({ label: `(${e.value})`, hint: e.hint, value: `${typed} (${e.value})` }));
+      return { kind: "ext", from: lineStart, to: lineEnd, items, index: Math.min(ps.index ?? -1, items.length - 1) };
+    }
+    const names = all.filter((n) => n.startsWith(typed) && n !== typed).slice(0, 8);
     if (!names.length) return null;
     // On an empty line nothing is highlighted, so Enter keeps its usual job.
     const index = ps.index ?? (typed ? 0 : -1);
@@ -331,7 +365,7 @@ class PopupView {
     }
     this.dom.dataset.kind = info.kind;
     this.dom.replaceChildren(
-      ...(info.kind === "names" ? [Object.assign(document.createElement("div"), { className: "popup-title", textContent: "Characters" })] : []),
+      ...(info.kind !== "slash" ? [Object.assign(document.createElement("div"), { className: "popup-title", textContent: info.kind === "names" ? "Characters" : "Add to the name" })] : []),
       ...info.items.map((it, i) => {
         const b = document.createElement("button");
         b.className = i === info.index ? "menu-item active" : "menu-item";
@@ -340,7 +374,7 @@ class PopupView {
         const l = document.createElement("span");
         l.textContent = it.label;
         b.appendChild(l);
-        if (it.hint && info.kind === "slash") {
+        if (it.hint && info.kind !== "names") {
           const k = document.createElement("kbd");
           k.textContent = it.hint;
           b.appendChild(k);
@@ -439,7 +473,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
   name: "scriptKeys",
   priority: 1000,
   addOptions() {
-    return { getTemplate: () => ({}) as Template, getNames: () => [], getSearch: () => null, pickImage: async () => null };
+    return { getTemplate: () => ({}) as Template, getNames: () => [], getSearch: () => null, pickImage: async () => null, getHint: () => null };
   },
   addKeyboardShortcuts() {
     const t = () => this.options.getTemplate();
@@ -471,7 +505,8 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         const tmpl = t();
         const { state, view } = this.editor;
         const info = popup();
-        if (info) return choose(view, info, Math.max(0, info.index), tmpl);
+        // Tab picks from a list of names; with a whole name typed it still changes the line type.
+        if (info && (info.kind !== "ext" || info.index >= 0)) return choose(view, info, Math.max(0, info.index), tmpl);
         if (!tmpl.tabCycle.length) {
           view.dispatch(state.tr.insertText("    ").scrollIntoView());
           return true;
@@ -538,6 +573,16 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               }, 120);
               return false;
             },
+            click: (_view, event) => {
+              // A click on a web address opens it in the browser; Alt-click places the cursor to edit it.
+              const link = (event.target as HTMLElement).closest?.(".mw-link") as HTMLElement | null;
+              if (!link || event.altKey || event.button !== 0) return false;
+              const href = link.dataset.href;
+              if (!href) return false;
+              event.preventDefault();
+              void openUrl(href);
+              return true;
+            },
             mousedown: (view, event) => {
               // Clicking a to-do's box ticks it.
               const p = (event.target as HTMLElement).closest?.("p.el-todo, p.el-todo_done") as HTMLElement | null;
@@ -554,8 +599,13 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
             const decos: Decoration[] = [];
             const { $from } = state.selection;
             const tmpl = options.getTemplate();
-            // Placeholder on the current empty line, naming its element type.
-            if ($from.parent.type.name === "element" && $from.parent.content.size === 0 && $from.parent.attrs.type !== "divider") {
+            // An empty document shows its hint in grey, whether or not the cursor is in it.
+            const first = state.doc.firstChild;
+            const hint = state.doc.childCount === 1 && first?.type.name === "element" && first.content.size === 0 ? options.getHint() : null;
+            if (hint) {
+              decos.push(Decoration.node(0, first!.nodeSize, { class: "is-empty is-hint", "data-placeholder": hint.text }));
+            } else if ($from.parent.type.name === "element" && $from.parent.content.size === 0 && $from.parent.attrs.type !== "divider") {
+              // Placeholder on the current empty line, naming its element type.
               const type = $from.parent.attrs.type as ElementType;
               const label = tmpl.elements.find((e) => e.type === type)?.placeholder ?? elementLabel(tmpl, type);
               decos.push(Decoration.node($from.before(), $from.after(), { class: "is-empty", "data-placeholder": label }));
@@ -565,6 +615,20 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
             state.doc.forEach((node, pos) => {
               n = node.type.name === "element" && node.attrs.type === "numbered" ? n + 1 : 0;
               if (n) decos.push(Decoration.node(pos, pos + node.nodeSize, { "data-num": `${n}.` }));
+            });
+            // Web addresses: underlined and clickable.
+            state.doc.descendants((node, pos) => {
+              if (!node.isText || !node.text) return;
+              URL_RE.lastIndex = 0;
+              for (let m: RegExpExecArray | null; (m = URL_RE.exec(node.text)); ) {
+                decos.push(
+                  Decoration.inline(pos + m.index, pos + m.index + m[0].length, {
+                    class: "mw-link",
+                    "data-href": linkTarget(m[0]),
+                    title: `${linkTarget(m[0])}\nClick to open · ${navigator.platform.includes("Mac") ? "⌥" : "Alt"}-click to edit`,
+                  }),
+                );
+              }
             });
             // Find & replace matches.
             const search = options.getSearch();

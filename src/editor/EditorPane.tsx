@@ -7,8 +7,8 @@ import Underline from "@tiptap/extension-underline";
 import HardBreak from "@tiptap/extension-hard-break";
 import { UndoRedo } from "@tiptap/extensions";
 import { ElementNode, ImageNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, setLineType, type SearchHighlight } from "./extensions";
-import { elementLabel, type ElementType, type Template } from "../formats/templates";
-import { parseDoc, serializeDoc } from "../formats/markdown";
+import { elementLabel, hasType, type ElementType, type Template } from "../formats/templates";
+import { parseDoc, serializeDoc, type Block } from "../formats/markdown";
 import type { ProjectStore } from "../project/store";
 import { imageUrl, pickImage } from "../lib/backend";
 import { ChevronDown } from "../components/icons";
@@ -33,7 +33,7 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 const MOD = isMac ? "⌘⌥" : "Ctrl+Alt+";
 
 /** The editor extensions every editor in the app shares. */
-function extensions(store: ProjectStore, opts: { template: () => Template; names: () => string[]; search: () => SearchHighlight | null }) {
+function extensions(store: ProjectStore, opts: { template: () => Template; names: () => string[]; search: () => SearchHighlight | null; hint?: () => { text: string; type?: ElementType } | null }) {
   return [
     ScriptDocument,
     Text,
@@ -48,6 +48,7 @@ function extensions(store: ProjectStore, opts: { template: () => Template; names
       getTemplate: opts.template,
       getNames: opts.names,
       getSearch: opts.search,
+      getHint: opts.hint ?? (() => null),
       pickImage: async () => {
         const f = await pickImage();
         if (!f) return null;
@@ -85,10 +86,19 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
   const [menuOpen, setMenuOpen] = useState(false);
   const extRev = useRef(doc.externalRev);
   const breakStyle = useSceneBreakStyle(store, template);
+  const hint = () => {
+    const h = store.hintFor(docId);
+    return h && (!h.type || hasType(templateRef.current, h.type)) ? h : h ? { text: h.text } : null;
+  };
+  /** An empty document starts on the line type its hint is for (a dedication is centred…). */
+  const initial = (blocks: Block[]) => {
+    const h = hint();
+    return blocksToContent(blocks.length || !h?.type ? blocks : [{ type: h.type, runs: [] }], template);
+  };
 
   const editor = useEditor({
-    extensions: extensions(store, { template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current }),
-    content: blocksToContent(doc.blocks, template),
+    extensions: extensions(store, { template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current, hint }),
+    content: initial(doc.blocks),
     autofocus: "end",
     editorProps: {
       attributes: {
@@ -113,7 +123,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
   });
 
   // Character names for the picker, refreshed as the manuscript changes.
-  namesRef.current = template.mode === "script" ? store.characterNames() : [];
+  namesRef.current = template.mode === "script" ? store.characterNames(docId) : [];
 
   useEffect(() => {
     editor?.view.dom.setAttribute("spellcheck", String(spellcheck));
@@ -129,7 +139,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
     if (!editor || doc.externalRev === extRev.current) return;
     extRev.current = doc.externalRev;
     const { from } = editor.state.selection;
-    editor.commands.setContent(blocksToContent(doc.blocks, template), { emitUpdate: false });
+    editor.commands.setContent(initial(doc.blocks), { emitUpdate: false });
     const max = editor.state.doc.content.size - 1;
     editor.commands.setTextSelection(Math.max(1, Math.min(from, max)));
   }, [editor, doc.externalRev, doc.blocks, template]);

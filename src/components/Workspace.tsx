@@ -29,6 +29,9 @@ interface Props {
   onNewDocument: () => void;
   onOpenDocument: () => void;
   onImport: () => void;
+  onNewWindow: () => void;
+  onOpenInWindow: (root: string) => void;
+  onDonate: () => void;
 }
 
 export function Workspace(p: Props) {
@@ -148,6 +151,9 @@ export function Workspace(p: Props) {
               onNewDocument={p.onNewDocument}
               onOpenDocument={p.onOpenDocument}
               onImport={p.onImport}
+              onNewWindow={p.onNewWindow}
+              onOpenInWindow={p.onOpenInWindow}
+              onDonate={p.onDonate}
               single={store.single}
               exports={store.template.exports}
               onExport={(f) => void exportProject(store, f)}

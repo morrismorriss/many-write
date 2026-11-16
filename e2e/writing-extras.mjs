@@ -68,7 +68,7 @@ let root = await newProject("essay", "On Rivers", "Ada Lovelace", async () => {
   await page.getByTestId("style-mla").click();
 });
 const worksCited = path.join(root, "back-matter/01-works-cited.md");
-ok(fs.existsSync(worksCited) && fs.readFileSync(worksCited, "utf8").startsWith("- "), "MLA essay starts with a Works Cited page of example sources");
+ok(fs.existsSync(worksCited) && fs.readFileSync(worksCited, "utf8") === "", "MLA essay starts with an empty Works Cited page (the example source is grey hint text)");
 ok(JSON.parse(fs.readFileSync(path.join(root, "project.json"), "utf8")).settings.essayStyle === "mla", "style saved in project.json");
 await openSettings();
 await page.getByTestId("essay-instructor").fill("Professor Byron");
@@ -160,7 +160,7 @@ ok(!copyright.includes("Designations"), "unticked clauses left out");
 await page.getByTestId("add-doc-characters").click();
 await sleep(1200);
 const chars = path.join(root, "characters");
-ok(fs.readFileSync(path.join(chars, fs.readdirSync(chars)[0]), "utf8").startsWith("# Name\n\n**Age:**"), "character page: name, age, about");
+ok(fs.readFileSync(path.join(chars, fs.readdirSync(chars)[0]), "utf8") === "", "a new character page starts empty");
 
 // ---- Archive button
 await page.getByTestId("binder-Chapter 1").hover();

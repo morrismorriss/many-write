@@ -12,7 +12,7 @@ import { TEMPLATES, type ExportFormat } from "../formats/templates";
 import { FORMAT_INFO } from "./Menus";
 import { Popover } from "./Popover";
 import type { CompileReport } from "./Preview";
-import { ArrowDown, ArrowUp, BarChart, Check, Close, FileIcon, Lock, Search, TargetIcon, Tomato } from "./icons";
+import { ArrowDown, ArrowUp, BarChart, Check, Close, FileIcon, HeartIcon, WindowsIcon, Lock, Search, TargetIcon, Tomato } from "./icons";
 
 /** A small popover that closes on outside click or Escape. */
 function usePopover() {
@@ -40,6 +40,10 @@ function usePopover() {
 // ------------------------------------------------------------------- File
 
 interface FileMenuProps {
+  /** Open a new window (welcome screen) or a project in a new window. */
+  onNewWindow: () => void;
+  onOpenInWindow: (root: string) => void;
+  onDonate: () => void;
   onNew: () => void;
   onNewDocument: () => void;
   onOpenDocument: () => void;
@@ -89,6 +93,10 @@ export function FileMenu(p: FileMenuProps) {
             <span>Import…</span>
             <small>Word, Final Draft, Fountain, PDF, RTF</small>
           </button>
+          <button className="menu-item two-line" onClick={run(p.onNewWindow)} data-testid="file-new-window">
+            <span>New window</span>
+            <small>Work on another project side by side</small>
+          </button>
           <div className="menu-sep" />
           <div className="menu-label">Recent projects</div>
           {recent.filter((r) => r.root !== p.currentRoot).length === 0 && <div className="menu-empty">No other recent projects</div>}
@@ -96,10 +104,15 @@ export function FileMenu(p: FileMenuProps) {
             .filter((r) => r.root !== p.currentRoot)
             .slice(0, 8)
             .map((r) => (
-              <button key={r.root} className="menu-item two-line" onClick={run(() => p.onOpen(r.root))} title={r.root}>
-                <span>{r.title}</span>
-                <small>{r.single ? "Document" : (TEMPLATES[r.template]?.name ?? "")}</small>
-              </button>
+              <div key={r.root} className="recent-item">
+                <button className="menu-item two-line" onClick={run(() => p.onOpen(r.root))} title={r.root}>
+                  <span>{r.title}</span>
+                  <small>{r.single ? "Document" : (TEMPLATES[r.template]?.name ?? "")}</small>
+                </button>
+                <button className="row-action" onClick={run(() => p.onOpenInWindow(r.root))} title="Open in a new window" aria-label={`Open ${r.title} in a new window`} data-testid={`open-window-${r.title}`}>
+                  <WindowsIcon />
+                </button>
+              </div>
             ))}
           <div className="menu-sep" />
           {!p.single && (
@@ -119,6 +132,10 @@ export function FileMenu(p: FileMenuProps) {
             </button>
           ))}
           <div className="menu-sep" />
+          <button className="menu-item" onClick={run(p.onDonate)} data-testid="file-donate">
+            <span>Support Many Write…</span>
+            <HeartIcon className="donate-heart" />
+          </button>
           <button className="menu-item" onClick={run(p.onClose)}>
             Close project
           </button>

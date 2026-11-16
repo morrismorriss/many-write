@@ -1,20 +1,106 @@
 import { useState } from "react";
 import type { ProjectStore } from "../project/store";
-import { roleOf, type BinderNode } from "../project/model";
+import { inMatterFolder, roleOf, type BinderNode, type Role } from "../project/model";
 import { useStore } from "../lib/useStore";
-import { ArchiveIcon, ChevronDown, Close, ChevronRight, FileIcon, FolderIcon, FolderPlus, Plus, Trash, Warning } from "./icons";
+import { pickFile } from "../lib/backend";
+import { planImport } from "../project/importers";
+import {
+  ArchiveIcon,
+  BulbIcon,
+  ChapterIcon,
+  ChevronDown,
+  Close,
+  ChevronRight,
+  FileIcon,
+  FolderIcon,
+  FolderPlus,
+  ImportIcon,
+  MasksIcon,
+  PageIcon,
+  PersonIcon,
+  Plus,
+  QuillIcon,
+  SceneIcon,
+  Trash,
+  Warning,
+} from "./icons";
 import { COPYRIGHT_CLAUSES, copyrightPage, MATTER_PRESETS, NOTES_TEMPLATE } from "../formats/templates";
 import { NotesEditor } from "../editor/EditorPane";
 
 type DropPos = "before" | "after" | "inside";
+
+/** Each kind of binder item has its own icon: scenes, chapters, poems, pages, characters, research notes, plays. */
+function NodeIcon({ store, node }: { store: ProjectStore; node: BinderNode }) {
+  if (node.kind === "folder") return node.play ? <MasksIcon /> : <FolderIcon />;
+  const role = roleOf(store.data, node.id);
+  if (role === "characters") return <PersonIcon />;
+  if (role === "research") return <BulbIcon />;
+  if (role === "front" || role === "back" || inMatterFolder(store.data, node.id)) return <PageIcon />;
+  const t = store.template;
+  if (t.mode === "script") return <SceneIcon />;
+  if (t.id === "book") return <ChapterIcon />;
+  if (t.mode === "poem") return <QuillIcon />;
+  return <PageIcon />;
+}
+
+/** Ask for a script file and put its scenes into a folder (one play of a collection). */
+async function importIntoFolder(store: ProjectStore, node: BinderNode) {
+  const path = await pickFile(`Import a script into “${node.title}”`, ["fdx", "fountain", "spmd", "docx", "pdf", "rtf", "txt", "md"], store.root.replace(/\/[^/]*$/, ""));
+  if (!path) return;
+  try {
+    const plan = await planImport(path);
+    const scenes = plan.manuscript.filter((n) => n.kind === "folder" || (n.blocks ?? []).length);
+    if (!scenes.length) {
+      store.toast("No script was found in that file.", "warn");
+      return;
+    }
+    const n = await store.importInto(node.id, scenes, plan.title);
+    store.toast(`Imported ${n} scene${n === 1 ? "" : "s"} from “${path.split("/").pop()}” into “${store.node(node.id)?.title ?? node.title}”.`);
+  } catch (e) {
+    store.toast(`Could not import: ${(e as Error).message}`, "error");
+  }
+}
 
 export function Binder({ store }: { store: ProjectStore }) {
   useStore(store);
   const [dragId, setDragId] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; pos: DropPos } | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const [presetsFor, setPresetsFor] = useState<"front" | "back" | null>(null);
-  const [copyrightFor, setCopyrightFor] = useState<"front" | "back" | null>(null);
+  /** The section ("front"/"back") or play front matter folder (its id) whose page menu is open. */
+  const [presetsFor, setPresetsFor] = useState<string | null>(null);
+  const [copyrightFor, setCopyrightFor] = useState<{ parentId: string; role: Role } | null>(null);
+  const script = store.template.mode === "script";
+
+  /** The menu of ready-made front/back matter pages, for a section or a play's front matter folder. */
+  const presetMenu = (key: string, where: "front" | "back", parentId: string, role: Role) =>
+    presetsFor === key && (
+      <div className="menu preset-menu" onMouseLeave={() => setPresetsFor(null)}>
+        {MATTER_PRESETS.filter((pr) => pr.where === where && (!pr.forTemplates || pr.forTemplates.includes(store.template.id as never))).map((pr) => (
+          <button
+            key={pr.title}
+            className="menu-item"
+            data-testid={`preset-${pr.title}`}
+            onClick={() => {
+              setPresetsFor(null);
+              if (pr.title === "Copyright") setCopyrightFor({ parentId, role });
+              else void store.addDoc(parentId, undefined, role, pr);
+            }}
+          >
+            {pr.title}
+          </button>
+        ))}
+        <div className="menu-sep" />
+        <button
+          className="menu-item"
+          onClick={() => {
+            setPresetsFor(null);
+            void store.addDoc(parentId, undefined, role, { title: "Untitled page", content: "" });
+          }}
+        >
+          Blank page
+        </button>
+      </div>
+    );
 
   const onDragOver = (e: React.DragEvent, node: BinderNode) => {
     if (!dragId) return;
@@ -45,8 +131,11 @@ export function Binder({ store }: { store: ProjectStore }) {
     const conflictOf = store.conflictCopies.get(node.id);
     const isFolder = node.kind === "folder";
     const dropCls = drop?.id === node.id ? ` drop-${drop.pos}` : "";
+    const role = roleOf(store.data, node.id);
+    const matterFolder = isFolder && !!node.matter;
+    const canImport = isFolder && script && role === "manuscript" && !inMatterFolder(store.data, node.id);
     return (
-      <div key={node.id} role="treeitem" aria-expanded={isFolder ? !node.collapsed : undefined} aria-selected={selected}>
+      <div key={node.id} className="binder-item" role="treeitem" aria-expanded={isFolder ? !node.collapsed : undefined} aria-selected={selected}>
         <div
           className={`binder-row${selected ? " selected" : ""}${missing ? " missing" : ""}${dropCls}`}
           style={{ paddingLeft: 8 + depth * 14 }}
@@ -81,7 +170,7 @@ export function Binder({ store }: { store: ProjectStore }) {
           ) : (
             <span className="twisty" />
           )}
-          <span className="row-icon">{conflictOf ? <Warning /> : isFolder ? <FolderIcon /> : <FileIcon />}</span>
+          <span className="row-icon">{conflictOf ? <Warning /> : <NodeIcon store={store} node={node} />}</span>
           {editing === node.id ? (
             <input
               className="rename"
@@ -106,9 +195,33 @@ export function Binder({ store }: { store: ProjectStore }) {
             </button>
           ) : (
             <span className="row-actions">
+              {canImport && (
+                <button
+                  className="row-action"
+                  title={node.play ? "Import a script into this play (Final Draft, Fountain…)" : "Import a script into this folder (Final Draft, Fountain…)"}
+                  aria-label="Import a script into this folder"
+                  data-testid={`import-into-${node.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void importIntoFolder(store, node);
+                  }}
+                >
+                  <ImportIcon />
+                </button>
+              )}
               {isFolder && (
-                <button className="row-action" title="New document in this folder" onClick={(e) => { e.stopPropagation(); void store.addDoc(node.id); }}>
-                  <Plus />
+                <button
+                  className="row-action"
+                  title={matterFolder ? "Add a page" : node.play ? "New act in this play" : "New document in this folder"}
+                  data-testid={`add-in-${node.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (matterFolder) setPresetsFor(presetsFor === node.id ? null : node.id);
+                    else if (node.play) void store.addFolder(node.id);
+                    else void store.addDoc(node.id);
+                  }}
+                >
+                  {node.play ? <FolderPlus /> : <Plus />}
                 </button>
               )}
               {store.data.binder.some((r) => r.role === "archive") && roleOf(store.data, node.id) !== "archive" && (
@@ -138,6 +251,7 @@ export function Binder({ store }: { store: ProjectStore }) {
             </span>
           )}
         </div>
+        {matterFolder && presetMenu(node.id, "front", node.id, role ?? "manuscript")}
         {isFolder && !node.collapsed && <div role="group">{node.children?.map((c) => row(c, depth + 1))}</div>}
       </div>
     );
@@ -187,6 +301,11 @@ export function Binder({ store }: { store: ProjectStore }) {
                 {role === "archive" && <ArchiveIcon width={12} height={12} />} {root.title}
               </button>
               <span className="head-actions">
+                {role === "manuscript" && script && (
+                  <button className="row-action" title="New play: a whole play with its own title page and front matter, for a collection or trilogy" onClick={() => void store.addPlay()} data-testid="add-play">
+                    <MasksIcon />
+                  </button>
+                )}
                 {!matter && (
                   <button className="row-action" title={`New ${folderNoun.toLowerCase()}`} onClick={() => void store.addFolder(root.id, role)} data-testid={`add-folder-${role}`}>
                     <FolderPlus />
@@ -197,34 +316,7 @@ export function Binder({ store }: { store: ProjectStore }) {
                 </button>
               </span>
             </div>
-            {presetsFor === role && (
-              <div className="menu preset-menu" onMouseLeave={() => setPresetsFor(null)}>
-                {MATTER_PRESETS.filter((pr) => pr.where === role && (!pr.forTemplates || pr.forTemplates.includes(store.template.id as never))).map((pr) => (
-                  <button
-                    key={pr.title}
-                    className="menu-item"
-                    data-testid={`preset-${pr.title}`}
-                    onClick={() => {
-                      setPresetsFor(null);
-                      if (pr.title === "Copyright") setCopyrightFor(role);
-                      else void store.addDoc(root.id, undefined, role, pr);
-                    }}
-                  >
-                    {pr.title}
-                  </button>
-                ))}
-                <div className="menu-sep" />
-                <button
-                  className="menu-item"
-                  onClick={() => {
-                    setPresetsFor(null);
-                    void store.addDoc(root.id, undefined, role, { title: "Untitled page", content: "" });
-                  }}
-                >
-                  Blank page
-                </button>
-              </div>
-            )}
+            {matter && presetMenu(role, role as "front" | "back", root.id, role)}
             {!root.collapsed && (
               <div role="group">{root.children?.length ? root.children.map((c) => row(c, 0)) : <div className="binder-empty">{empty}</div>}</div>
             )}
@@ -236,9 +328,9 @@ export function Binder({ store }: { store: ProjectStore }) {
           author={store.data.author}
           onCancel={() => setCopyrightFor(null)}
           onCreate={(content) => {
-            const where = copyrightFor;
+            const { parentId, role } = copyrightFor;
             setCopyrightFor(null);
-            void store.addDoc(store.data.binder.find((r) => r.role === where)!.id, undefined, where, { title: "Copyright", content });
+            void store.addDoc(parentId, undefined, role, { title: "Copyright", content });
           }}
         />
       )}

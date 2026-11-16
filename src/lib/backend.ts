@@ -160,3 +160,39 @@ export async function pickFile(title: string, extensions: string[], defaultPath?
   const r = window.prompt(`${title}\n(Type the path of a file on this computer.)`, defaultPath ?? "");
   return r ? normalize(r) : null;
 }
+
+/** Open a web address in the system's browser. Only http(s) addresses are opened. */
+export async function openUrl(url: string): Promise<void> {
+  if (!/^https?:\/\//i.test(url)) return;
+  if (isTauri) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("open_url", { url });
+    } catch {
+      /* not critical */
+    }
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+let windowSeq = 0;
+
+/**
+ * Open a project (or a single document) in a new window, so several can be
+ * open side by side. With no path, the new window starts on the welcome screen.
+ */
+export async function openWindow(project?: string): Promise<void> {
+  const url = project ? `index.html?project=${encodeURIComponent(project)}` : "index.html?window=1";
+  if (isTauri) {
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const label = `w${Date.now().toString(36)}${++windowSeq}`;
+    const w = new WebviewWindow(label, { url, title: "Many Write", width: 1360, height: 780, minWidth: 900, minHeight: 540, dragDropEnabled: false });
+    await new Promise<void>((resolve, reject) => {
+      void w.once("tauri://created", () => resolve());
+      void w.once("tauri://error", (e) => reject(new Error(String(e.payload))));
+    });
+    return;
+  }
+  window.open(`${window.location.pathname}${url.replace(/^index\.html/, "")}`, "_blank");
+}

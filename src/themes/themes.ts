@@ -127,6 +127,14 @@ function mix(a: string, b: string, amount: number): string {
   return "#" + m.map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
+/** Text on the sidebar: the theme's text colour, or near-black / near-white when that is too faint there. */
+export function sideText(text: string, sidebar: string): string {
+  if (contrastRatio(text, sidebar) >= 4.5) return text;
+  const dark = "#1f1f1d";
+  const light = "#f2f2ef";
+  return contrastRatio(dark, sidebar) >= contrastRatio(light, sidebar) ? dark : light;
+}
+
 /** Apply a theme to the whole UI through CSS variables. */
 export function applyTheme(t: Theme, el: HTMLElement = document.documentElement) {
   const c = t.colors;
@@ -138,9 +146,23 @@ export function applyTheme(t: Theme, el: HTMLElement = document.documentElement)
   s.setProperty("--muted", mix(c.text, c.background, 0.58));
   s.setProperty("--faint", mix(c.text, c.background, 0.35));
   s.setProperty("--border", mix(c.text, c.background, 0.12));
-  s.setProperty("--hover", mix(c.text, c.sidebar, 0.06));
-  s.setProperty("--active", mix(c.text, c.sidebar, 0.1));
+  s.setProperty("--hover", mix(c.text, c.background, 0.06));
+  s.setProperty("--active", mix(c.text, c.background, 0.1));
+  // The side panels (binder and notes on the left, preview on the right) get their own
+  // shades, mixed from the sidebar colour rather than the page background, and their
+  // own text colour when the theme's text would be hard to read on the sidebar.
+  const side = sideText(c.text, c.sidebar);
+  s.setProperty("--side-text", side);
+  s.setProperty("--side-muted", mix(side, c.sidebar, 0.58));
+  s.setProperty("--side-faint", mix(side, c.sidebar, 0.35));
+  s.setProperty("--side-border", mix(side, c.sidebar, 0.12));
+  s.setProperty("--side-hover", mix(side, c.sidebar, 0.06));
+  s.setProperty("--side-active", mix(side, c.sidebar, 0.1));
+  // The selected binder item: the accent over the sidebar, as the theme builder shows it.
+  s.setProperty("--side-selected", mix(c.accent, c.sidebar, 0.16));
   s.setProperty("--accent-soft", mix(c.accent, c.background, 0.14));
+  // Copies of the main colours, for menus and dialogs opened from inside a side panel.
+  for (const v of ["text", "muted", "faint", "border", "hover", "active"]) s.setProperty(`--main-${v}`, s.getPropertyValue(`--${v}`));
   s.setProperty("--writing-font", FONT_STACKS[t.writingFont]);
   // Both side panels (binder on the left, preview on the right) use the sidebar colour.
   s.setProperty("--pane", c.sidebar);
@@ -258,6 +280,8 @@ export interface AppSettings {
   followCursor: boolean;
   spellcheck: boolean;
   pomodoro: { focus: number; short: number; long: number; every: number };
+  /** The donate popup: launches counted, when it last showed itself, and "Don't ask again". */
+  donate?: { launches: number; lastShown?: number; never?: boolean };
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

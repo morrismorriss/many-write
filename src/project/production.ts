@@ -56,7 +56,7 @@ export interface Entry {
 export function flatten(items: { kind: string; id: string; title: string; blocks?: Block[] }[]): Entry[] {
   const out: Entry[] = [];
   for (const it of items) {
-    if (it.kind === "folder") out.push({ id: `${it.id}#-1`, docId: it.id, key: `heading|${it.title}` });
+    if (it.kind === "folder" || it.kind === "play") out.push({ id: `${it.id}#-1`, docId: it.id, key: `heading|${it.title}` });
     else if (it.kind === "matter") out.push({ id: `${it.id}#-1`, docId: it.id, key: `heading|${it.title}` });
     (it.blocks ?? []).forEach((b, i) => {
       if (blockText(b).trim()) out.push({ id: `${it.id}#${i}`, docId: it.id, key: lineKey(b), block: b });
@@ -141,6 +141,8 @@ export function computeAnchors(
   keyAt: (docId: string, index: number) => string | undefined,
   firstScriptPage: number,
   pageCount: number,
+  /** Which part a document belongs to; a page never locks to a heading of another part. */
+  sectionOf: (docId: string) => string = () => "",
 ): PageAnchor[] {
   const anchors: PageAnchor[] = [];
   for (let phys = firstScriptPage; phys <= pageCount; phys++) {
@@ -156,7 +158,14 @@ export function computeAnchors(
     if (k < 0) continue;
     // Headings (an act, a front-matter title) always stick to the line after them, so a
     // page that starts with one is locked to the heading, not to the line below it.
-    while (!split && k > 0 && ids[k - 1].endsWith("#-1") && !(first[k - 1] > 0 && first[k - 1] < phys)) k--;
+    while (
+      !split &&
+      k > 0 &&
+      ids[k - 1].endsWith("#-1") &&
+      !(first[k - 1] > 0 && first[k - 1] < phys) &&
+      sectionOf(ids[k - 1].split("#")[0]) === sectionOf(ids[k].split("#")[0])
+    )
+      k--;
     const [docId, idx] = ids[k].split("#");
     const key = keyAt(docId, Number(idx));
     if (key === undefined) continue;

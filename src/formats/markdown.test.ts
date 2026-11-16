@@ -9,6 +9,8 @@ import {
   serializeProse,
   serializeRuns,
   serializeScript,
+  parseDoc,
+  serializeDoc,
   type Block,
 } from "./markdown";
 
@@ -250,5 +252,27 @@ describe("text-message bubbles", () => {
     const notes = parseNotes("> [!text-right] Hi\n> there\n\n> [!note] A callout\n");
     expect(types(notes.blocks)).toEqual(["text_right:Hi\nthere", "callout:A callout"]);
     expect(serializeNotes(notes)).toBe("> [!text-right] Hi\n> there\n\n> [!note] A callout\n");
+  });
+});
+
+describe("blank lines", () => {
+  it("keeps empty paragraphs between text as &nbsp; lines, and drops trailing ones", () => {
+    const blocks = [
+      { type: "paragraph" as const, runs: [{ text: "One." }] },
+      { type: "paragraph" as const, runs: [] },
+      { type: "paragraph" as const, runs: [] },
+      { type: "paragraph" as const, runs: [{ text: "Two." }] },
+      { type: "paragraph" as const, runs: [] },
+    ];
+    const md = serializeDoc({ blocks, frontMatter: null }, "prose");
+    expect(md).toBe("One.\n\n&nbsp;\n\n&nbsp;\n\nTwo.\n");
+    expect(parseDoc(md, "prose").blocks.map((b) => b.runs.length)).toEqual([1, 0, 0, 1]);
+    const notes = serializeDoc({ blocks, frontMatter: null }, "notes");
+    expect(notes).toBe("One.\n\n&nbsp;\n\n&nbsp;\n\nTwo.\n");
+    expect(parseDoc(notes, "notes").blocks.length).toBe(4);
+  });
+  it("escapes a paragraph that is literally &nbsp;", () => {
+    const md = serializeDoc({ blocks: [{ type: "paragraph", runs: [{ text: "&nbsp;" }] }], frontMatter: null }, "prose");
+    expect(parseDoc(md, "prose").blocks[0].runs[0].text).toBe("&nbsp;");
   });
 });

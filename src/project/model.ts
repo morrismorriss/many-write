@@ -30,6 +30,10 @@ export interface BinderNode {
   notes?: string;
   role?: Role;
   collapsed?: boolean;
+  /** Script formats: a folder holding a whole play of a collection (trilogy…), with its own title page. */
+  play?: boolean;
+  /** A folder of front matter pages inside a play (cast list, time and place…). */
+  matter?: boolean;
   children?: BinderNode[];
 }
 
@@ -45,6 +49,10 @@ export interface ProjectSettings {
   /** Books: how a scene break is drawn. "image" uses sceneBreakImage (a project-relative path). */
   sceneBreak?: SceneBreakStyle;
   sceneBreakImage?: string;
+  /** Scripts: each scene starts on a new page. Default on. */
+  sceneNewPage?: boolean;
+  /** Scripts: add (CONT'D) to a cue when the same character speaks again after a direction. */
+  autoContd?: boolean;
 }
 
 export type SceneBreakStyle = "asterisks" | "line" | "hearts" | "image";
@@ -152,6 +160,42 @@ export function manuscriptOrder(data: ProjectFile, role: Role = "manuscript"): {
   const out: { node: BinderNode; depth: number }[] = [];
   walkNodes(rootOf(data, role)?.children ?? [], (n, _p, depth) => out.push({ node: n, depth: depth + 1 }));
   return out;
+}
+
+/** Is this node a matter folder inside a play, or inside one? */
+export function inMatterFolder(data: ProjectFile, id: string): boolean {
+  let hit = false;
+  const rec = (nodes: BinderNode[], inside: boolean): boolean => {
+    for (const n of nodes) {
+      const here = inside || (n.kind === "folder" && !!n.matter);
+      if (n.id === id) {
+        hit = here;
+        return true;
+      }
+      if (n.children && rec(n.children, here)) return true;
+    }
+    return false;
+  };
+  rec(data.binder, false);
+  return hit;
+}
+
+/** The play folder a node belongs to, if any. */
+export function playOf(data: ProjectFile, id: string): BinderNode | null {
+  let found: BinderNode | null = null;
+  const rec = (nodes: BinderNode[], play: BinderNode | null): boolean => {
+    for (const n of nodes) {
+      const p = n.play ? n : play;
+      if (n.id === id) {
+        found = p;
+        return true;
+      }
+      if (n.children && rec(n.children, p)) return true;
+    }
+    return false;
+  };
+  rec(data.binder, null);
+  return found;
 }
 
 export function isDescendant(data: ProjectFile, ancestorId: string, id: string): boolean {

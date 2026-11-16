@@ -107,7 +107,7 @@ export function parseInline(src: string): Run[] {
   };
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
-    if (c === "\\" && i + 1 < src.length && /[\\*_`#>@!()\[\].+-]/.test(src[i + 1])) {
+    if (c === "\\" && i + 1 < src.length && /[\\*_`#>@!()\[\].+&-]/.test(src[i + 1])) {
       buf += src[++i];
       continue;
     }
@@ -299,6 +299,22 @@ export function serializeScript(doc: ParsedDoc, actionType: ElementType = "direc
 
 // ------------------------------------------------------------------ prose
 
+/**
+ * An empty paragraph (Enter pressed twice) is kept as a blank line. Markdown
+ * drops blank lines, so it is written as "&nbsp;", which Obsidian and other
+ * markdown apps also show as an empty line.
+ */
+export const BLANK_LINE = "&nbsp;";
+
+/** Index of the last block with something in it; empty paragraphs after it are not kept. */
+function lastContent(blocks: Block[]): number {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (blockText(b).trim() || b.type === "image" || b.type === "scene_break" || b.type === "divider") return i;
+  }
+  return -1;
+}
+
 /** `citations`: "- " lines are sources (Works Cited, Bibliography); only front and back matter has them. */
 export function parseProse(text: string, hasTitle: boolean, citations = false): ParsedDoc {
   const [frontMatter, body] = splitFrontMatter(text.replace(/\r\n?/g, "\n"));
@@ -308,6 +324,11 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
   while (i < lines.length) {
     const t = lines[i].trim();
     if (!t) {
+      i++;
+      continue;
+    }
+    if (t === BLANK_LINE) {
+      blocks.push({ type: "paragraph", runs: [] });
       i++;
       continue;
     }
@@ -382,8 +403,13 @@ function joinSoft(lines: string[]): string {
 
 export function serializeProse(doc: ParsedDoc): string {
   const parts: string[] = [];
-  for (const b of doc.blocks) {
+  const last = lastContent(doc.blocks);
+  for (const [i, b] of doc.blocks.entries()) {
     const text = serializeRuns(b.runs).trim().replace(/\n/g, "\\\n");
+    if (!text && b.type === "paragraph") {
+      if (i < last) parts.push(BLANK_LINE);
+      continue;
+    }
     switch (b.type) {
       case "title":
         if (text) parts.push(`# ${text}`);
@@ -414,7 +440,7 @@ export function serializeProse(doc: ParsedDoc): string {
         if (text) parts.push(bubbleLines(b.type, text));
         break;
       default:
-        if (text) parts.push(/^(#{1,6}\s|>|[-+]\s|(\*\s*){3,}$|(-\s*){3,}$)/.test(text) ? "\\" + text : text);
+        if (text) parts.push(/^(#{1,6}\s|>|[-+]\s|(\*\s*){3,}$|(-\s*){3,}$|&nbsp;$)/.test(text) ? "\\" + text : text);
     }
   }
   return (doc.frontMatter ?? "") + parts.join("\n\n") + (parts.length ? "\n" : "");
@@ -493,7 +519,9 @@ export function parseNotes(text: string): ParsedDoc {
     const t = lines[i].trim();
     if (!t) continue;
     let m: RegExpMatchArray | null;
-    if ((m = t.match(/^!\[(.*)\]\((.+?)\)$/))) {
+    if (t === BLANK_LINE) {
+      blocks.push({ type: "paragraph", runs: [] });
+    } else if ((m = t.match(/^!\[(.*)\]\((.+?)\)$/))) {
       blocks.push({ type: "image", runs: m[1] ? [{ text: m[1] }] : [], src: decodeURI(m[2]) });
     } else if ((m = t.match(/^(#{1,6})\s+(.*)$/))) {
       const lvl = m[1].length;
@@ -529,7 +557,7 @@ export function parseNotes(text: string): ParsedDoc {
 /** Stop a plain line from being read back as a list, heading, quote or divider. */
 function escapeNoteLine(l: string): string {
   if (/^\d+[.)]\s/.test(l)) return l.replace(/^(\d+)([.)])/, "$1\\$2");
-  if (/^([-*+]\s|#|>|-{3,}$)/.test(l)) return "\\" + l;
+  if (/^([-*+]\s|#|>|-{3,}$|&nbsp;$)/.test(l)) return "\\" + l;
   return l;
 }
 
@@ -537,8 +565,16 @@ export function serializeNotes(doc: ParsedDoc): string {
   let out = "";
   let prevFamily: string | undefined;
   let n = 0;
-  for (const b of doc.blocks) {
+  const last = lastContent(doc.blocks);
+  for (const [i, b] of doc.blocks.entries()) {
     const text = serializeRuns(b.runs).trim();
+    if (!text && b.type === "paragraph" && i < last) {
+      // A blank line the writer left on purpose.
+      if (out) out += "\n\n";
+      out += BLANK_LINE;
+      prevFamily = undefined;
+      continue;
+    }
     if (!text && b.type !== "divider" && b.type !== "image") continue;
     const family = LIST_FAMILY[b.type];
     n = b.type === "numbered" && prevFamily === "ol" ? n + 1 : 1;

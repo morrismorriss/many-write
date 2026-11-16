@@ -49,6 +49,26 @@
   counter(page).update(0)
 }
 
+// A play inside a collection (a trilogy…): a new page with its own centred
+// title page. Its front matter follows unnumbered; the act after it starts at page 1.
+#let mw-play(title, author, first: false) = {
+  if not first { pagebreak(weak: true) }
+  mw-front.update(true)
+  set page(header: none, footer: none)
+  v(1fr)
+  align(center)[
+    #upper(strong(title))
+    #if author != none and author != "" [
+      #v(2em)
+      by
+      #v(1em)
+      #author
+    ]
+  ]
+  v(1.4fr)
+  pagebreak()
+}
+
 #let extra-letters(n) = {
   let s = ""
   let k = n

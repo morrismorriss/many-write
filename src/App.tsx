@@ -3,8 +3,9 @@ import { ProjectStore } from "./project/store";
 import { Welcome } from "./components/Welcome";
 import { Workspace } from "./components/Workspace";
 import { ThemeBuilder } from "./components/ThemeBuilder";
-import { appPaths, fsApi, isTauri, pickFile, pickFolder, pickSavePath } from "./lib/backend";
+import { appPaths, fsApi, isTauri, openWindow, pickFile, pickFolder, pickSavePath } from "./lib/backend";
 import { ImportDialog } from "./components/ImportDialog";
+import { DonateDialog, donateOnLaunch } from "./components/Donate";
 import {
   applyTheme,
   BUILT_IN_THEMES,
@@ -28,6 +29,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [startNew, setStartNew] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
+  const [donating, setDonating] = useState(false);
 
   const themes = [...BUILT_IN_THEMES, ...custom];
   const theme = themes.find((t) => t.id === settings.theme) ?? BUILT_IN_THEMES[0];
@@ -35,6 +37,14 @@ export function App() {
   useEffect(() => {
     void (async () => {
       const [s, c, paths] = await Promise.all([loadSettings(), loadCustomThemes(), appPaths()]);
+      // Count launches of the first window for the occasional donate popup (not windows opened from it).
+      const opened = new URLSearchParams(window.location.search).has("project") || new URLSearchParams(window.location.search).has("window");
+      if (!opened) {
+        const d = donateOnLaunch(s.donate);
+        s.donate = d.next;
+        saveSettings(s);
+        if (d.show) setDonating(true);
+      }
       setSettingsState(s);
       setCustom(c);
       setThemeFolder(`${paths.config}/themes`);
@@ -182,6 +192,9 @@ export function App() {
           onNewDocument={() => void newDocument()}
           onOpenDocument={() => void openDocument()}
           onImport={() => void importFile()}
+          onNewWindow={() => void openWindow().catch((e) => store.toast(`Could not open a window: ${(e as Error).message}`, "error"))}
+          onOpenInWindow={(r) => void openWindow(r).catch((e) => store.toast(`Could not open a window: ${(e as Error).message}`, "error"))}
+          onDonate={() => setDonating(true)}
         />
       ) : (
         <Welcome key={String(startNew)} onOpen={(r) => {
@@ -196,6 +209,15 @@ export function App() {
           onDone={(root) => {
             setImporting(null);
             void openProject(root);
+          }}
+        />
+      )}
+      {donating && (
+        <DonateDialog
+          onClose={() => setDonating(false)}
+          onNever={() => {
+            setDonating(false);
+            setSettings({ donate: { launches: settings.donate?.launches ?? 0, ...settings.donate, never: true } });
           }}
         />
       )}

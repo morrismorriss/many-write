@@ -2,7 +2,7 @@
 // plus the neutral block list the core turns into .docx and .epub.
 
 import { blockText, serializeRuns, serializeScript, type Block, type Run } from "./markdown";
-import { essayDate, sceneBreakText, type ManuscriptItem, type ProjectMeta } from "./typst";
+import { contdLines, essayDate, sceneBreakText, type ManuscriptItem, type ProjectMeta } from "./typst";
 import type { Template } from "./templates";
 
 const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
@@ -15,6 +15,11 @@ export function toFountain(template: Template, meta: ProjectMeta, items: Manuscr
   out.push(tp.join("\n"), "");
   for (const item of items) {
     if (item.kind === "matter") continue; // front/back matter is not part of a Fountain script
+    if (item.kind === "play") {
+      // A play of a collection: a page break and a section heading.
+      out.push("===", "", `# ${item.title}`, "");
+      continue;
+    }
     if (item.kind === "folder") {
       out.push(`${"#".repeat(Math.min(item.depth, 3))} ${item.title}`, "");
       continue;
@@ -69,6 +74,10 @@ export function toFdx(meta: ProjectMeta, items: ManuscriptItem[]): string {
   const paras: string[] = [];
   for (const item of items) {
     if (item.kind === "matter") continue;
+    if (item.kind === "play") {
+      paras.push(`    <Paragraph Type="New Act" StartsNewPage="Yes"><Text>${xml(item.title.toUpperCase())}</Text></Paragraph>`);
+      continue;
+    }
     if (item.kind === "folder") {
       paras.push(`    <Paragraph Type="New Act"><Text>${xml(item.title.toUpperCase())}</Text></Paragraph>`);
       continue;
@@ -148,20 +157,43 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
     blocks.push({ kind: "title", runs: [{ text: meta.title || "Untitled" }] });
     if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
   }
+  /** An empty paragraph keeps its place as a blank line (a no-break space, so Word and e-readers don't drop it). */
+  const blankLine: Run[] = [{ text: "\u00a0" }];
+  const keptBlank = (b: Block, i: number, blocks: Block[]) =>
+    (b.type === "paragraph" || b.type === "centered") && !blockText(b).trim() && blocks.slice(i + 1).some((x) => blockText(x).trim() || x.type === "image");
+  let newPage = false;
   for (const item of items) {
+    if (item.kind === "play") {
+      // A play of a collection: a new page with its title.
+      blocks.push({ kind: "page_break", runs: [] });
+      blocks.push({ kind: "title", runs: [{ text: item.title }] });
+      if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
+      blocks.push({ kind: "page_break", runs: [] });
+      newPage = true;
+      continue;
+    }
     if (item.kind === "folder") {
       blocks.push({ kind: "folder_heading", runs: [{ text: item.title }] });
+      newPage = true;
       continue;
     }
     if (item.kind === "matter") {
       blocks.push({ kind: "matter_title", runs: [{ text: item.title }] });
-      for (const b of item.blocks) if (blockText(b).trim() || b.type === "scene_break") blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: b.runs });
+      item.blocks.forEach((b, i, all) => {
+        if (keptBlank(b, i, all)) blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: blankLine });
+        else if (blockText(b).trim() || b.type === "scene_break") blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: b.runs });
+      });
+      newPage = true;
       continue;
     }
     if (template.id === "book") blocks.push({ kind: "chapter", runs: [{ text: item.title }] });
+    // Scripts: each scene on a new page (not straight after an act heading, which starts one).
+    if (script && meta.sceneNewPage && !newPage && blocks.length) blocks.push({ kind: "page_break", runs: [] });
+    newPage = false;
+    const contd = script && meta.autoContd ? contdLines(item.blocks) : null;
     let prevEmpty = false;
     let num = 0;
-    for (const b of item.blocks) {
+    for (const [i, b] of item.blocks.entries()) {
       const empty = !blockText(b).trim();
       if (template.mode === "poem") {
         if (empty) {
@@ -173,7 +205,15 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
         blocks.push({ kind: b.type === "title" ? "title" : "line", runs: b.runs });
         continue;
       }
+      if (!script && keptBlank(b, i, item.blocks)) {
+        blocks.push({ kind: b.type, runs: blankLine });
+        continue;
+      }
       if (empty && b.type !== "scene_break" && b.type !== "divider") continue;
+      if (contd?.has(i)) {
+        blocks.push({ kind: b.type, runs: [{ text: `${blockText(b).toUpperCase()} (CONT'D)` }] });
+        continue;
+      }
       if (template.mode === "notes") {
         num = b.type === "numbered" ? num + 1 : 0;
         const k = exportKind(b, num);
