@@ -31,8 +31,24 @@
 }
 
 // ------------------------------------------------------------ production mode
-// True while typesetting front matter (cast list, dedication…): those pages carry no number.
-#let mw-front = state("mw-front", false)
+// Front matter (cast list, dedication…) carries no page number. Its start and end are
+// marked with metadata rather than a state: a page's header is laid out before the
+// content at the top of that page, so a state updated there would not be seen in time.
+#let mw-front-mark(on) = [#metadata(on) <mw-front>]
+
+// Whether the current page is front matter. A start mark counts from its own page;
+// an end mark sits on the last front page, before the break into the script, so it
+// counts from the page after it.
+#let in-front-matter() = {
+  let here-page = here().page()
+  let on = false
+  for m in query(<mw-front>) {
+    let p = m.location().page()
+    if m.value and p <= here-page { on = true }
+    else if not m.value and p < here-page { on = false }
+  }
+  on
+}
 
 // A lock marks the line that began a page when the script was locked.
 // Hard locks start a new page; soft ones (a speech that was split across a
@@ -47,9 +63,9 @@
 #let mw-rev() = [#metadata("rev") <mw-rev>]
 
 // Front matter starts; and, before the page break into the script, numbering restarts at 1.
-#let mw-front-start() = mw-front.update(true)
+#let mw-front-start() = mw-front-mark(true)
 #let mw-body-start() = {
-  mw-front.update(false)
+  mw-front-mark(false)
   counter(page).update(0)
 }
 
@@ -57,7 +73,7 @@
 // title page. Its front matter follows unnumbered; the act after it starts at page 1.
 #let mw-play(title, author, first: false) = {
   if not first { pagebreak(weak: true) }
-  mw-front.update(true)
+  mw-front-mark(true)
   set page(header: none, footer: none)
   v(1fr)
   align(center)[
@@ -85,7 +101,7 @@
 
 // The number printed on the current page: 12, or 12A, 12B for added pages.
 #let script-page-label() = {
-  if mw-front.get() { return none }
+  if in-front-matter() { return none }
   let here-page = here().page()
   let locks = query(<mw-lock>)
   if locks.len() == 0 or here-page < locks.first().location().page() {

@@ -245,7 +245,7 @@ fs.writeFileSync(scenePath, lines.join("\n\n"));
 await sleep(5000);
 let labels = await labelsOf("White");
 console.log("     page labels:", labels.join(", "));
-ok(labels[1] === "-" && labels[2] === "2A" && labels[3] === "2B" && labels[4] === "3", `edited page 2 prints as 2A, its overflow 2B, page 3 keeps its number (${labels.join(" ")})`);
+ok(labels[0] === "-" && labels[1] === "1" && labels[2] === "2A" && labels[3] === "2B" && labels[4] === "3", `cast page unnumbered, page 1 numbered, edited page 2 prints as 2A, its overflow 2B, page 3 keeps its number (${labels.join(" ")})`);
 const archiveFiles = fs.readdirSync(path.join(root, "archive"));
 const oldPage = archiveFiles.find((f) => f.includes("page-2"));
 ok(!!oldPage, `the old page 2 was moved to the Archive (${archiveFiles})`);
