@@ -328,7 +328,7 @@ function FolderView({ store, node }: { store: ProjectStore; node: BinderNode }) 
           );
         })}
         <button className="card add" onClick={() => void store.addDoc(node.id)}>
-          + New {roleOf(store.data, node.id) === "manuscript" ? store.template.docNoun.toLowerCase() : "document"}
+          + New {node.chapter ? "section" : roleOf(store.data, node.id) === "manuscript" ? store.template.docNoun.toLowerCase() : "document"}
         </button>
       </div>
     </div>

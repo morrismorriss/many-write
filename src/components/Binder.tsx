@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { ProjectStore } from "../project/store";
-import { inMatterFolder, roleOf, type BinderNode, type Role } from "../project/model";
+import { chapterOf, inMatterFolder, roleOf, type BinderNode, type Role } from "../project/model";
 import { useStore } from "../lib/useStore";
 import { pickFile } from "../lib/backend";
 import { planImport } from "../project/importers";
@@ -39,14 +39,14 @@ function NodeIcon({ store, node }: { store: ProjectStore; node: BinderNode }) {
 }
 
 function DefaultIcon({ store, node }: { store: ProjectStore; node: BinderNode }) {
-  if (node.kind === "folder") return node.play ? <MasksIcon /> : <FolderIcon />;
+  if (node.kind === "folder") return node.play ? <MasksIcon /> : node.chapter ? <ChapterIcon /> : <FolderIcon />;
   const role = roleOf(store.data, node.id);
   if (role === "characters") return <PersonIcon />;
   if (role === "research") return <BulbIcon />;
   if (role === "front" || role === "back" || inMatterFolder(store.data, node.id)) return <PageIcon />;
   const t = store.template;
   if (t.mode === "script") return <SceneIcon />;
-  if (t.id === "book") return <ChapterIcon />;
+  if (t.id === "book") return chapterOf(store.data, node.id) ? <PageIcon /> : <ChapterIcon />;
   if (t.mode === "poem") return <QuillIcon />;
   return <PageIcon />;
 }
@@ -228,6 +228,9 @@ export function Binder({ store }: { store: ProjectStore }) {
     const role = roleOf(store.data, node.id);
     const matterFolder = isFolder && !!node.matter;
     const canImport = isFolder && script && role === "manuscript" && !inMatterFolder(store.data, node.id);
+    // Books: a chapter (or one of its sections) can take another section.
+    const canSection = !isFolder && store.template.id === "book" && role === "manuscript";
+    const chapterFolder = isFolder && !!node.chapter;
     return (
       <div key={node.id} className="binder-item" role="treeitem" aria-expanded={isFolder ? !node.collapsed : undefined} aria-selected={selected}>
         <div
@@ -328,10 +331,24 @@ export function Binder({ store }: { store: ProjectStore }) {
                   <ImportIcon />
                 </button>
               )}
+              {canSection && (
+                <button
+                  className="row-action"
+                  title={chapterOf(store.data, node.id) ? "New section after this one" : "Split this chapter into sections: add a section"}
+                  aria-label="Add a section"
+                  data-testid={`add-section-${node.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void store.addSection(node.id);
+                  }}
+                >
+                  <Plus />
+                </button>
+              )}
               {isFolder && (
                 <button
                   className="row-action"
-                  title={matterFolder ? "Add a page" : node.play ? "New act in this play" : "New document in this folder"}
+                  title={matterFolder ? "Add a page" : node.play ? "New act in this play" : chapterFolder ? "New section in this chapter" : "New document in this folder"}
                   data-testid={`add-in-${node.title}`}
                   onClick={(e) => {
                     e.stopPropagation();

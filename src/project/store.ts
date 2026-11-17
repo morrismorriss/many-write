@@ -18,8 +18,10 @@ import {
   type TemplateId,
 } from "../formats/templates";
 import type { ManuscriptItem, ProjectMeta } from "../formats/typst";
+import { cleanSource, referenceEntry, sameSource, sortKey, sourcesPageTitle, type CitationStyle, type Source } from "../formats/citations";
 import type { ImportNode } from "./importers";
 import {
+  chapterOf,
   cloneData,
   conflictBase,
   desiredName,
@@ -39,6 +41,7 @@ import {
   TYPESET_ROLES,
   roleOf,
   rootOf,
+  sceneNewPageDefault,
   serializeProject,
   slugify,
   titleFromFile,
@@ -546,6 +549,84 @@ export class ProjectStore {
     for (const id of ids) await this.ensureDoc(id);
   }
 
+  // ------------------------------------------------------------ citations
+
+  /** The style "/cite" writes in: an essay's own style, otherwise the one last chosen (MLA to start). */
+  get citationStyle(): CitationStyle {
+    if (this.data.template === "essay") return this.data.settings.essayStyle ?? "mla";
+    return this.data.settings.citationStyle ?? "mla";
+  }
+
+  /** Sources cited so far, newest first. */
+  get sources(): Source[] {
+    return [...(this.data.sources ?? [])].reverse();
+  }
+
+  /**
+   * Remember a source and put its entry on the Works Cited or Bibliography page
+   * (made if there isn't one yet), in alphabetical order. A source already
+   * remembered is updated rather than added twice. Returns the stored source.
+   */
+  async addSource(src: Source, style: CitationStyle): Promise<Source> {
+    if (this.data.template !== "essay" && style !== this.data.settings.citationStyle) this.data.settings.citationStyle = style;
+    const list = (this.data.sources ??= []);
+    const i = list.findIndex((s) => s.id === src.id || sameSource(s, src));
+    let stored: Source;
+    if (i >= 0) {
+      stored = { ...src, id: list[i].id };
+      list.splice(i, 1);
+    } else stored = src;
+    list.push(stored);
+    this.emit();
+    if (this.single) this.toast("A single document has no Works Cited page; the source is remembered until you close it. Import the document into a project to keep a sources page.");
+    else {
+      await this.saveProject();
+      await this.addToSourcesPage(stored, style).catch((e) => this.toast(`Could not add the source to the sources page: ${(e as Error).message}`, "warn"));
+    }
+    return stored;
+  }
+
+  /** Cite a remembered source again: it moves to the top of the list. */
+  touchSource(id: string) {
+    const list = this.data.sources ?? [];
+    const i = list.findIndex((s) => s.id === id);
+    if (i < 0 || i === list.length - 1) return;
+    list.push(...list.splice(i, 1));
+    if (!this.single) void this.saveProject();
+  }
+
+  private async addToSourcesPage(src: Source, style: CitationStyle) {
+    const back = rootOf(this.data, "back");
+    const want = sourcesPageTitle(style).toLowerCase();
+    const pages: BinderNode[] = [];
+    walkNodes(back.children ?? [], (n) => {
+      if (n.kind === "doc" && ["works cited", "bibliography", "references"].includes(n.title.trim().toLowerCase())) pages.push(n);
+    });
+    let page = pages.find((n) => n.title.trim().toLowerCase() === want) ?? pages[0];
+    if (!page) {
+      const preset = presetFor(sourcesPageTitle(style));
+      const id = await this.addDoc(back.id, undefined, "back", { title: preset?.title ?? sourcesPageTitle(style), content: "" }, { select: false });
+      page = this.node(id)!;
+      this.toast(`Added a ${page.title} page to the back matter.`);
+    }
+    await this.ensureDoc(page.id);
+    const runs = referenceEntry(src, style);
+    const text = runs.map((r) => r.text).join("");
+    const blocks = (this.docs.get(page.id)?.blocks ?? []).filter((b) => blockText(b).trim());
+    if (blocks.some((b) => blockText(b).trim() === text)) return;
+    const entry: Block = { type: "citation", runs };
+    // Alphabetical among the entries; anything that isn't an entry (a note, a heading) stays where it is.
+    let at = blocks.length;
+    for (let k = 0; k < blocks.length; k++) {
+      if (blocks[k].type === "citation" && sortKey(blockText(blocks[k])) > sortKey(text)) {
+        at = k;
+        break;
+      }
+    }
+    blocks.splice(at, 0, entry);
+    this.replaceBlocks(page.id, blocks);
+  }
+
   // --------------------------------------------------------------- images
 
   /** Copy an image into the project's assets folder; returns its path relative to the project. */
@@ -597,7 +678,7 @@ export class ProjectStore {
       contact: this.data.contact,
       titlePage: this.data.settings.titlePage,
       paper: this.data.settings.paper,
-      sceneNewPage: this.template.mode === "script" ? this.data.settings.sceneNewPage !== false : undefined,
+      sceneNewPage: this.template.mode === "script" ? sceneNewPageDefault(this.data.template, this.data.settings.sceneNewPage) : undefined,
       autoContd: this.template.mode === "script" ? (this.data.settings.autoContd ?? this.data.template === "screenplay") : undefined,
       sceneBreak:
         this.data.template === "book" ? { style: this.data.settings.sceneBreak ?? "asterisks", image: this.data.settings.sceneBreakImage } : undefined,
@@ -619,20 +700,27 @@ export class ProjectStore {
     const usable = (id: string) => !this.conflictCopies.has(id) && !this.missing.has(id);
     for (const where of ["front", "back"] as const) {
       if (where === "back") {
-        const walk = (nodes: BinderNode[], depth: number) => {
+        const walk = (nodes: BinderNode[], depth: number, chapter: boolean) => {
           for (const node of nodes) {
-            if (node.kind === "folder" && node.matter) {
+            if (chapter) {
+              // Inside a book chapter everything is a section that runs on from the one before.
+              if (node.kind === "folder") walk(node.children ?? [], depth + 1, true);
+              else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [], section: true });
+            } else if (node.kind === "folder" && node.chapter && this.data.template === "book") {
+              items.push({ kind: "folder", id: node.id, title: node.title, depth, chapter: true });
+              walk(node.children ?? [], depth + 1, true);
+            } else if (node.kind === "folder" && node.matter) {
               // A play's own front matter: typeset like the project's, after the play's title page.
               walkNodes(node.children ?? [], (n) => {
                 if (n.kind === "doc" && usable(n.id)) items.push({ kind: "matter", id: n.id, title: n.title, blocks: this.docs.get(n.id)?.blocks ?? [], where: "front" });
               });
             } else if (node.kind === "folder") {
               items.push(node.play ? { kind: "play", id: node.id, title: node.title } : { kind: "folder", id: node.id, title: node.title, depth });
-              walk(node.children ?? [], depth + 1);
+              walk(node.children ?? [], depth + 1, false);
             } else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [] });
           }
         };
-        walk(rootOf(this.data, "manuscript")?.children ?? [], 1);
+        walk(rootOf(this.data, "manuscript")?.children ?? [], 1, false);
       }
       for (const { node } of manuscriptOrder(this.data, where)) {
         if (node.kind === "doc" && usable(node.id)) items.push({ kind: "matter", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [], where });
@@ -1048,6 +1136,9 @@ export class ProjectStore {
       if (last?.kind === "folder") return { parentId: last.id };
       return { parentId: root.id };
     }
+    // Books: a new chapter goes after the chapter you're in, never among its sections.
+    const chapter = role === "manuscript" ? (sel.kind === "folder" && sel.chapter ? sel : chapterOf(this.data, sel.id)) : null;
+    if (chapter) return { parentId: parentOf(this.data, chapter.id)!.id, afterId: chapter.id };
     if (sel.kind === "folder") return { parentId: sel.id };
     return { parentId: parentOf(this.data, sel.id)!.id, afterId: sel.id };
   }
@@ -1057,13 +1148,26 @@ export class ProjectStore {
       const parent = (parentId && this.node(parentId)) || rootOf(this.data, role);
       const r = roleOf(this.data, parent.id) ?? role;
       const matter = inMatterFolder(this.data, parent.id);
+      // A book chapter's sections are numbered within the chapter.
+      const chapter = parent.kind === "folder" && parent.chapter ? parent : chapterOf(this.data, parent.id);
       let count = 0;
       // Scenes are numbered within their play.
       const play = playOf(this.data, parent.id);
-      walkNodes((play ?? rootOf(this.data, r)).children ?? [], (n) => {
-        if (n.kind === "doc" && !inMatterFolder(this.data, n.id)) count++;
+      walkNodes((chapter ?? play ?? rootOf(this.data, r)).children ?? [], (n) => {
+        // A chapter split into sections counts once, as a chapter.
+        if (chapter ? n.kind === "doc" : (n.kind === "doc" && !inMatterFolder(this.data, n.id) && !chapterOf(this.data, n.id)) || (n.kind === "folder" && n.chapter)) count++;
       });
-      const noun = matter ? "Page" : r === "manuscript" || r === "archive" ? this.template.docNoun : r === "characters" ? "Character" : r === "research" ? "Note" : "Page";
+      const noun = matter
+        ? "Page"
+        : chapter
+          ? "Section"
+          : r === "manuscript" || r === "archive"
+            ? this.template.docNoun
+            : r === "characters"
+              ? "Character"
+              : r === "research"
+                ? "Note"
+                : "Page";
       const node: BinderNode = { id: newId(), kind: "doc", title: preset?.title ?? `${noun} ${count + 1}`, file: `~new-${newId()}.md` };
       const kids = (parent.children ??= []);
       const at = afterId ? kids.findIndex((k) => k.id === afterId) + 1 : kids.length;
@@ -1078,6 +1182,42 @@ export class ProjectStore {
       this.emit();
       return node.id;
     });
+  }
+
+  /**
+   * Books: add a section to a chapter. A chapter that is still a single
+   * document first becomes a chapter folder, with its text as Section 1, so
+   * nothing is lost; its notes stay with that first section.
+   */
+  async addSection(chapterId: string) {
+    const node = this.node(chapterId);
+    if (!node || node.role || this.data.template !== "book") return;
+    if (node.kind === "folder") return node.chapter ? this.addDoc(node.id) : undefined;
+    if (chapterOf(this.data, node.id)) return this.addDoc(parentOf(this.data, node.id)!.id, node.id);
+    await this.flushAll();
+    const folderId = await this.enqueue(async () => {
+      const parent = parentOf(this.data, node.id)!;
+      const oldPath = this.pathOf(node.id)!;
+      const folder: BinderNode = { id: newId(), kind: "folder", title: node.title, file: `~new-${newId()}`, chapter: true, children: [] };
+      if (node.icon) {
+        folder.icon = node.icon;
+        delete node.icon;
+      }
+      const kids = parent.children!;
+      kids.splice(kids.indexOf(node), 1, folder);
+      await fsApi.mkdir(join(this.pathOf(parent.id)!, folder.file));
+      const tmp = `~mw-${node.id}-${node.file}`;
+      await fsApi.rename(oldPath, join(this.pathOf(folder.id)!, tmp));
+      node.file = tmp;
+      node.title = "Section 1";
+      folder.children!.push(node);
+      await this.syncNames(folder);
+      await this.syncNames(parent);
+      await this.writeProject();
+      return folder.id;
+    });
+    this.emit();
+    return this.addDoc(folderId, node.id);
   }
 
   async addFolder(parentId?: string, role: Role = "manuscript") {
@@ -1423,7 +1563,15 @@ export function normalizeData(d: ProjectFile): ProjectFile {
     if (!isSafeSegment(n.file)) n.file = slugify(String(n.title ?? "untitled")) + (n.kind === "doc" ? ".md" : "");
     if (n.notes !== undefined && !isSafeNotesPath(n.notes)) delete n.notes;
     if (n.icon !== undefined && typeof n.icon !== "string") delete n.icon;
+    if (n.chapter !== undefined && (n.chapter !== true || n.kind !== "folder")) delete n.chapter;
   });
+  if (d.sources !== undefined) {
+    const list = Array.isArray(d.sources) ? d.sources.slice(0, 2000).map(cleanSource).filter((x): x is Source => !!x) : [];
+    if (list.length) d.sources = list;
+    else delete d.sources;
+  }
+  const cs = d.settings.citationStyle;
+  if (cs !== undefined && cs !== "mla" && cs !== "chicago") delete d.settings.citationStyle;
   return d;
 }
 

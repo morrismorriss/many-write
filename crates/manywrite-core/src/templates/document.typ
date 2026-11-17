@@ -65,4 +65,5 @@
   if not first { pagebreak(weak: true) }
   block(sticky: true, below: 1em, text(size: 20pt, weight: "bold", title))
 }
-#let doc-start(title, first: false) = none
+// Each page of a document starts on a new page.
+#let doc-start(title, first: false) = if not first { pagebreak(weak: true) }

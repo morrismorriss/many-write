@@ -7,6 +7,7 @@ import { cycleNext, elementLabel, hasType, type ElementType, type Template } fro
 import { parseDoc, serializeDoc, adaptScriptTypes, type Block, type Run } from "../formats/markdown";
 import { linkTarget, URL_RE } from "../formats/typst";
 import { openUrl } from "../lib/backend";
+import { inTextCitation, sourceLabel, sourceMatches, type CitationStyle, type Source } from "../formats/citations";
 
 // --------------------------------------------------------------- schema
 
@@ -225,7 +226,15 @@ export interface ScriptKeysOptions {
   pickImage: () => Promise<string | null>;
   /** Grey text for an empty document, and the type its first line starts as. */
   getHint: () => { text: string; type?: ElementType } | null;
+  /** Essays, books, articles and documents: the sources cited so far (newest first). null = no "/cite" here. */
+  getCitations?: () => { sources: Source[]; style: CitationStyle } | null;
+  /** "/cite" › New citation: ask for a source; the dialog then calls insertCitation. */
+  requestCitation?: () => void;
+  /** A remembered source was cited again. */
+  onCite?: (id: string) => void;
 }
+
+const CITE_WORDS = ["citation", "cite", "source", "reference", "mla", "chicago", "works cited", "bibliography", "footnote"];
 
 export interface SearchHighlight {
   re: RegExp;
@@ -233,12 +242,48 @@ export interface SearchHighlight {
   current?: { index: number; from: number } | null;
 }
 
-function slashItems(t: Template, query: string): MenuItem[] {
+function slashItems(t: Template, query: string, cite: { sources: Source[]; style: CitationStyle } | null = null): MenuItem[] {
   const q = query.toLowerCase();
-  return t.elements
+  const items: MenuItem[] = t.elements
     .filter((e) => e.type !== "todo_done")
     .filter((e) => !q || e.label.toLowerCase().includes(q) || e.type.includes(q) || (e.aliases ?? []).some((a) => a.startsWith(q)))
     .map((e) => ({ label: e.label, value: e.type, hint: e.aliases?.[0] }));
+  if (!cite) return items;
+  // "/cite" offers a new citation first, then every source cited before, newest first.
+  const citeWord = !!q && CITE_WORDS.some((w) => w.startsWith(q));
+  const style = cite.style === "mla" ? "MLA" : "Chicago";
+  const out: MenuItem[] = [];
+  if (!q || citeWord) out.push({ label: "Citation…", value: "cite:new", hint: style });
+  const saved = cite.sources.filter((s) => citeWord || (q.length >= 2 && sourceMatches(s, q))).slice(0, 8);
+  for (const s of saved) out.push({ label: `Cite ${sourceLabel(s)}`, value: `cite:${s.id}` });
+  // Typing "/cite" puts citations at the top; otherwise they follow the blocks.
+  return citeWord ? [...out, ...items] : [...items, ...out];
+}
+
+/**
+ * Put an in-text citation at the cursor: "(Smith 23)" in MLA, "(Smith 2020, 23)"
+ * in Chicago. Without a page number the cursor lands just before the ")" so the page can be typed straight in.
+ */
+export function insertCitation(view: EditorView, src: Source, style: CitationStyle, page = "") {
+  const { state } = view;
+  const { schema } = state;
+  const { runs, caret } = inTextCitation(src, style, page);
+  const $from = state.selection.$from;
+  if ($from.parent.type.name !== "element") return;
+  // Keep the marks of the text around the cursor (bold…), but put a title in italics where it needs them.
+  const around = (state.storedMarks ?? $from.marks()).filter((m) => m.type.name !== "italic");
+  const nodes = runs.map((r) => schema.text(r.text, r.italic && schema.marks.italic ? [...around, schema.marks.italic.create()] : around));
+  // A space before the citation when it follows a word.
+  const before = $from.parent.textBetween(Math.max(0, $from.parentOffset - 1), $from.parentOffset);
+  const lead = before && !/\s/.test(before) ? 1 : 0;
+  let tr = state.tr.deleteSelection();
+  const at = tr.selection.from;
+  const frag = Fragment.from(lead ? [schema.text(" ", around), ...nodes] : nodes);
+  tr = tr.insert(at, frag);
+  const end = at + frag.size;
+  tr = tr.setSelection(TextSelection.create(tr.doc, page.trim() ? end : at + lead + caret));
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
 }
 
 function popupInfo(state: EditorState, opts: ScriptKeysOptions): PopupInfo | null {
@@ -253,7 +298,7 @@ function popupInfo(state: EditorState, opts: ScriptKeysOptions): PopupInfo | nul
     if (from < lineStart || from >= lineEnd || state.doc.textBetween(from, from + 1) !== "/" || $from.pos <= from) return null;
     const query = state.doc.textBetween(from + 1, $from.pos);
     if (query.length > 24 || /\s{2}/.test(query)) return null;
-    const items = slashItems(opts.getTemplate(), query.trim());
+    const items = slashItems(opts.getTemplate(), query.trim(), opts.getCitations?.() ?? null);
     if (!items.length) return null;
     return { kind: "slash", from, to: $from.pos, items, index: Math.min(ps.index ?? 0, items.length - 1) };
   }
@@ -292,12 +337,28 @@ function popupInfo(state: EditorState, opts: ScriptKeysOptions): PopupInfo | nul
   return null;
 }
 
-function choose(view: EditorView, info: PopupInfo, i: number, template: Template): boolean {
+function choose(view: EditorView, info: PopupInfo, i: number, opts: ScriptKeysOptions): boolean {
+  const template = opts.getTemplate();
   const item = info.items[i];
   if (!item) return false;
   let tr = view.state.tr.setMeta(popupKey, { slashFrom: null, index: null, dismissed: null });
   if (info.kind === "slash") {
     tr.delete(info.from, info.to);
+    if (item.value.startsWith("cite:")) {
+      view.dispatch(tr);
+      const id = item.value.slice(5);
+      if (id === "new") {
+        opts.requestCitation?.();
+        return true;
+      }
+      const cite = opts.getCitations?.();
+      const src = cite?.sources.find((s) => s.id === id);
+      if (src && cite) {
+        insertCitation(view, src, cite.style);
+        opts.onCite?.(id);
+      }
+      return true;
+    }
     if (item.value === "image") {
       view.dispatch(tr);
       void pickImageFor(view);
@@ -381,7 +442,7 @@ class PopupView {
         }
         b.addEventListener("mousedown", (e) => {
           e.preventDefault();
-          choose(this.view, info, i, this.opts.getTemplate());
+          choose(this.view, info, i, this.opts);
           this.view.focus();
         });
         return b;
@@ -489,7 +550,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
     const shortcuts: Record<string, () => boolean> = {
       Enter: () => {
         const info = popup();
-        if (info && info.index >= 0) return choose(this.editor.view, info, info.index, t());
+        if (info && info.index >= 0) return choose(this.editor.view, info, info.index, this.options);
         return handleEnter(this.editor.view, t());
       },
       "Shift-Enter": () => this.editor.commands.setHardBreak(),
@@ -506,7 +567,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         const { state, view } = this.editor;
         const info = popup();
         // Tab picks from a list of names; with a whole name typed it still changes the line type.
-        if (info && (info.kind !== "ext" || info.index >= 0)) return choose(view, info, Math.max(0, info.index), tmpl);
+        if (info && (info.kind !== "ext" || info.index >= 0)) return choose(view, info, Math.max(0, info.index), this.options);
         if (!tmpl.tabCycle.length) {
           view.dispatch(state.tr.insertText("    ").scrollIntoView());
           return true;
