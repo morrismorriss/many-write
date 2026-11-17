@@ -14,11 +14,9 @@
   set document(title: if title != none { title } else { "Untitled" })
   set text(font: font, size: 11.5pt, fill: text-fill, lang: "en", costs: (orphan: 100%, widow: 100%))
   set par(justify: false, leading: 0.7em, spacing: 0.7em)
+  // Page numbers: top right, from page 1.
   set page(paper: paper, fill: page-fill, margin: (x: 1in, y: 1in),
-    footer: context {
-      let n = counter(page).get().first()
-      if n > 1 { align(center, text(size: 9pt, str(n))) }
-    })
+    header: context align(right, text(size: 9pt, counter(page).display())))
   body
 }
 

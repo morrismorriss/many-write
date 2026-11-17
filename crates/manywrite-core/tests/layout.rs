@@ -136,17 +136,76 @@ fn exports_are_valid_zips() {
     }
 }
 
-/// Page numbers: none on the title page or the first script page; the next shows "2.".
+/// Page numbers: none on the title page; the first script page shows "1." top right, the next "2.".
 #[test]
 fn numbering_starts_after_title_page() {
-    let header = "#import \"/mw/stage-play.typ\": *\n#show: conf.with(title: \"Test Play\")\n";
-    let (src, els) = build(header, &play_items());
+    for t in ["stage-play", "screenplay"] {
+        let header = format!("#import \"/mw/{t}.typ\": *\n#show: conf.with(title: \"Test Play\")\n");
+        let (src, els) = build(&header, &play_items());
+        let mut engine = Engine::new();
+        assert!(engine.compile(&src, &els).ok);
+        let p1 = engine.page_text(0).unwrap();
+        let p2 = engine.page_text(1).unwrap();
+        let p3 = engine.page_text(2).unwrap();
+        assert!(!p1.contains('.'), "{t}: title page is unnumbered: {p1}");
+        assert!(p2.starts_with("1."), "{t}: first script page shows 1.: {}", &p2[..60]);
+        assert!(p3.starts_with("2."), "{t}: second script page shows 2.: {}", &p3[..60]);
+    }
+}
+
+/// Word: every format carries page numbers, and a title page is unnumbered with the next page as 1.
+#[test]
+fn word_exports_number_pages() {
+    use manywrite_core::export::{docx, ExportDoc};
+    let export = |template: &str, title_page: bool| {
+        let mut blocks = vec![];
+        if title_page {
+            blocks.push(serde_json::json!({"kind": "title", "runs": [{"text": "T"}]}));
+            blocks.push(serde_json::json!({"kind": "page_break", "runs": []}));
+        }
+        blocks.push(serde_json::json!({"kind": "paragraph", "runs": [{"text": "Hello"}]}));
+        let doc: ExportDoc = serde_json::from_value(serde_json::json!({"title": "T", "template": template, "blocks": blocks})).unwrap();
+        String::from_utf8_lossy(&docx(&doc).unwrap()).to_string()
+    };
+    for t in ["stage-play", "screenplay"] {
+        let x = export(t, true);
+        assert!(x.contains("word/header1.xml") && x.contains("<w:jc w:val=\"right\"/>") && x.contains(" PAGE ") && x.contains("<w:t>.</w:t>"), "{t}");
+        assert!(x.contains("<w:pgNumType w:start=\"0\"/><w:titlePg/>") && x.contains("word/header2.xml"), "{t}: title page");
+        let x = export(t, false);
+        assert!(!x.contains("<w:titlePg/>") && !x.contains("pgNumType"), "{t}: no title page, page 1 numbered");
+    }
+    for t in ["book", "article", "poem"] {
+        let x = export(t, false);
+        assert!(x.contains("word/footer1.xml") && x.contains("<w:footerReference w:type=\"default\"") && x.contains(" PAGE "), "{t}");
+    }
+    assert!(export("book", true).contains("<w:titlePg/>"));
+}
+
+/// Documents: every page is numbered in the header (top right), starting with 1 on the first page.
+#[test]
+fn document_numbers_every_page_top_right() {
+    let header = "#import \"/mw/document.typ\": *\n#show: conf.with(title: \"Doc\")\n";
+    let para = "the quick brown fox jumps over the lazy dog and then some more words follow here ".repeat(8);
+    let items: Vec<_> = (0..40).map(|_| ("paragraph", para.clone())).collect();
+    let (src, els) = build(header, &items);
     let mut engine = Engine::new();
-    assert!(engine.compile(&src, &els).ok);
-    let p2 = engine.page_text(1).unwrap();
-    let p3 = engine.page_text(2).unwrap();
-    assert!(!p2.contains("1."), "first script page is unnumbered: {}", &p2[..60]);
-    assert!(p3.starts_with("2."), "second script page shows 2.: {}", &p3[..60]);
+    let r = engine.compile(&src, &els);
+    assert!(r.ok && r.page_count >= 2, "{:?}", r.errors);
+    for i in 0..2 {
+        let t = engine.page_text(i).unwrap();
+        assert!(t.starts_with(&format!("{} ", i + 1)), "page {} starts with its number: {}", i + 1, &t[..40]);
+    }
+    let svg = engine.page_svg(0).unwrap();
+    assert!(svg.contains("<svg"));
+
+    use manywrite_core::export::{docx, ExportDoc};
+    let doc: ExportDoc = serde_json::from_value(serde_json::json!({
+        "title": "Doc", "author": "A", "template": "document",
+        "blocks": [{"kind": "paragraph", "runs": [{"text": "Hello"}]}]
+    })).unwrap();
+    let text = String::from_utf8_lossy(&docx(&doc).unwrap()).to_string();
+    assert!(text.contains("word/header1.xml") && text.contains("<w:jc w:val=\"right\"/>") && text.contains(" PAGE "));
+    assert!(!text.contains("<w:titlePg/>"), "page 1 is numbered too");
 }
 
 /// Production mode: after locking, a longer page 2 spills onto 2A and page 3 keeps its number.

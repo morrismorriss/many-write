@@ -89,8 +89,7 @@
   let here-page = here().page()
   let locks = query(<mw-lock>)
   if locks.len() == 0 or here-page < locks.first().location().page() {
-    let n = counter(page).get().first()
-    return if n > 1 { str(n) } else { none }
+    return str(counter(page).get().first())
   }
   let base = none
   let extra = 0
@@ -102,7 +101,6 @@
     else if base != none { extra += 1 }
   }
   if base == none { return none }
-  if base == 1 and extra == 0 { return none }
   str(base) + extra-letters(extra)
 }
 

@@ -277,13 +277,76 @@ fn essay_styles(chicago: bool) -> Vec<Style> {
     ]
 }
 
-/// The running header: right-aligned, `head` then the page number (a PAGE field).
+/// The running header (essays): right-aligned, `head` then the page number (a PAGE field).
 fn essay_header(head: &str) -> String {
     let lead = if head.is_empty() { String::new() } else { format!("<w:r><w:t xml:space=\"preserve\">{} </w:t></w:r>", xml_escape(head)) };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/></w:pPr>{lead}<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:hdr>"#
     )
+}
+
+/// Word page numbers for the formats other than essays: a PAGE field in a header or footer.
+struct PageNumbers {
+    /// Centred in the footer, or right-aligned in the header.
+    footer: bool,
+    /// Printed after the number ("." for scripts).
+    suffix: &'static str,
+    /// The first page is a title page: no number there, and the next page is 1.
+    title_page: bool,
+}
+
+impl PageNumbers {
+    fn kind(&self) -> (&'static str, &'static str) {
+        if self.footer { ("footer", "ftr") } else { ("header", "hdr") }
+    }
+
+    /// Adds the references (and, after a title page, the numbering restart) to a section.
+    fn wire(&self, sect: &str) -> String {
+        let (kind, _) = self.kind();
+        let mut refs = format!(r#"<w:{kind}Reference w:type="default" r:id="rId2"/>"#);
+        let mut tail = String::new();
+        if self.title_page {
+            refs.push_str(&format!(r#"<w:{kind}Reference w:type="first" r:id="rId3"/>"#));
+            tail.push_str(r#"<w:pgNumType w:start="0"/><w:titlePg/>"#);
+        }
+        sect.replacen("<w:sectPr>", &format!("<w:sectPr>{refs}"), 1).replacen("</w:sectPr>", &format!("{tail}</w:sectPr>"), 1)
+    }
+
+    fn content_types(&self) -> String {
+        let (kind, _) = self.kind();
+        let n = if self.title_page { 2 } else { 1 };
+        (1..=n)
+            .map(|i| format!(r#"<Override PartName="/word/{kind}{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.{kind}+xml"/>"#))
+            .collect()
+    }
+
+    fn rels(&self) -> String {
+        let (kind, _) = self.kind();
+        let n = if self.title_page { 2 } else { 1 };
+        (1..=n)
+            .map(|i| format!(r#"<Relationship Id="rId{}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/{kind}" Target="{kind}{i}.xml"/>"#, i + 1))
+            .collect()
+    }
+
+    fn parts(&self) -> Vec<(&'static str, Vec<u8>)> {
+        let (_, tag) = self.kind();
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let jc = if self.footer { "center" } else { "right" };
+        let suffix = if self.suffix.is_empty() { String::new() } else { format!("<w:r><w:t>{}</w:t></w:r>", self.suffix) };
+        let main = format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:{tag} xmlns:w="{ns}"><w:p><w:pPr><w:jc w:val="{jc}"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>{suffix}</w:p></w:{tag}>"#
+        );
+        let (one, two) = if self.footer { ("word/footer1.xml", "word/footer2.xml") } else { ("word/header1.xml", "word/header2.xml") };
+        let mut parts = vec![(one, main.into_bytes())];
+        if self.title_page {
+            // The title page's own header or footer: empty.
+            parts.push((two, format!(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:{tag} xmlns:w="{ns}"><w:p/></w:{tag}>"#).into_bytes()));
+        }
+        parts
+    }
 }
 
 pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
@@ -385,6 +448,23 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         _ => r#"<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1728" w:bottom="1440" w:left="1728" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>"#,
     };
 
+    // Page numbers for the other formats, as in the PDF. A title page (scripts, books) is
+    // unnumbered and the page after it is page 1.
+    let title_page = (script || doc.template == "book") && doc.blocks.first().is_some_and(|b| b.kind == "title");
+    let numbering = match doc.template.as_str() {
+        "essay" => None,
+        // Scripts: "12." at the top right.
+        "stage-play" | "screenplay" => Some(PageNumbers { footer: false, suffix: ".", title_page }),
+        // Documents: top right.
+        "document" => Some(PageNumbers { footer: false, suffix: "", title_page: false }),
+        // Books, articles, poems: centred at the bottom.
+        _ => Some(PageNumbers { footer: true, suffix: "", title_page }),
+    };
+    let sect = match &numbering {
+        Some(n) => n.wire(sect),
+        None => sect.to_string(),
+    };
+
     let document = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>{body}{sect}</w:body></w:document>"#
@@ -396,9 +476,9 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         xml_escape(&doc.author)
     );
     let header_types = if essay {
-        r#"<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/header2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>"#
+        r#"<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/header2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>"#.to_string()
     } else {
-        ""
+        numbering.as_ref().map(|n| n.content_types()).unwrap_or_default()
     };
     let content_types = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -407,9 +487,9 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>"#;
     let header_rels = if essay {
-        r#"<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/>"#
+        r#"<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header2.xml"/>"#.to_string()
     } else {
-        ""
+        numbering.as_ref().map(|n| n.rels()).unwrap_or_default()
     };
     let doc_rels = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -433,6 +513,9 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
 <w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p/></w:hdr>"#
                 .to_vec(),
         ));
+    }
+    if let Some(n) = &numbering {
+        files.extend(n.parts());
     }
     Ok(zip_store(&files))
 }

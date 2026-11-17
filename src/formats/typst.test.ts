@@ -91,4 +91,19 @@ describe("generated Typst", () => {
     expect(sp.some((x) => x.kind === "page_break" || x.kind === "folder_heading")).toBe(false);
     expect(generateTypst(TEMPLATES.screenplay, { ...meta, sceneNewPage: false }, docs).source).toContain("new-page: false");
   });
+  it("puts a script's title page on its own page in Word, with no extra break before the first scene or play", () => {
+    const docs = [
+      { kind: "doc" as const, id: "a", title: "One", blocks: [b("paragraph", "A.")] },
+      { kind: "doc" as const, id: "b", title: "Two", blocks: [b("paragraph", "B.")] },
+    ];
+    const kinds = (template: keyof typeof TEMPLATES, m: Parameters<typeof toExportDoc>[1], items: Parameters<typeof toExportDoc>[2]) =>
+      toExportDoc(TEMPLATES[template], { ...m, titlePage: true, title: "T" }, items, "x").blocks.map((x) => x.kind);
+    expect(kinds("screenplay", { ...meta, sceneNewPage: false }, docs).slice(0, 3)).toEqual(["title", "character", "page_break"]);
+    expect(kinds("screenplay", { ...meta, sceneNewPage: false }, docs).filter((k) => k === "page_break").length).toBe(1);
+    // Stage plays start each scene on a new page: one break after the title page, one between the scenes.
+    expect(kinds("stage-play", { ...meta, sceneNewPage: true }, docs).filter((k) => k === "page_break").length).toBe(2);
+    const play = [{ kind: "play" as const, id: "p", title: "Part One", depth: 1 }, ...docs];
+    const withPlay = kinds("stage-play", { ...meta, sceneNewPage: true }, play);
+    expect(withPlay.slice(0, 4)).toEqual(["title", "character", "page_break", "title"]);
+  });
 });

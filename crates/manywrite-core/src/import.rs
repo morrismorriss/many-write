@@ -494,7 +494,11 @@ mod tests {
         let src = "#import \"/mw/screenplay.typ\": *\n#show: conf.with(title: \"T\", title-page: false)\n#el(\"scene_heading\", none)[#\"INT. HOUSE - DAY\"]\n#el(\"character\", \"scene_heading\")[#\"ANNA\"]\n#el(\"dialogue\", \"character\")[#\"Hello there.\"]\n";
         let mut engine = crate::engine::Engine::new();
         assert!(engine.compile(src, &[]).ok);
-        let lines = pdf(engine.pdf().unwrap()).unwrap();
+        let all = pdf(engine.pdf().unwrap()).unwrap();
+        // The page number "1." sits at the top right, above the text.
+        assert_eq!(all[0].text, "1.", "{all:?}");
+        assert!(all[0].x > 500.0 && all[0].y < all[1].y, "{all:?}");
+        let lines = &all[1..];
         let texts: Vec<_> = lines.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(texts, ["INT. HOUSE - DAY", "ANNA", "Hello there."], "{lines:?}");
         // The cue sits about 2.2in right of the action margin, dialogue about 1in.

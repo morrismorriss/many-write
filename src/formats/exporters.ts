@@ -162,19 +162,21 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
     blocks.push({ kind: "title", runs: [{ text: meta.title || "Untitled" }] });
     if (meta.subtitle?.trim()) blocks.push({ kind: script ? "centered" : "subheading", runs: [{ text: meta.subtitle.trim() }] });
     if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
+    // A script's title page is a page of its own (a book's first chapter already starts a new page).
+    if (script) blocks.push({ kind: "page_break", runs: [] });
   }
   /** An empty paragraph keeps its place as a blank line (a no-break space, so Word and e-readers don't drop it). */
   const blankLine: Run[] = [{ text: "\u00a0" }];
   const keptBlank = (b: Block, i: number, blocks: Block[]) =>
     (b.type === "paragraph" || b.type === "centered") && !blockText(b).trim() && blocks.slice(i + 1).some((x) => blockText(x).trim() || x.type === "image");
-  let newPage = false;
+  let newPage = blocks.at(-1)?.kind === "page_break";
   // Which formats start every document on a new page: stage plays (unless turned off), poems and documents.
   // Screenplays, essays, articles and a book's sections run on.
   const docNewPage = script ? !!meta.sceneNewPage : template.id === "document" || template.mode === "poem";
   for (const item of items) {
     if (item.kind === "play") {
       // A play of a collection: a new page with its title.
-      blocks.push({ kind: "page_break", runs: [] });
+      if (blocks.length && !newPage) blocks.push({ kind: "page_break", runs: [] });
       blocks.push({ kind: "title", runs: [{ text: item.title }] });
       if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
       blocks.push({ kind: "page_break", runs: [] });
