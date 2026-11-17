@@ -21,6 +21,10 @@ A local-first desktop writing app for **stage plays, screenplays, essays, books,
 | --- | --- | --- |
 | ![Dark](docs/screenshots/dark.png) | ![Pink](docs/screenshots/pink.png) | ![Theme builder](docs/screenshots/theme-builder.png) |
 
+| Book chapters with sections | Citing a source with /cite | Sources remembered |
+| --- | --- | --- |
+| ![A chapter split into three sections, typeset as one chapter](docs/screenshots/book-sections.png) | ![The citation dialog with an MLA preview](docs/screenshots/citation-dialog.png) | ![The /cite menu offering sources cited before](docs/screenshots/citations.png) |
+
 ## Writing a play
 
 | You do | You get |
@@ -38,6 +42,12 @@ A local-first desktop writing app for **stage plays, screenplays, essays, books,
 
 Each scene starts on a new page, and a character who speaks again after a stage direction can get **(CONT'D)** automatically on the page (both in File › Project settings). Screenplays have their own Enter/Tab flow. Poems keep every line break and indent exactly (Tab indents). Books and articles use paragraphs, headings and quotes. Books, articles and documents also have **text-message bubbles** (`/text`, left or right), and a book's scene breaks can be asterisks, a line, three hearts or your own picture (File › Project settings).
 
+**Books** can split a chapter into **sections**: hover over a chapter and press **+**. The chapter becomes a folder (its text is kept as Section 1) whose title prints as the chapter heading, and its sections run on one after another, with no heading or page break between them.
+
+**Page breaks**: stage plays, poems, play collections and documents start each scene, poem or page on a new page. Screenplays, essays, articles and a book chapter's sections run on, in the preview and in PDF, Word and EPUB exports (scripts can change this in File › Project settings).
+
+**Citations**: in essays, books, articles and documents, type **/cite** for **Citation…**. Enter the source (book, article or web page) and the page; an in-text citation goes at the cursor, `(Morrison 23)` in MLA or `(Morrison 1987, 23)` in Chicago author–date, and the full entry goes in alphabetical order on the **Works Cited** or **Bibliography** page, which is made if there isn't one. Every source is remembered: the next **/cite** lists it, so citing it again is one click (the cursor waits for the page number).
+
 **Essays** come in **MLA** or **Chicago** style, chosen when you create the project: double-spaced 12pt pages, MLA's heading block and "Surname 1" running header, or Chicago's title page. A **Works Cited** (MLA) or **Bibliography** (Chicago) page is added to the back matter with example entries; each `- ` line is one source with a hanging indent. Both are also offered for any project under Back matter › +. Instructor, course and date are in File › Project settings.
 
 ## Around the editor
@@ -47,7 +57,7 @@ Each scene starts on a new page, and a character who speaks again after a stage 
 - **Links**: web addresses are clickable in the editor (Alt-click to edit one) and in exported PDFs.
 - **Several windows**: File › New window, or the window button next to a recent project, opens another project side by side.
 
-- **Binder**: front matter (cast list, dedication, time and place…), the manuscript, back matter, characters, research and an **archive** for old drafts. Drag to reorder, nest or archive. **⌘/Ctrl-click** or **Shift-click** to select several items and drag, archive or trash them together; drop at the bottom of a section to take items out of a folder. Click an item's **icon** to choose a different one. New scenes go next to the one you're on.
+- **Binder**: front matter (cast list, dedication, time and place…), the manuscript, back matter, characters, research and an **archive** for old drafts. Drag to reorder, nest or archive. **⌘/Ctrl-click** or **Shift-click** to select several items and drag, archive or trash them together; drop at the bottom of a section to take items out of a folder. Click an item's **icon** to choose a different one (there are 40, including a monster, an octopus and tick boxes for to do and done). New scenes go next to the one you're on.
 - **Notes**: every binder item has a notes page below the binder, with the same `/` blocks.
 - **Find & replace** (⌘F, or ⌘⇧F for the whole script): match case, whole words, every result listed, replace one or all. Bold and italics are kept.
 - **Words and pages**: the chart button above the preview lists words and pages for each scene, with totals and a running-time estimate for scripts.

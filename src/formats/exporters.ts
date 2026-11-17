@@ -168,6 +168,9 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
   const keptBlank = (b: Block, i: number, blocks: Block[]) =>
     (b.type === "paragraph" || b.type === "centered") && !blockText(b).trim() && blocks.slice(i + 1).some((x) => blockText(x).trim() || x.type === "image");
   let newPage = false;
+  // Which formats start every document on a new page: stage plays (unless turned off), poems and documents.
+  // Screenplays, essays, articles and a book's sections run on.
+  const docNewPage = script ? !!meta.sceneNewPage : template.id === "document" || template.mode === "poem";
   for (const item of items) {
     if (item.kind === "play") {
       // A play of a collection: a new page with its title.
@@ -179,6 +182,14 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
       continue;
     }
     if (item.kind === "folder") {
+      if (item.chapter && template.id === "book") {
+        // A chapter made of sections: its title is the chapter heading.
+        blocks.push({ kind: "chapter", runs: [{ text: item.title }] });
+        newPage = true;
+        continue;
+      }
+      // Screenplay sequences and article parts print nothing on the page (as in the PDF), so they don't break the page either.
+      if (template.id === "screenplay" || template.id === "article") continue;
       blocks.push({ kind: "folder_heading", runs: [{ text: item.title }] });
       newPage = true;
       continue;
@@ -194,9 +205,9 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
       newPage = true;
       continue;
     }
-    if (template.id === "book") blocks.push({ kind: "chapter", runs: [{ text: item.title }] });
-    // Scripts: each scene on a new page (not straight after an act heading, which starts one).
-    if (script && meta.sceneNewPage && !newPage && blocks.length) blocks.push({ kind: "page_break", runs: [] });
+    if (template.id === "book" && !item.section) blocks.push({ kind: "chapter", runs: [{ text: item.title }] });
+    // Each scene, poem or page on a new page (not straight after a heading that starts one).
+    else if (docNewPage && !item.section && !newPage && blocks.length) blocks.push({ kind: "page_break", runs: [] });
     newPage = false;
     const contd = script && meta.autoContd ? contdLines(item.blocks) : null;
     let prevEmpty = false;

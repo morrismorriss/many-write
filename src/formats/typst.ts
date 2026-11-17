@@ -6,10 +6,12 @@ import { blockText } from "./markdown";
 import type { EssayStyle, Template } from "./templates";
 
 export type ManuscriptItem =
-  | { kind: "folder"; id: string; title: string; depth: number }
+  /** `chapter`: a book chapter split into sections; its title is the chapter heading. */
+  | { kind: "folder"; id: string; title: string; depth: number; chapter?: boolean }
   /** A whole play inside a collection: its own title page; its front matter and acts follow. */
   | { kind: "play"; id: string; title: string }
-  | { kind: "doc"; id: string; title: string; blocks: Block[] }
+  /** `section`: part of a book chapter; it runs on from the one before, with no heading or page break. */
+  | { kind: "doc"; id: string; title: string; blocks: Block[]; section?: boolean }
   /** A front or back matter page: typeset as plain prose on its own page. */
   | { kind: "matter"; id: string; title: string; blocks: Block[]; where: "front" | "back" };
 
@@ -278,6 +280,15 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
     if (item.kind === "folder") {
       lockFor(elementId(item.id, headingIndex));
       const hstart = bytes;
+      if (item.chapter && template.id === "book") {
+        // A chapter made of sections: the chapter heading, then its sections run on.
+        emit(`#doc-start(${str(item.title)}, first: ${first})\n`);
+        elements.push({ id: elementId(item.id, headingIndex), kind: "folder_heading", start: hstart, end: bytes });
+        first = false;
+        afterHeading = false;
+        prev = '"chapter"';
+        continue;
+      }
       emit(`#folder(${str(item.title)}, ${item.depth}, first: ${first})\n`);
       elements.push({ id: elementId(item.id, headingIndex), kind: "folder_heading", start: hstart, end: bytes });
       first = false;
@@ -285,15 +296,20 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       prev = '"folder_heading"';
       continue;
     }
-    if (script) {
+    if (item.section) {
+      // A section of a book chapter: no heading, no page break; it carries on the chapter's text.
+    } else if (script) {
       // A scene starts on a new page, except straight after its act's heading.
       emit(`#doc-start(${str(item.title)}, first: ${first || afterHeading}, new-page: ${meta.sceneNewPage ? "true" : "false"})\n`);
+    } else if (template.id === "document") {
+      // Each page of a document starts a new page, except straight after its part's heading.
+      emit(`#doc-start(${str(item.title)}, first: ${first || afterHeading})\n`);
     } else {
       emit(`#doc-start(${str(item.title)}, first: ${first})\n`);
     }
     first = false;
     afterHeading = false;
-    if (template.id === "book") prev = '"chapter"';
+    if (template.id === "book" && !item.section) prev = '"chapter"';
 
     if (poem) {
       // Group lines into stanzas; empty lines separate stanzas.

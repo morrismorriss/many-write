@@ -86,6 +86,29 @@ export const SwordIcon = base(<><path d="M20 4l-9.5 9.5M20 4h-4M20 4v4" /><path 
 export const EyeIcon = base(<><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>);
 export const ClockIcon = base(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>);
 export const QuestionIcon = base(<><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 114 2c-.9.6-1.5 1.2-1.5 2.3M12 17h.01" /></>);
+/** A friendly monster: one eye, horns and a toothy grin. */
+export const MonsterIcon = base(
+  <>
+    <path d="M5 20v-8a7 7 0 0114 0v8l-2.3-1.6L14.3 20 12 18.4 9.7 20l-2.4-1.6z" />
+    <path d="M7.2 7.2L5.5 3.5M16.8 7.2l1.7-3.7" />
+    <circle cx="12" cy="11" r="2.4" />
+    <circle cx="12" cy="11" r="0.6" fill="currentColor" />
+    <path d="M9.5 15.3h5" />
+  </>,
+);
+/** An octopus: a round head and wavy arms. */
+export const OctopusIcon = base(
+  <>
+    <path d="M6.5 13.5V10a5.5 5.5 0 0111 0v3.5" />
+    <path d="M6.5 13.5c0 2.5-1.5 4-3 4.5M10 14c0 3-1 5-2.5 6M14 14c0 3 1 5 2.5 6M17.5 13.5c0 2.5 1.5 4 3 4.5" />
+    <circle cx="10" cy="10" r="0.6" fill="currentColor" />
+    <circle cx="14" cy="10" r="0.6" fill="currentColor" />
+  </>,
+);
+/** An empty tick box: to do. */
+export const BoxIcon = base(<rect x="4.5" y="4.5" width="15" height="15" rx="2.5" />);
+/** A ticked box: done. */
+export const CheckedBoxIcon = base(<><rect x="4.5" y="4.5" width="15" height="15" rx="2.5" /><path d="M8.3 12.3l2.6 2.6 4.9-5.4" /></>);
 
 type IconComponent = ReturnType<typeof base>;
 
@@ -127,4 +150,8 @@ export const BINDER_ICONS: Record<string, { label: string; Icon: IconComponent }
   lock: { label: "Lock", Icon: Lock },
   warning: { label: "Warning", Icon: Warning },
   archive: { label: "Box", Icon: ArchiveIcon },
+  monster: { label: "Monster", Icon: MonsterIcon },
+  octopus: { label: "Octopus", Icon: OctopusIcon },
+  unchecked: { label: "To do", Icon: BoxIcon },
+  checked: { label: "Done", Icon: CheckedBoxIcon },
 };

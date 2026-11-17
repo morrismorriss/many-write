@@ -603,3 +603,14 @@ figure.mw-image.ProseMirror-selectednode img { outline: 2px solid var(--accent);
 .modal.donate h2 { display: flex; align-items: center; gap: 8px; }
 .modal.donate p { line-height: 1.55; }
 .modal.donate .btn.primary svg { margin-right: 4px; }
+
+/* Citation dialog ("/cite") */
+.citation-dialog { width: min(520px, 100%); }
+.cite-authors { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.cite-author { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px; width: 100%; }
+.cite-author input, .cite-grid input { min-width: 0; width: 100%; box-sizing: border-box; }
+.cite-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); column-gap: 10px; }
+.cite-preview { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: "Literata", Georgia, serif; font-size: 13.5px; line-height: 1.45; }
+.cite-preview-label { font-family: "Inter", system-ui, sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 6px 0 2px; }
+.cite-preview-label:first-child { margin-top: 0; }
+.cite-entry { padding-left: 2em; text-indent: -2em; }

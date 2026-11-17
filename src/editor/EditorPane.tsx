@@ -6,7 +6,9 @@ import Italic from "@tiptap/extension-italic";
 import Underline from "@tiptap/extension-underline";
 import HardBreak from "@tiptap/extension-hard-break";
 import { UndoRedo } from "@tiptap/extensions";
-import { ElementNode, ImageNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, setLineType, type SearchHighlight } from "./extensions";
+import { ElementNode, ImageNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, insertCitation, setLineType, type SearchHighlight } from "./extensions";
+import { CitationDialog } from "../components/CitationDialog";
+import { roleOf } from "../project/model";
 import { elementLabel, hasType, type ElementType, type Template } from "../formats/templates";
 import { parseDoc, serializeDoc, type Block } from "../formats/markdown";
 import type { ProjectStore } from "../project/store";
@@ -33,7 +35,20 @@ const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigat
 const MOD = isMac ? "⌘⌥" : "Ctrl+Alt+";
 
 /** The editor extensions every editor in the app shares. */
-function extensions(store: ProjectStore, opts: { template: () => Template; names: () => string[]; search: () => SearchHighlight | null; hint?: () => { text: string; type?: ElementType } | null }) {
+/** Formats whose manuscript can cite sources with "/cite". */
+const CITING = ["essay", "book", "article", "document"];
+
+function extensions(
+  store: ProjectStore,
+  opts: {
+    template: () => Template;
+    names: () => string[];
+    search: () => SearchHighlight | null;
+    hint?: () => { text: string; type?: ElementType } | null;
+    citations?: () => boolean;
+    requestCitation?: () => void;
+  },
+) {
   return [
     ScriptDocument,
     Text,
@@ -49,6 +64,9 @@ function extensions(store: ProjectStore, opts: { template: () => Template; names
       getNames: opts.names,
       getSearch: opts.search,
       getHint: opts.hint ?? (() => null),
+      getCitations: () => (opts.citations?.() ? { sources: store.sources, style: store.citationStyle } : null),
+      requestCitation: opts.requestCitation,
+      onCite: (id) => store.touchSource(id),
       pickImage: async () => {
         const f = await pickImage();
         if (!f) return null;
@@ -84,6 +102,8 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
   searchRef.current = search ?? null;
   const [lineType, setType] = useState<ElementType>(template.firstElement);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [citing, setCiting] = useState(false);
+  const citable = () => CITING.includes(templateRef.current.id) && ["manuscript", "archive"].includes(roleOf(store.data, docId) ?? "");
   const extRev = useRef(doc.externalRev);
   const breakStyle = useSceneBreakStyle(store, template);
   const hint = () => {
@@ -97,7 +117,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
   };
 
   const editor = useEditor({
-    extensions: extensions(store, { template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current, hint }),
+    extensions: extensions(store, { template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current, hint, citations: citable, requestCitation: () => setCiting(true) }),
     content: initial(doc.blocks),
     autofocus: "end",
     editorProps: {
@@ -190,6 +210,21 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
           <EditorContent editor={editor} />
         </div>
       </div>
+      {citing && (
+        <CitationDialog
+          style={store.citationStyle}
+          fixedStyle={store.data.template === "essay"}
+          onCancel={() => {
+            setCiting(false);
+            editor?.commands.focus();
+          }}
+          onDone={(src, page, style) => {
+            setCiting(false);
+            if (editor) insertCitation(editor.view, src, style, page);
+            void store.addSource(src, style);
+          }}
+        />
+      )}
     </div>
   );
 }

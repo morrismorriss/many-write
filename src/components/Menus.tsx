@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Popover } from "./Popover";
-import type { SceneBreakStyle } from "../project/model";
+import { sceneNewPageDefault, type SceneBreakStyle } from "../project/model";
 import { call, fsApi, imageUrl, join, pickImage, pickSavePath } from "../lib/backend";
 import { essayDate, generateTypst } from "../formats/typst";
 import { toExportDoc, toFdx, toFountain } from "../formats/exporters";
@@ -125,7 +125,7 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
   const [titlePage, setTitlePage] = useState(d.settings.titlePage);
   const [paper, setPaper] = useState(d.settings.paper);
   const script = store.template.mode === "script";
-  const [sceneNewPage, setSceneNewPage] = useState(d.settings.sceneNewPage !== false);
+  const [sceneNewPage, setSceneNewPage] = useState(sceneNewPageDefault(d.template, d.settings.sceneNewPage));
   const [autoContd, setAutoContd] = useState(d.settings.autoContd ?? store.template.id === "screenplay");
   const essay = store.template.id === "essay";
   const book = store.template.id === "book";

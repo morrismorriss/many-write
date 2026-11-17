@@ -126,6 +126,32 @@ the play's title page, unnumbered. The play's acts and scenes follow, numbered f
   { "kind": "folder", "title": "Act One", "file": "02-act-one", "children": [] } ] }
 ```
 
+## Book chapters with sections
+
+A book chapter can be one file, or a folder of sections marked `"chapter": true` in `project.json`.
+The folder's title is printed as the chapter heading (on a new page); its sections follow one
+after another with no heading or page break between them, as if they were one file.
+
+```json
+{ "kind": "folder", "title": "The Storm", "file": "03-the-storm", "chapter": true, "children": [
+  { "kind": "doc", "title": "Section 1", "file": "01-section-1.md" },
+  { "kind": "doc", "title": "Section 2", "file": "02-section-2.md" } ] }
+```
+
+## Page breaks between documents
+
+Stage plays (unless `settings.sceneNewPage` is `false`), poems, play collections and documents start each
+file on a new page. Screenplays (unless `settings.sceneNewPage` is `true`), essays, articles and the sections
+of a book chapter run on. Book chapters, parts and front and back matter pages always start a new page.
+
+## Citations
+
+`/cite` in an essay, book, article or document remembers each source in `project.json` under `sources`
+(`kind`: `book`, `article` or `website`; `authors` as `first`/`last` pairs; `title`, `container`, `publisher`,
+`city`, `year`, `date`, `volume`, `issue`, `pages`, `url`, `accessed`). The in-text citation is ordinary text
+in the file, e.g. `(Morrison 23)`, and the full entry is a `- ` line on the Works Cited or Bibliography page.
+Essays cite in their own style; other projects use `settings.citationStyle` (`mla` or `chicago`, author–date).
+
 ## Essays
 
 `project.json` keeps the essay's style and heading details in `settings`: `essayStyle` (`mla` or `chicago`), `instructor`, `course` and `date` (empty means today).

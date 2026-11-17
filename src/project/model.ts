@@ -4,6 +4,7 @@
 // rewrites their contents.
 
 import type { EssayStyle, TemplateId } from "../formats/templates";
+import type { CitationStyle, Source } from "../formats/citations";
 
 export type Role = "front" | "manuscript" | "back" | "characters" | "research" | "archive";
 
@@ -34,6 +35,8 @@ export interface BinderNode {
   play?: boolean;
   /** A folder of front matter pages inside a play (cast list, time and place…). */
   matter?: boolean;
+  /** Books: a chapter split into sections. Its title prints as the chapter heading and its sections run on. */
+  chapter?: boolean;
   /** An icon the writer picked for this item (a key of BINDER_ICONS); absent means the default for its kind. */
   icon?: string;
   children?: BinderNode[];
@@ -51,10 +54,34 @@ export interface ProjectSettings {
   /** Books: how a scene break is drawn. "image" uses sceneBreakImage (a project-relative path). */
   sceneBreak?: SceneBreakStyle;
   sceneBreakImage?: string;
-  /** Scripts: each scene starts on a new page. Default on. */
+  /** Scripts: each scene starts on a new page. Default on for stage plays, off for screenplays (see sceneNewPageDefault). */
   sceneNewPage?: boolean;
   /** Scripts: add (CONT'D) to a cue when the same character speaks again after a direction. */
   autoContd?: boolean;
+  /** Books, articles and documents: the style "/cite" uses (essays follow essayStyle). */
+  citationStyle?: CitationStyle;
+}
+
+/** Stage plays start each scene on a new page unless told otherwise; screenplays run scenes on. */
+export function sceneNewPageDefault(template: string, setting: boolean | undefined): boolean {
+  return setting ?? template !== "screenplay";
+}
+
+/** The chapter folder a book section sits in, if any. */
+export function chapterOf(data: ProjectFile, id: string): BinderNode | null {
+  let found: BinderNode | null = null;
+  const rec = (nodes: BinderNode[], chapter: BinderNode | null): boolean => {
+    for (const n of nodes) {
+      if (n.id === id) {
+        found = chapter;
+        return true;
+      }
+      if (n.children && rec(n.children, chapter ?? (n.kind === "folder" && n.chapter ? n : null))) return true;
+    }
+    return false;
+  };
+  rec(data.binder, null);
+  return found;
 }
 
 export type SceneBreakStyle = "asterisks" | "line" | "hearts" | "image";
@@ -72,6 +99,8 @@ export interface ProjectFile {
   theme?: string;
   settings: ProjectSettings;
   binder: BinderNode[];
+  /** Sources cited with "/cite", remembered so they can be cited again with one click. */
+  sources?: Source[];
 }
 
 export const PROJECT_FILE = "project.json";
