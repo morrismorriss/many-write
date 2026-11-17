@@ -1,4 +1,4 @@
-// Version 0.6: sections inside book chapters, which formats start each
+// Version 0.7: sections inside book chapters, which formats start each
 // document on a new page, the new binder icons, and "/cite" citations that
 // are remembered. Same environment as smoke.mjs.
 import { createRequire } from "node:module";
