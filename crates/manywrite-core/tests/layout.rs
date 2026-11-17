@@ -153,6 +153,25 @@ fn numbering_starts_after_title_page() {
     }
 }
 
+/// Front matter (a cast list) after the title page is unnumbered, also when it is the very
+/// first page of the script, and the script after it starts at "1.", in production mode too.
+#[test]
+fn front_matter_is_unnumbered() {
+    let front = "#mw-front-start()\n#import \"/mw/matter.typ\": matter-start, matter-el\n#matter-start(\"\", first: true, centered: false)\n#matter-el(\"paragraph\", none)[Cast]\n#mw-body-start()\n#pagebreak(weak: true)\n";
+    for t in ["stage-play", "screenplay"] {
+        for (revision, lock) in [("", ""), ("White Rev.", "#mw-lock(1, hard: true)\n")] {
+            let src = format!("#import \"/mw/{t}.typ\": *\n#show: conf.with(title: \"T\", revision: \"{revision}\")\n{front}{lock}#folder(\"ACT ONE\", 0, first: false)\n#el(\"character\", none)[ANNA]\n");
+            let mut engine = Engine::new();
+            let r = engine.compile(&src, &[]);
+            assert!(r.ok, "{:?}", r.errors);
+            let cast = engine.page_text(1).unwrap();
+            let act = engine.page_text(2).unwrap();
+            assert!(cast.contains("Cast") && !cast.contains("1."), "{t} {revision:?}: cast page is unnumbered: {cast}");
+            assert!(act.contains("1. ") && act.contains("ANNA"), "{t} {revision:?}: the script starts at 1.: {act}");
+        }
+    }
+}
+
 /// Word: every format carries page numbers, and a title page is unnumbered with the next page as 1.
 #[test]
 fn word_exports_number_pages() {
