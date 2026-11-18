@@ -33,7 +33,7 @@ type DropPos = "before" | "after" | "inside";
 
 /** Each kind of binder item has its own icon: scenes, chapters, poems, pages, characters, research notes, plays. */
 function NodeIcon({ store, node }: { store: ProjectStore; node: BinderNode }) {
-  const chosen = node.icon ? BINDER_ICONS[node.icon] : undefined;
+  const chosen = node.icon && Object.hasOwn(BINDER_ICONS, node.icon) ? BINDER_ICONS[node.icon] : undefined;
   if (chosen) return <chosen.Icon />;
   return <DefaultIcon store={store} node={node} />;
 }

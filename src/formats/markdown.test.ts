@@ -276,3 +276,29 @@ describe("blank lines", () => {
     expect(parseDoc(md, "prose").blocks[0].runs[0].text).toBe("&nbsp;");
   });
 });
+
+describe("hostile image paths", () => {
+  it("a malformed percent escape is kept literally, not thrown", () => {
+    // A stray "%" (a hand-edited file, another tool) must not take the document down.
+    const doc = parseProse("![x](%)\n", false, false);
+    expect(doc.blocks).toHaveLength(1);
+    expect(doc.blocks[0]).toMatchObject({ type: "image", src: "%" });
+    const notes = parseNotes("![x](%E0%A4%A)\n");
+    expect(notes.blocks[0]).toMatchObject({ type: "image", src: "%E0%A4%A" });
+    expect(() => parseDoc("![a](%zz)\n", "prose")).not.toThrow();
+    expect(() => parseDoc("![a](%)\n", "notes")).not.toThrow();
+  });
+
+  it("still decodes valid escapes, and round-trips", () => {
+    const md = "![A cat](assets/cat%20photo.png)\n";
+    const doc = parseProse(md, false, false);
+    expect(doc.blocks[0].src).toBe("assets/cat photo.png");
+    expect(serializeProse(doc)).toBe(md);
+  });
+
+  it("a path that cannot be encoded is written literally, not thrown", () => {
+    // A lone surrogate is not encodable; serializing must not throw.
+    const src = "assets/" + String.fromCharCode(0xd800) + ".png";
+    expect(() => serializeDoc({ blocks: [{ type: "image", runs: [], src }], frontMatter: null }, "prose")).not.toThrow();
+  });
+});

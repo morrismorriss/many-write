@@ -2,8 +2,6 @@
 //! Word (.docx), PDF (text with positions), and RTF.
 //! The originals are only ever read, never changed.
 
-use std::path::Path;
-
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -205,6 +203,15 @@ impl<'a> hayro_interpret::Device<'a> for Glyphs {
     fn pop_transparency_group(&mut self) {}
 }
 
+/// One positioned glyph: left x, baseline y, size, end x, text.
+type Glyph = (f32, f32, f32, f32, String);
+
+/// Put glyphs in reading order: by baseline, then left to right. `total_cmp`
+/// orders NaN instead of panicking, so a damaged PDF cannot crash the reader.
+fn order_glyphs(glyphs: &mut [Glyph]) {
+    glyphs.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
+}
+
 /// The text of a PDF as positioned lines, in reading order.
 pub fn pdf(bytes: Vec<u8>) -> Result<Vec<PdfLine>, String> {
     use hayro_interpret::{Context, InterpreterCache, InterpreterSettings, TransformExt};
@@ -224,13 +231,13 @@ pub fn pdf(bytes: Vec<u8>) -> Result<Vec<PdfLine>, String> {
         hayro_interpret::interpret_page(page, &mut ctx, &mut dev);
         // Group glyphs into lines by baseline, then order each line left to right.
         let mut glyphs = dev.out;
-        glyphs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap().then(a.0.partial_cmp(&b.0).unwrap()));
-        let mut cur: Vec<(f32, f32, f32, f32, String)> = Vec::new();
+        order_glyphs(&mut glyphs);
+        let mut cur: Vec<Glyph> = Vec::new();
         let mut flush = |cur: &mut Vec<(f32, f32, f32, f32, String)>| {
             if cur.is_empty() {
                 return;
             }
-            cur.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            cur.sort_by(|a, b| a.0.total_cmp(&b.0));
             let size = cur.iter().map(|g| g.2).fold(0.0, f32::max);
             let mut text = String::new();
             let mut end = cur[0].0;
@@ -456,6 +463,21 @@ fn cp1252(b: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glyph_order_survives_nan_coordinates() {
+        // A damaged PDF can carry NaN positions; ordering must not panic.
+        let mut glyphs: Vec<Glyph> = vec![
+            (f32::NAN, 10.0, 12.0, 20.0, "b".into()),
+            (5.0, f32::NAN, 12.0, 9.0, "a".into()),
+            (5.0, 10.0, 12.0, 9.0, "c".into()),
+        ];
+        order_glyphs(&mut glyphs);
+        assert_eq!(glyphs.len(), 3);
+        // Finite glyphs are ordered left to right.
+        let xs: Vec<f32> = glyphs.iter().map(|g| g.0).filter(|x| x.is_finite()).collect();
+        assert_eq!(xs, vec![5.0, 5.0]);
+    }
 
     #[test]
     fn rtf_paragraphs_marks_and_unicode() {

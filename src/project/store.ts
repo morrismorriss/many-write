@@ -29,6 +29,7 @@ import {
   findNode,
   inMatterFolder,
   isDescendant,
+  isSafeId,
   isSafeNotesPath,
   isSafeSegment,
   manuscriptOrder,
@@ -1020,7 +1021,11 @@ export class ProjectStore {
     const n = this.node(id);
     if (!n) return;
     if (!n.notes) {
-      n.notes = `notes/${slugify(n.title)}-${n.id.slice(0, 6)}.md`;
+      // A hostile project.json could carry an id with path separators; keep the
+      // generated notes path a plain segment inside notes/ whatever the id is.
+      const suffix = isSafeId(n.id) ? n.id.slice(0, 6) : newId().slice(0, 6);
+      const candidate = `notes/${slugify(n.title)}-${suffix}.md`;
+      n.notes = isSafeNotesPath(candidate) ? candidate : `notes/note-${newId()}.md`;
       void this.writeProject();
     }
     const cur = this.notes.get(id) ?? { text: "", hash: null, dirty: false };
@@ -1110,16 +1115,32 @@ export class ProjectStore {
     const taken = new Set<string>();
     const plan = (folder.children ?? []).map((c, i) => ({ c, want: desiredName(c, i, numbered, taken) }));
     const moving = plan.filter((p) => p.c.file !== p.want);
-    // Two phases so swapping 01-a and 02-b never collides.
+    let failed = false;
+    // Two phases so swapping 01-a and 02-b never collides. The file name kept in
+    // the binder must always be one that exists on disk: if a rename fails (a file
+    // locked elsewhere, a case-only rename on a case-insensitive volume), the name
+    // is left where it is rather than pointing at a path that is not there.
+    const toTemp: typeof moving = [];
     for (const p of moving) {
       const tmp = `~mw-${p.c.id}-${p.c.file}`;
-      await fsApi.rename(join(dir, p.c.file), join(dir, tmp)).catch(() => {});
-      p.c.file = tmp;
+      try {
+        await fsApi.rename(join(dir, p.c.file), join(dir, tmp));
+        p.c.file = tmp;
+        toTemp.push(p);
+      } catch {
+        failed = true;
+      }
     }
-    for (const p of moving) {
-      await fsApi.rename(join(dir, p.c.file), join(dir, p.want)).catch(() => {});
-      p.c.file = p.want;
+    for (const p of toTemp) {
+      try {
+        await fsApi.rename(join(dir, p.c.file), join(dir, p.want));
+        p.c.file = p.want;
+      } catch {
+        // The file is still under its temporary name, which does exist.
+        failed = true;
+      }
     }
+    if (failed) this.toast("Some files could not be renamed; the binder was left pointing at the files as they are.", "warn");
   }
 
   /**
@@ -1543,7 +1564,7 @@ export function normalizeData(d: ProjectFile): ProjectFile {
   d.author ??= "";
   if (typeof d.subtitle !== "string") delete d.subtitle;
   d.contact ??= "";
-  d.template = (TEMPLATES[d.template] ? d.template : "stage-play") as TemplateId;
+  d.template = (Object.hasOwn(TEMPLATES, d.template as string) ? d.template : "stage-play") as TemplateId;
   d.settings = Object.assign({ titlePage: true, paper: "us-letter" }, d.settings ?? {});
   d.binder ??= [];
   d.id ??= newId();
@@ -1557,12 +1578,14 @@ export function normalizeData(d: ProjectFile): ProjectFile {
     if (!isSafeSegment(n.file)) n.file = std?.file ?? slugify(String(n.title ?? "untitled"));
   }
   walkNodes(d.binder, (n) => {
-    n.id ??= newId();
+    // An id is an opaque key, but it is used to build a file name (notes), so it
+    // must be a plain segment: a hostile project.json must not steer that path.
+    if (!isSafeId(n.id)) n.id = newId();
     if (n.kind !== "folder" && n.kind !== "doc") n.kind = n.children ? "folder" : "doc";
     if (n.kind === "folder") n.children ??= [];
     if (!isSafeSegment(n.file)) n.file = slugify(String(n.title ?? "untitled")) + (n.kind === "doc" ? ".md" : "");
     if (n.notes !== undefined && !isSafeNotesPath(n.notes)) delete n.notes;
-    if (n.icon !== undefined && typeof n.icon !== "string") delete n.icon;
+    if (n.icon !== undefined && !isSafeId(n.icon)) delete n.icon;
     if (n.chapter !== undefined && (n.chapter !== true || n.kind !== "folder")) delete n.chapter;
   });
   if (d.sources !== undefined) {

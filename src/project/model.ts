@@ -256,6 +256,15 @@ export function isSafeNotesPath(p: unknown): p is string {
   return typeof p === "string" && p.startsWith("notes/") && isSafeSegment(p.slice(6)) && p.toLowerCase().endsWith(".md");
 }
 
+/**
+ * True when `id` is a plain id (as `newId()` makes). project.json is read from
+ * disk and may come from someone else; an id is never a path on its own, but it
+ * is used to build one (the notes file name), so it must not carry separators.
+ */
+export function isSafeId(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && id.length <= 128 && isSafeSegment(id);
+}
+
 export function desiredName(node: BinderNode, index: number, numbered: boolean, taken: Set<string>): string {
   const ext = node.kind === "doc" ? ".md" : "";
   const prefix = numbered ? `${String(index + 1).padStart(2, "0")}-` : "";

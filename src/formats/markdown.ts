@@ -42,6 +42,27 @@ export function blockText(b: Block): string {
   return b.runs.map((r) => r.text).join("");
 }
 
+/**
+ * `decodeURI`/`encodeURI` throw on malformed input (a stray "%" in a hand-edited
+ * file, a lone surrogate). A picture path must never take the whole document
+ * down, so fall back to the raw text.
+ */
+function safeDecodeUri(s: string): string {
+  try {
+    return decodeURI(s);
+  } catch {
+    return s;
+  }
+}
+
+function safeEncodeUri(s: string): string {
+  try {
+    return encodeURI(s);
+  } catch {
+    return s;
+  }
+}
+
 export function plainBlock(type: ElementType, text: string): Block {
   return { type, runs: text ? [{ text }] : [] };
 }
@@ -342,7 +363,7 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
     }
     const img = t.match(/^!\[(.*)\]\((.+?)\)$/);
     if (img) {
-      blocks.push({ type: "image", runs: img[1] ? [{ text: img[1] }] : [], src: decodeURI(img[2]) });
+      blocks.push({ type: "image", runs: img[1] ? [{ text: img[1] }] : [], src: safeDecodeUri(img[2]) });
       i++;
       continue;
     }
@@ -427,7 +448,7 @@ export function serializeProse(doc: ParsedDoc): string {
         if (text) parts.push(`-> ${text.replace(/\\\n/g, " ")} <-`);
         break;
       case "image":
-        if (b.src) parts.push(`![${blockText(b).replace(/[\[\]]/g, "")}](${encodeURI(b.src)})`);
+        if (b.src) parts.push(`![${blockText(b).replace(/[\[\]]/g, "")}](${safeEncodeUri(b.src)})`);
         break;
       case "quote":
         if (text) parts.push(text.split("\n").map((l) => `> ${l}`).join("\n"));
@@ -522,7 +543,7 @@ export function parseNotes(text: string): ParsedDoc {
     if (t === BLANK_LINE) {
       blocks.push({ type: "paragraph", runs: [] });
     } else if ((m = t.match(/^!\[(.*)\]\((.+?)\)$/))) {
-      blocks.push({ type: "image", runs: m[1] ? [{ text: m[1] }] : [], src: decodeURI(m[2]) });
+      blocks.push({ type: "image", runs: m[1] ? [{ text: m[1] }] : [], src: safeDecodeUri(m[2]) });
     } else if ((m = t.match(/^(#{1,6})\s+(.*)$/))) {
       const lvl = m[1].length;
       blocks.push({ type: lvl === 1 ? "title" : lvl === 2 ? "heading" : "subheading", runs: parseInline(m[2]) });
@@ -588,7 +609,7 @@ export function serializeNotes(doc: ParsedDoc): string {
       case "todo": line = `- [ ] ${text}`; break;
       case "todo_done": line = `- [x] ${text}`; break;
       case "divider": line = "---"; break;
-      case "image": line = `![${blockText(b).replace(/[\[\]]/g, "")}](${encodeURI(b.src ?? "")})`; break;
+      case "image": line = `![${blockText(b).replace(/[\[\]]/g, "")}](${safeEncodeUri(b.src ?? "")})`; break;
       case "quote": line = text.split("\n").map((l) => `> ${l}`).join("\n"); break;
       case "callout": line = text.split("\n").map((l, k) => (k ? `> ${l}` : `> [!note] ${l}`)).join("\n"); break;
       case "text_left":

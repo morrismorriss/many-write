@@ -8,6 +8,11 @@ import react from "@vitejs/plugin-react";
 // hosted preview): it accepts any Host and presents the request to the dev
 // server as local. Leave it off on your own machine; the defaults refuse other
 // sites and DNS rebinding.
+//
+// WARNING: with MW_PREVIEW=1 the dev server's Host and Origin checks are turned
+// off, so the whole file API is reachable by anything that can reach the port.
+// Only use it on a throwaway machine with a project you can lose, never on your
+// own writing, and never exposed beyond localhost.
 const preview = process.env.MW_PREVIEW === "1";
 const api = `http://127.0.0.1:${process.env.MW_DEV_PORT ?? 1421}`;
 

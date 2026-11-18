@@ -484,7 +484,9 @@ TEMPLATES.document = {
 export const TEMPLATE_ORDER: TemplateId[] = ["stage-play", "screenplay", "document", "essay", "book", "article", "poem"];
 
 export function getTemplate(id: string | undefined): Template {
-  return TEMPLATES[(id as TemplateId) ?? "stage-play"] ?? TEMPLATES["stage-play"];
+  // `id` comes from project.json, which may have been shared or hand-edited:
+  // only our own template ids count, never an inherited Object.prototype key.
+  return (id && Object.hasOwn(TEMPLATES, id) ? TEMPLATES[id as TemplateId] : undefined) ?? TEMPLATES["stage-play"];
 }
 
 /** Types that have a valid slash-menu / markdown-shortcut meaning in a template. */

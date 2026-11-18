@@ -21,8 +21,17 @@ async fn mw_call(core: tauri::State<'_, Arc<Core>>, cmd: String, args: Value) ->
 /// Show a file or folder in Finder / Explorer / the file manager.
 #[tauri::command]
 fn reveal(path: String) -> Result<(), String> {
+    // The path reaches a system program as an argument, so it must be an absolute
+    // path with no control characters or quotes (which some platforms' argument
+    // handling treats specially) and must not begin with "-" (an option).
     let p = std::path::Path::new(&path);
+    if !p.is_absolute() || path.chars().any(|c| c.is_control() || c == '"') || path.starts_with('-') {
+        return Err("only plain absolute paths can be revealed".into());
+    }
     let target = if p.is_dir() { p } else { p.parent().unwrap_or(p) };
+    if target.as_os_str().is_empty() || target.to_string_lossy().starts_with('-') {
+        return Err("that path cannot be revealed".into());
+    }
     #[cfg(target_os = "macos")]
     let program = "open";
     #[cfg(target_os = "windows")]

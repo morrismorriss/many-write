@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # Keep the toolchain (vite, vitest, and their transitive deps such as
+  # picomatch) current so that a security patch is picked up as soon as it ships.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
