@@ -300,7 +300,7 @@ const NOTE_ELEMENTS: ElementDef[] = [
   { type: "image", label: "Image", placeholder: "", aliases: ["picture", "photo", "img"] },
 ];
 
-const LIST_TYPES: ElementType[] = ["bullet", "numbered", "todo", "todo_done"];
+export const LIST_TYPES: ElementType[] = ["bullet", "numbered", "todo", "todo_done"];
 
 /** Notes, characters and research pages: Notion-style blocks, never typeset. */
 export const NOTES_TEMPLATE: Template = {
@@ -507,3 +507,32 @@ export function cycleNext(cycle: ElementType[], current: ElementType, step = 1):
 
 /** Element types that keep their text in capitals. */
 export const UPPERCASE_TYPES: ElementType[] = ["character", "scene_heading", "transition"];
+
+/** How many levels a list item can be indented under the one above it. */
+export const MAX_INDENT = 5;
+
+export function isListType(type: ElementType | string): boolean {
+  return (LIST_TYPES as string[]).includes(type);
+}
+
+/**
+ * The number each numbered list item shows (0 for every other line). Each
+ * indent level counts on its own: a nested list starts again at 1, and the
+ * list it sits in carries on counting after it. Anything that is not a list
+ * item ends every list.
+ */
+export function listNumbers(blocks: { type: ElementType | string; indent?: number }[]): number[] {
+  const levels: { type: string; n: number }[] = [];
+  return blocks.map((b) => {
+    if (!isListType(b.type)) {
+      levels.length = 0;
+      return 0;
+    }
+    const level = Math.min(levels.length, Math.max(0, b.indent ?? 0));
+    const prev = levels[level];
+    const n = b.type === "numbered" ? (prev?.type === "numbered" ? prev.n + 1 : 1) : 0;
+    levels[level] = { type: b.type, n };
+    levels.length = level + 1;
+    return n;
+  });
+}

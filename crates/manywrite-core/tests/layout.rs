@@ -1,4 +1,4 @@
-use manywrite_core::engine::{ElementSpan, Engine};
+use manywrite_core::engine::{ElementSpan, Engine, PageSpan};
 
 /// Build a Typst document the same way the frontend generator does.
 fn build(header: &str, items: &[(&str, String)]) -> (String, Vec<ElementSpan>) {
@@ -392,4 +392,50 @@ fn every_template_prints_a_subtitle() {
             assert!(first.contains("A Play in Two Acts"), "{t} {extra}: subtitle missing from page 1: {first}");
         }
     }
+}
+
+/// Document lists: nested items typeset, and a PDF can hold just some pages.
+#[test]
+fn document_nested_lists_and_page_ranges() {
+    let mut src = String::from("#import \"/mw/document.typ\": *\n#show: conf.with(title: \"Notes\")\n");
+    let items = [
+        ("numbered", 0, Some(1)),
+        ("bullet", 1, None),
+        ("bullet", 2, None),
+        ("todo", 3, None),
+        ("numbered", 1, Some(1)),
+        ("numbered", 0, Some(2)),
+    ];
+    let mut els = Vec::new();
+    let mut prev = "none".to_string();
+    let mut prev_level = 0;
+    for (i, (kind, level, num)) in items.iter().enumerate() {
+        let start = src.len();
+        let num = num.map(|n| format!(", num: {n}")).unwrap_or_default();
+        src.push_str(&format!("#el(\"{kind}\", {prev}, level: {level}, prev-level: {prev_level}{num})[#\"item {i}\"]\n"));
+        els.push(ElementSpan { id: format!("e{i}"), kind: kind.to_string(), start, end: src.len() });
+        prev = format!("\"{kind}\"");
+        prev_level = *level;
+    }
+    // Enough pages to pick from.
+    for _ in 0..3 {
+        src.push_str("#pagebreak()\n#el(\"paragraph\", none)[#\"more\"]\n");
+    }
+    let mut engine = Engine::new();
+    let report = engine.compile(&src, &els);
+    assert!(report.ok, "errors: {:?}", report.errors);
+    assert_eq!(report.page_count, 4);
+    let text = engine.page_text(0).unwrap();
+    assert!(text.contains("item 3"), "{text}");
+
+    let (all, n) = engine.pdf_pages(None).unwrap();
+    assert_eq!(n, 4);
+    let (some, n) = engine.pdf_pages(Some(&[PageSpan { from: 2, to: Some(3) }])).unwrap();
+    assert_eq!(n, 2);
+    assert!(some.starts_with(b"%PDF") && some.len() < all.len());
+    let (_, n) = engine.pdf_pages(Some(&[PageSpan { from: 1, to: Some(1) }, PageSpan { from: 3, to: None }])).unwrap();
+    assert_eq!(n, 3);
+    let err = engine.pdf_pages(Some(&[PageSpan { from: 9, to: None }])).unwrap_err();
+    assert!(err.contains("4 pages"), "{err}");
+    assert!(engine.pdf_pages(Some(&[PageSpan { from: 3, to: Some(2) }])).is_err());
 }

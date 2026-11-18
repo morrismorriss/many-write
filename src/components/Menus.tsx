@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { Popover } from "./Popover";
 import { sceneNewPageDefault, type SceneBreakStyle } from "../project/model";
 import { call, fsApi, imageUrl, join, pickImage, pickSavePath } from "../lib/backend";
 import { essayDate, generateTypst } from "../formats/typst";
 import { toExportDoc, toFdx, toFountain } from "../formats/exporters";
 import { ESSAY_STYLES, type EssayStyle, type ExportFormat } from "../formats/templates";
+import { describeRanges, parsePageRanges, type PageRange } from "../formats/pages";
 import type { ProjectStore } from "../project/store";
 import type { Theme } from "../themes/themes";
 import type { CompileReport } from "./Preview";
 import { Close, Download, Palette, Plus, Trash } from "./icons";
 
 export const FORMAT_INFO: Record<ExportFormat, { label: string; ext: string; note: string }> = {
-  pdf: { label: "PDF", ext: "pdf", note: "Exactly as the preview, orphan rules applied" },
+  pdf: { label: "PDF", ext: "pdf", note: "Exactly as the preview; all pages or the ones you choose" },
   docx: { label: "Word (.docx)", ext: "docx", note: "Keep-with-next and widow control set; Word repaginates" },
   epub: { label: "EPUB", ext: "epub", note: "Reflowable e-book" },
   fdx: { label: "Final Draft (.fdx)", ext: "fdx", note: "Opens in Final Draft and compatible apps" },
@@ -22,9 +24,102 @@ function safeName(title: string) {
   return title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "Untitled";
 }
 
+/** Ask which pages of the PDF to export. Resolves to null for every page, or undefined if cancelled. */
+function askPdfPages(): Promise<PageRange[] | null | undefined> {
+  return new Promise((resolve) => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const done = (v: PageRange[] | null | undefined) => {
+      root.unmount();
+      host.remove();
+      resolve(v);
+    };
+    root.render(<PdfPagesDialog onDone={done} />);
+  });
+}
+
+function PdfPagesDialog({ onDone }: { onDone: (v: PageRange[] | null | undefined) => void }) {
+  const [some, setSome] = useState(false);
+  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (some) input.current?.focus();
+  }, [some]);
+  const go = () => {
+    if (!some) return onDone(null);
+    const r = parsePageRanges(text);
+    if (!r.ok) return setError(r.error);
+    onDone(r.ranges);
+  };
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onDone(undefined)}>
+      <div
+        className="modal small"
+        role="dialog"
+        aria-label="Export PDF"
+        data-testid="pdf-pages-dialog"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onDone(undefined);
+          if (e.key === "Enter") go();
+        }}
+      >
+        <div className="modal-head">
+          <h2>Export PDF</h2>
+          <button className="icon-btn" onClick={() => onDone(undefined)} aria-label="Close">
+            <Close />
+          </button>
+        </div>
+        <div className="field">
+          <span>Pages</span>
+          <div className="segmented">
+            <button className={some ? "" : "on"} onClick={() => setSome(false)} data-testid="pdf-pages-all">
+              All pages
+            </button>
+            <button className={some ? "on" : ""} onClick={() => setSome(true)} data-testid="pdf-pages-some">
+              Some pages
+            </button>
+          </div>
+        </div>
+        {some && (
+          <label className="field">
+            <span>Page numbers, as counted in the preview</span>
+            <input
+              ref={input}
+              value={text}
+              placeholder="For example 1-3, 5, 8-"
+              onChange={(e) => {
+                setText(e.target.value);
+                setError("");
+              }}
+              data-testid="pdf-pages-input"
+            />
+            {error && <small className="field-error">{error}</small>}
+          </label>
+        )}
+        <div className="modal-foot">
+          <button className="btn" onClick={() => onDone(undefined)}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={go} data-testid="pdf-pages-export">
+            Export…
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export async function exportProject(store: ProjectStore, fmt: ExportFormat) {
   await store.flushAll();
   const info = FORMAT_INFO[fmt];
+  let pages: PageRange[] | null = null;
+  if (fmt === "pdf") {
+    const picked = await askPdfPages();
+    if (picked === undefined) return;
+    pages = picked;
+  }
   const path = await pickSavePath(`Export ${info.label}`, join(store.root, "exports", `${safeName(store.data.title)}.${info.ext}`), info.ext);
   if (!path) return;
   const t = store.template;
@@ -33,9 +128,10 @@ export async function exportProject(store: ProjectStore, fmt: ExportFormat) {
   try {
     if (fmt === "pdf") {
       const g = generateTypst(t, meta, items, { production: store.productionOptions() });
-      const r = await call<CompileReport>("export.pdf", { source: g.source, elements: g.elements, path, root: store.root });
+      const r = await call<CompileReport & { exportedPages?: number }>("export.pdf", { source: g.source, elements: g.elements, path, root: store.root, pages });
       const extra = r.issues.length ? ` (${r.issues.length} layout issue${r.issues.length === 1 ? "" : "s"})` : ", no orphan lines";
-      store.toast(`Exported ${r.pageCount} pages to ${path}${extra}.`, r.issues.length ? "warn" : "info");
+      const which = pages ? `page${r.exportedPages === 1 ? "" : "s"} ${describeRanges(pages)} (${r.exportedPages ?? "?"} of ${r.pageCount})` : `${r.pageCount} pages`;
+      store.toast(`Exported ${which} to ${path}${extra}.`, r.issues.length ? "warn" : "info");
       return;
     }
     if (fmt === "docx" || fmt === "epub") {

@@ -100,13 +100,28 @@ await type("Find a surname");
 await page.keyboard.press("Enter");
 await type("Decide her age");
 await page.keyboard.press("Enter");
-await page.keyboard.press("Enter"); // empty to-do leaves the list
-ok((await pill()) === "Text", "Enter on an empty to-do leaves the list");
+await page.keyboard.press("Enter"); // empty to-do nests one level
+const curIndent = () => page.evaluate(() => {
+  const n = window.getSelection()?.anchorNode;
+  return (n instanceof Element ? n : n?.parentElement)?.closest("p.el")?.getAttribute("data-indent") ?? "0";
+});
+ok((await pill()) === "To-do" && (await curIndent()) === "1", "Enter on an empty to-do nests it one level");
+await type("Ask the director");
+await page.keyboard.press("Enter");
+ok((await curIndent()) === "1", "the next item stays at the same level");
+await page.keyboard.press("Backspace"); // back out one level
+ok((await pill()) === "To-do" && (await curIndent()) === "0", "Backspace at the start of a nested item brings it out a level");
+await page.keyboard.press("Backspace"); // leaves the list
+ok((await pill()) === "Text", "Backspace on an empty top-level to-do leaves the list");
 await type("- ");
 ok((await pill()) === "Bulleted list", "typing '- ' starts a bulleted list");
 await type("Hates the sea");
+await page.keyboard.press("Tab");
+ok((await curIndent()) === "1", "Tab nests a list item");
+await page.keyboard.press("Shift+Tab");
+ok((await curIndent()) === "0", "Shift-Tab brings it back out");
 await page.keyboard.press("Enter");
-await page.keyboard.press("Enter");
+await page.keyboard.press("Backspace");
 await type("! ");
 ok((await pill()) === "Callout", "'! ' starts a callout");
 await type("Never apologises.");
@@ -117,7 +132,7 @@ await page.mouse.click(box.x + 8, box.y + box.height / 2);
 await sleep(2400);
 const charFile = fs.readdirSync(path.join(root, "characters"))[0];
 const charMd = read(`characters/${charFile}`);
-ok(charMd.includes("- [x] Find a surname\n- [ ] Decide her age"), "to-dos saved as markdown checkboxes, ticked by clicking");
+ok(charMd.includes("- [x] Find a surname\n- [ ] Decide her age\n\t- [ ] Ask the director"), "to-dos saved as markdown checkboxes (nested ones tab-indented), ticked by clicking");
 ok(charMd.includes("- Hates the sea") && charMd.includes("> [!note] Never apologises."), "bullets and callouts saved Obsidian-style");
 ok(charMd.startsWith("# Anna\n"), "the name typed over the hint is the page's heading");
 await page.screenshot({ path: path.join(SHOTS, "20-character-page.png") });

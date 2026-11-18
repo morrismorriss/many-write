@@ -214,10 +214,26 @@ for (const fmt of ["pdf", "docx", "fdx", "fountain", "epub"]) {
   promptAnswer = path.join(exportsDir, `Test Play.${fmt}`);
   await page.getByTestId("export-btn").click();
   await page.getByTestId(`export-${fmt}`).click();
+  if (fmt === "pdf") await page.getByTestId("pdf-pages-export").click(); // all pages
   await sleep(1500);
   ok(fs.existsSync(promptAnswer) && fs.statSync(promptAnswer).size > 100, `exported ${fmt}`);
 }
 ok(fs.readFileSync(path.join(exportsDir, "Test Play.pdf")).subarray(0, 4).toString() === "%PDF", "PDF is a PDF");
+
+// Only some pages of the PDF.
+const pdfPages = (f) => (fs.readFileSync(f, "latin1").match(/\/Type\s*\/Page(?![s\w])/g) ?? []).length;
+const allPages = pdfPages(path.join(exportsDir, "Test Play.pdf"));
+promptAnswer = path.join(exportsDir, "Test Play pages.pdf");
+await page.getByTestId("export-btn").click();
+await page.getByTestId("export-pdf").click();
+await page.getByTestId("pdf-pages-some").click();
+await page.getByTestId("pdf-pages-input").fill("9-2");
+await page.getByTestId("pdf-pages-export").click();
+ok(await page.getByText("runs backwards").isVisible(), "a backwards page range is explained, not exported");
+await page.getByTestId("pdf-pages-input").fill("2");
+await page.getByTestId("pdf-pages-export").click();
+await sleep(1500);
+ok(fs.existsSync(promptAnswer) && pdfPages(promptAnswer) === 1 && allPages > 1, `exported just page 2 (1 of ${allPages} pages)`);
 
 // ---- 13. Plain files readable without the app
 const md = fs.readFileSync(path.join(root, "manuscript/01-act-one/02-scene-1.md"), "utf8");

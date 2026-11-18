@@ -95,6 +95,7 @@ These use markdown that Obsidian also understands:
 | --- | --- |
 | Headings | `#`, `##`, `###` |
 | Bulleted / numbered list | `- item`, `1. item` |
+| Nested list item | the item indented with one tab per level: `\t- item`, `\t\t1. item` (indents of spaces are read too) |
 | To-do | `- [ ] task`, `- [x] done` |
 | Quote | `> text` |
 | Callout | `> [!note] text` |

@@ -14,6 +14,8 @@ import {
   type Block,
 } from "./markdown";
 
+import { listNumbers } from "./templates";
+
 const types = (bs: Block[]) => bs.map((b) => `${b.type}:${blockText(b)}`);
 
 describe("script convention", () => {
@@ -218,6 +220,41 @@ Role: lead.
       "paragraph:- not a bullet",
     ]);
     expect(serializeNotes(doc)).toBe(md);
+  });
+});
+
+describe("nested lists", () => {
+  it("round-trips indent levels with one tab per level and numbers each level on its own", () => {
+    const md = "1. Act one\n\t- the letter\n\t\t- [ ] find it\n\t- the train\n2. Act two\n\t1. arrival\n\t2. departure\n";
+    const doc = parseNotes(md);
+    expect(doc.blocks.map((b) => `${b.indent ?? 0}:${b.type}:${blockText(b)}`)).toEqual([
+      "0:numbered:Act one",
+      "1:bullet:the letter",
+      "2:todo:find it",
+      "1:bullet:the train",
+      "0:numbered:Act two",
+      "1:numbered:arrival",
+      "1:numbered:departure",
+    ]);
+    expect(serializeNotes(doc)).toBe(md);
+  });
+
+  it("reads lists indented with spaces, as other apps write them", () => {
+    const doc = parseNotes("- a\n  - b\n    - c\n  - d\n- e\n\nAfter.\n");
+    expect(doc.blocks.map((b) => b.indent ?? 0)).toEqual([0, 1, 2, 1, 0, 0]);
+  });
+
+  it("numbers nested items without breaking the outer count", () => {
+    const blocks = [
+      { type: "numbered", indent: 0 },
+      { type: "numbered", indent: 1 },
+      { type: "numbered", indent: 1 },
+      { type: "bullet", indent: 2 },
+      { type: "numbered", indent: 0 },
+      { type: "paragraph" },
+      { type: "numbered", indent: 0 },
+    ];
+    expect(listNumbers(blocks)).toEqual([1, 1, 2, 0, 2, 0, 1]);
   });
 });
 

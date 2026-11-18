@@ -3,7 +3,7 @@
 
 import type { Block, Run } from "./markdown";
 import { blockText } from "./markdown";
-import type { EssayStyle, Template } from "./templates";
+import { isListType, listNumbers, MAX_INDENT, type EssayStyle, type Template } from "./templates";
 
 export type ManuscriptItem =
   /** `chapter`: a book chapter split into sections; its title is the chapter heading. */
@@ -209,6 +209,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
 
   const poem = template.mode === "poem";
   let prev = "none";
+  let prevLevel = 0;
   let first = true;
   let matterImported = false;
   let lastWhere: "front" | "body" | "back" = "front";
@@ -344,6 +345,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
 
     const contd = template.mode === "script" && meta.autoContd ? contdLines(item.blocks) : null;
     const last = lastFilled(item.blocks);
+    const nums = template.mode === "notes" ? listNumbers(item.blocks) : [];
     item.blocks.forEach((b, index) => {
       if (b.type === "image") {
         if (b.src) emit(image(b));
@@ -356,7 +358,14 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       lockFor(elementId(item.id, index));
       const start = bytes;
       const body = blankLine ? blank : runsToTypst(contd?.has(index) ? [...b.runs, { text: " (CONT'D)" }] : b.runs);
-      emit(`#el(${str(b.type)}, ${prev})[${revMark(item.id, index)}${body}]\n`);
+      // Document lists: how deep each item is nested, and the number it shows.
+      let listArgs = "";
+      if (template.mode === "notes" && isListType(b.type)) {
+        const level = Math.min(b.indent ?? 0, MAX_INDENT);
+        listArgs = `, level: ${level}, prev-level: ${prevLevel}${nums[index] ? `, num: ${nums[index]}` : ""}`;
+        prevLevel = level;
+      } else prevLevel = 0;
+      emit(`#el(${str(b.type)}, ${prev}${listArgs})[${revMark(item.id, index)}${body}]\n`);
       elements.push({ id: elementId(item.id, index), kind: b.type, start, end: bytes });
       prev = str(b.type);
     });

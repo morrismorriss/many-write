@@ -126,18 +126,22 @@ async function create(template, title) {
   await page.keyboard.press("Enter");
   await type("Milk");
   await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter"); // nests the empty item
+  await type("Oat");
   await page.keyboard.press("Enter");
+  await page.keyboard.press("Backspace"); // back out a level
+  await page.keyboard.press("Backspace"); // and out of the list
   await type("1. ");
   await type("First");
   await page.keyboard.press("Enter");
   await type("Second");
   await page.keyboard.press("Enter");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Backspace");
   await type("[] ");
   await type("Call Sam");
   await sleep(2400);
   const md = fs.readFileSync(path.join(root, "manuscript/01-page-1.md"), "utf8");
-  ok(md === "Shopping\n\n- Bread\n- Milk\n\n1. First\n2. Second\n\n- [ ] Call Sam\n", `document file is plain markdown (${JSON.stringify(md)})`);
+  ok(md === "Shopping\n\n- Bread\n- Milk\n\t- Oat\n\n1. First\n2. Second\n\n- [ ] Call Sam\n", `document file is plain markdown (${JSON.stringify(md)})`);
   ok((await page.getByTestId("orphan-status").count()) === 0 && /of 1/.test(await page.getByTestId("page-label").innerText()), "document typesets on one page");
   await page.screenshot({ path: path.join(SHOTS, "14-document.png") });
 }

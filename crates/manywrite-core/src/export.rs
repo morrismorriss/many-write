@@ -28,6 +28,9 @@ pub struct Block {
     /// (a front or back matter page, whose title is left off the page).
     #[serde(default)]
     pub label: Option<String>,
+    /// List items: how many levels deep the item is nested (0 = not nested).
+    #[serde(default)]
+    pub indent: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -405,6 +408,11 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         if style == "paragraph" || style == "dialogue" || style == "line" {
             body.push_str("<w:widowControl/>");
         }
+        if block.indent > 0 {
+            // A nested list item steps in a quarter inch per level from the list style's 540.
+            let left = 540 + 360 * block.indent.min(5);
+            body.push_str(&format!("<w:ind w:left=\"{left}\" w:hanging=\"360\"/>"));
+        }
         body.push_str("</w:pPr>");
         if block.kind == "scene_break" && block.runs.iter().all(|r| r.text.trim().is_empty()) {
             body.push_str("<w:r><w:t>* * *</w:t></w:r>");
@@ -635,7 +643,12 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
                 } else {
                     ""
                 };
-                html.push_str(&format!("<p class=\"{class}\">{inline}</p>\n"));
+                if b.indent > 0 {
+                    let em = 1.5 * f64::from(b.indent.min(5));
+                    html.push_str(&format!("<p class=\"{class}\" style=\"margin-left:{em}em\">{inline}</p>\n"));
+                } else {
+                    html.push_str(&format!("<p class=\"{class}\">{inline}</p>\n"));
+                }
             }
         }
         prev_kind = b.kind.clone();

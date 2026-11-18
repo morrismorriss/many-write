@@ -3,7 +3,7 @@
 
 import { blockText, serializeRuns, serializeScript, type Block, type Run } from "./markdown";
 import { contdLines, essayDate, sceneBreakText, type ManuscriptItem, type ProjectMeta } from "./typst";
-import type { Template } from "./templates";
+import { isListType, listNumbers, MAX_INDENT, type Template } from "./templates";
 
 const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
 
@@ -121,6 +121,8 @@ export interface ExportBlock {
   runs: Run[];
   /** The e-book's table of contents entry, for a block that prints nothing. */
   label?: string;
+  /** List items: how many levels deep the item is nested. */
+  indent?: number;
 }
 
 export interface ExportDoc {
@@ -213,7 +215,7 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
     newPage = false;
     const contd = script && meta.autoContd ? contdLines(item.blocks) : null;
     let prevEmpty = false;
-    let num = 0;
+    const nums = template.mode === "notes" ? listNumbers(item.blocks) : [];
     for (const [i, b] of item.blocks.entries()) {
       const empty = !blockText(b).trim();
       if (template.mode === "poem") {
@@ -236,9 +238,9 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
         continue;
       }
       if (template.mode === "notes") {
-        num = b.type === "numbered" ? num + 1 : 0;
-        const k = exportKind(b, num);
-        blocks.push({ kind: k.kind, runs: k.prefix ? [{ text: k.prefix }, ...b.runs] : b.runs });
+        const k = exportKind(b, nums[i]);
+        const indent = isListType(b.type) ? Math.min(b.indent ?? 0, MAX_INDENT) : 0;
+        blocks.push({ kind: k.kind, runs: k.prefix ? [{ text: k.prefix }, ...b.runs] : b.runs, ...(indent ? { indent } : {}) });
         continue;
       }
       if (b.type === "scene_break" && meta.sceneBreak && meta.sceneBreak.style !== "asterisks") {
@@ -262,7 +264,7 @@ function exportKind(b: Block, n: number): { kind: string; prefix?: string } {
     case "title":
       return { kind: "heading" };
     case "bullet":
-      return { kind: "list", prefix: "•\u00a0\u00a0" };
+      return { kind: "list", prefix: `${["•", "◦", "▪"][(b.indent ?? 0) % 3]}\u00a0\u00a0` };
     case "numbered":
       return { kind: "list", prefix: `${n}.\u00a0\u00a0` };
     case "todo":

@@ -16,7 +16,7 @@
 //   @McCoy                        forced character cue (mixed case or no dialogue)
 //   !NOBODY MOVES.                forced direction (would otherwise look like a cue)
 
-import type { ElementType, FileMode } from "./templates";
+import { listNumbers, MAX_INDENT, type ElementType, type FileMode } from "./templates";
 
 export interface Run {
   text: string;
@@ -30,6 +30,8 @@ export interface Block {
   runs: Run[];
   /** Images: path of the file, relative to the project folder. Runs hold the caption. */
   src?: string;
+  /** List items: how many levels it is nested under the item above (0 or absent = not nested). */
+  indent?: number;
 }
 
 export interface ParsedDoc {
@@ -536,10 +538,25 @@ export function parseNotes(text: string): ParsedDoc {
   const [frontMatter, body] = splitFrontMatter(text.replace(/\r\n?/g, "\n"));
   const lines = body.split("\n");
   const blocks: Block[] = [];
+  // Leading whitespace of each open list level, to tell how deep an item is nested.
+  const widths: number[] = [];
+  const listLevel = (raw: string): number => {
+    const lead = raw.match(/^[ \t]*/)![0];
+    const w = lead.replace(/\t/g, "    ").length;
+    while (widths.length && w < widths[widths.length - 1]) widths.pop();
+    if (!widths.length || w > widths[widths.length - 1]) widths.push(w);
+    return Math.min(widths.length - 1, MAX_INDENT);
+  };
+  const listItem = (type: ElementType, runs: Run[], raw: string): Block => {
+    const indent = listLevel(raw);
+    return indent ? { type, runs, indent } : { type, runs };
+  };
   for (let i = 0; i < lines.length; i++) {
     const t = lines[i].trim();
     if (!t) continue;
     let m: RegExpMatchArray | null;
+    const isItem = /^([-*+]\s|\d+[.)]\s)/.test(t) && !/^(-{3,}|\*{3,}|_{3,})$/.test(t.replace(/\s/g, ""));
+    if (!isItem) widths.length = 0;
     if (t === BLANK_LINE) {
       blocks.push({ type: "paragraph", runs: [] });
     } else if ((m = t.match(/^!\[(.*)\]\((.+?)\)$/))) {
@@ -548,13 +565,13 @@ export function parseNotes(text: string): ParsedDoc {
       const lvl = m[1].length;
       blocks.push({ type: lvl === 1 ? "title" : lvl === 2 ? "heading" : "subheading", runs: parseInline(m[2]) });
     } else if ((m = t.match(/^[-*+]\s+\[([ xX])\]\s?(.*)$/))) {
-      blocks.push({ type: m[1] === " " ? "todo" : "todo_done", runs: parseInline(m[2]) });
+      blocks.push(listItem(m[1] === " " ? "todo" : "todo_done", parseInline(m[2]), lines[i]));
     } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(t.replace(/\s/g, ""))) {
       blocks.push({ type: "divider", runs: [] });
     } else if ((m = t.match(/^[-*+]\s+(.*)$/))) {
-      blocks.push({ type: "bullet", runs: parseInline(m[1]) });
+      blocks.push(listItem("bullet", parseInline(m[1]), lines[i]));
     } else if ((m = t.match(/^\d+[.)]\s+(.*)$/))) {
-      blocks.push({ type: "numbered", runs: parseInline(m[1]) });
+      blocks.push(listItem("numbered", parseInline(m[1]), lines[i]));
     } else if (t.startsWith(">")) {
       const q: string[] = [];
       while (i < lines.length && lines[i].trim().startsWith(">")) q.push(lines[i++].trim().replace(/^>\s?/, ""));
@@ -585,7 +602,10 @@ function escapeNoteLine(l: string): string {
 export function serializeNotes(doc: ParsedDoc): string {
   let out = "";
   let prevFamily: string | undefined;
-  let n = 0;
+  let prevIndent = 0;
+  // The kind of list the current nested items hang from.
+  let topFamily: string | undefined;
+  const nums = listNumbers(doc.blocks);
   const last = lastContent(doc.blocks);
   for (const [i, b] of doc.blocks.entries()) {
     const text = serializeRuns(b.runs).trim();
@@ -594,11 +614,13 @@ export function serializeNotes(doc: ParsedDoc): string {
       if (out) out += "\n\n";
       out += BLANK_LINE;
       prevFamily = undefined;
+      prevIndent = 0;
       continue;
     }
     if (!text && b.type !== "divider" && b.type !== "image") continue;
     const family = LIST_FAMILY[b.type];
-    n = b.type === "numbered" && prevFamily === "ol" ? n + 1 : 1;
+    const n = nums[i];
+    const indent = family ? Math.min(b.indent ?? 0, MAX_INDENT) : 0;
     let line: string;
     switch (b.type) {
       case "title": line = `# ${text}`; break;
@@ -617,10 +639,15 @@ export function serializeNotes(doc: ParsedDoc): string {
       default:
         line = text.split("\n").map(escapeNoteLine).join("\\\n");
     }
-    // Items of one list sit on consecutive lines; everything else gets a blank line.
-    if (out) out += family && family === prevFamily ? "\n" : "\n\n";
+    // Nested items are indented with one tab per level (as Obsidian writes them).
+    if (indent) line = "\t".repeat(indent) + line;
+    // Items of one list (and the lists nested in it) sit on consecutive lines; everything else gets a blank line.
+    const together = family && prevFamily && (family === prevFamily || indent > 0 || (prevIndent > 0 && family === topFamily));
+    if (out) out += together ? "\n" : "\n\n";
     out += line;
     prevFamily = family;
+    prevIndent = indent;
+    if (!indent) topFamily = family;
   }
   return (doc.frontMatter ?? "") + out + (out ? "\n" : "");
 }

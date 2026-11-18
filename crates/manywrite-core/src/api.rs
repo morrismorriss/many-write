@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::engine::{ElementSpan, Engine};
+use crate::engine::{ElementSpan, Engine, PageSpan};
 use crate::{export, fs, import};
 
 pub struct Core {
@@ -169,9 +169,13 @@ impl Core {
                     let msg = report.errors.first().map(|e| e.message.clone()).unwrap_or_default();
                     return Err(format!("The document could not be typeset: {msg}"));
                 }
-                let bytes = engine.pdf()?;
+                // Optional: only these pages (counted from 1, as in the preview).
+                let pages: Option<Vec<PageSpan>> = arg(args, "pages")?;
+                let (bytes, exported) = engine.pdf_pages(pages.as_deref())?;
                 fs::write(&path, &bytes, None, true)?;
-                Ok(serde_json::to_value(report).unwrap())
+                let mut out = serde_json::to_value(report).unwrap();
+                out["exportedPages"] = json!(exported);
+                Ok(out)
             }
             "export.docx" => {
                 let doc: export::ExportDoc = arg(args, "doc")?;

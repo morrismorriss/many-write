@@ -53,6 +53,7 @@ Each scene starts on a new page, and a character who speaks again after a stage 
 ## Around the editor
 
 - **New pages start empty**: a new scene, chapter, character or front matter page has no text in it, just grey hint text (its name, “For …” on a dedication, an example source on a Works Cited page) that disappears as you type.
+- **Nested lists**: in a bulleted, numbered or to-do list, press **Enter** on an empty item to indent it a level, and **Backspace** at the start of an item to bring it back out (on a top-level item, Backspace leaves the list). **Tab** and **Shift-Tab** do the same. Each level is numbered on its own, and nesting is kept in PDF, Word and EPUB exports.
 - **Blank lines are kept**: press Enter twice for an empty line, and it stays an empty line on the page and in Word, EPUB and PDF exports.
 - **Links**: web addresses are clickable in the editor (Alt-click to edit one) and in exported PDFs.
 - **Several windows**: File › New window, or the window button next to a recent project, opens another project side by side.
@@ -138,7 +139,7 @@ The full convention, including the rules for lines that could be a cue or a dire
 
 | Format | Notes |
 | --- | --- |
-| **PDF** | Comes from the same Typst engine as the preview. Widow/orphan control is enforced, a cue is never stranded and a parenthetical stays with its dialogue. Each export is verified. |
+| **PDF** | Comes from the same Typst engine as the preview. Widow/orphan control is enforced, a cue is never stranded and a parenthetical stays with its dialogue. Each export is verified. Export every page, or only the pages you choose (for example `1-3, 7, 10-`, counted as in the preview). |
 | **Word (.docx)** | Paragraph styles with keep-with-next and widow control. Word repaginates on open. |
 | **EPUB 3** | For books, articles and poems. Reflowable. |
 | **Final Draft (.fdx)** | XML for scripts. Final Draft repaginates on open. |

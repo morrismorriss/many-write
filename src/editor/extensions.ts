@@ -3,7 +3,7 @@ import Document from "@tiptap/extension-document";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { Fragment, Slice, type Node as PMNode, type Schema } from "@tiptap/pm/model";
-import { cycleNext, elementLabel, hasType, type ElementType, type Template } from "../formats/templates";
+import { cycleNext, elementLabel, hasType, isListType, listNumbers, MAX_INDENT, type ElementType, type Template } from "../formats/templates";
 import { parseDoc, serializeDoc, adaptScriptTypes, type Block, type Run } from "../formats/markdown";
 import { linkTarget, URL_RE } from "../formats/typst";
 import { openUrl } from "../lib/backend";
@@ -77,6 +77,12 @@ export const ElementNode = Node.create({
         parseHTML: (el) => el.getAttribute("data-type") || "paragraph",
         renderHTML: (attrs) => ({ "data-type": attrs.type, class: `el el-${attrs.type}` }),
       },
+      /** List items: how many levels deep the item is nested. */
+      indent: {
+        default: 0,
+        parseHTML: (el) => Math.min(MAX_INDENT, Math.max(0, parseInt(el.getAttribute("data-indent") ?? "0", 10) || 0)),
+        renderHTML: (attrs) => (attrs.indent ? { "data-indent": String(attrs.indent) } : {}),
+      },
     };
   },
   parseHTML() {
@@ -108,7 +114,7 @@ export function blocksToContent(blocks: Block[], template: Template): JSONConten
     content: list.map((b) =>
       b.type === "image"
         ? { type: "image", attrs: { src: b.src ?? "", alt: b.runs.map((r) => r.text).join("") } }
-        : { type: "element", attrs: { type: b.type }, content: runsToInline(b.runs) },
+        : { type: "element", attrs: { type: b.type, indent: isListType(b.type) ? Math.min(b.indent ?? 0, MAX_INDENT) : 0 }, content: runsToInline(b.runs) },
     ),
   };
 }
@@ -139,7 +145,8 @@ export function docToBlocks(doc: PMNode): Block[] {
       if (last && !!last.bold === !!run.bold && !!last.italic === !!run.italic && !!last.underline === !!run.underline) last.text += run.text;
       else runs.push(run);
     });
-    blocks.push({ type: node.attrs.type as ElementType, runs });
+    const indent = isListType(node.attrs.type) ? (node.attrs.indent as number) : 0;
+    blocks.push(indent ? { type: node.attrs.type as ElementType, runs, indent } : { type: node.attrs.type as ElementType, runs });
   });
   return blocks;
 }
@@ -157,7 +164,7 @@ function retype(tr: Transaction, type: ElementType): Transaction {
   const node = $from.parent;
   if (node.type.name !== "element") return tr;
   const pos = $from.before();
-  tr.setNodeMarkup(pos, undefined, { ...node.attrs, type });
+  tr.setNodeMarkup(pos, undefined, { ...node.attrs, type, indent: isListType(type) ? node.attrs.indent : 0 });
   const text = node.textContent;
   if (type === "parenthetical" && text === "") {
     // Final Draft habit: a new parenthetical opens with the cursor inside "()".
@@ -179,6 +186,24 @@ function retype(tr: Transaction, type: ElementType): Transaction {
 export function setLineType(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, type: ElementType): boolean {
   if (state.selection.$from.parent.type.name !== "element") return false;
   if (dispatch) dispatch(retype(state.tr, type).scrollIntoView());
+  return true;
+}
+
+/** Nest the list items in the selection one level deeper (step 1) or bring them out one level (step -1). */
+export function shiftIndent(state: EditorState, dispatch: ((tr: Transaction) => void) | undefined, step: 1 | -1): boolean {
+  const { from, to } = state.selection;
+  const tr = state.tr;
+  let any = false;
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (node.type.name !== "element") return false;
+    if (!isListType(node.attrs.type)) return false;
+    any = true;
+    const indent = Math.max(0, Math.min(MAX_INDENT, (node.attrs.indent as number) + step));
+    if (indent !== node.attrs.indent) tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent });
+    return false;
+  });
+  if (!any) return false;
+  if (dispatch && tr.docChanged) dispatch(tr.scrollIntoView());
   return true;
 }
 
@@ -481,7 +506,11 @@ function handleEnter(view: EditorView, template: Template): boolean {
   }
 
   const blank = !text.trim() || (type === "parenthetical" && text.trim() === "()");
-  // Enter on an empty list item leaves the list.
+  // Enter on an empty list item nests it one level deeper (Backspace brings it back out);
+  // at the deepest level it leaves the list.
+  const indent = (node.attrs.indent as number) ?? 0;
+  if (blank && isListType(type) && indent < MAX_INDENT && state.selection.empty) return shiftIndent(state, view.dispatch, 1);
+  // Enter on an empty quote or callout (or a list item at the deepest level) leaves it.
   const exit = template.emptyExit?.[type];
   if (blank && exit && state.selection.empty) return setLineType(state, view.dispatch, exit);
   // Enter on an empty line: cycle its type (character -> direction -> transition -> ...).
@@ -499,13 +528,13 @@ function handleEnter(view: EditorView, template: Template): boolean {
 
   if (offset === 0 && size > 0) {
     // Cursor at the start: open an empty line of the same type above.
-    tr = tr.insert(blockStart, state.schema.nodes.element.create({ type }));
+    tr = tr.insert(blockStart, state.schema.nodes.element.create({ type, indent }));
     view.dispatch(tr.scrollIntoView());
     return true;
   }
   let nextType = atEnd ? (template.afterEnter[type] ?? type) : type;
   if (nextType === "todo_done") nextType = "todo";
-  tr = tr.split(at, 1, [{ type: state.schema.nodes.element, attrs: { type: nextType } }]);
+  tr = tr.split(at, 1, [{ type: state.schema.nodes.element, attrs: { type: nextType, indent: isListType(nextType) ? indent : 0 } }]);
   // The new line's content starts two positions after the split point.
   tr = tr.setSelection(TextSelection.create(tr.doc, at + 2));
   if (nextType === "parenthetical" && atEnd) {
@@ -569,6 +598,8 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         // Tab picks from a list of names; with a whole name typed it still changes the line type.
         if (info && (info.kind !== "ext" || info.index >= 0)) return choose(view, info, Math.max(0, info.index), this.options);
         if (!tmpl.tabCycle.length) {
+          // List items nest one level deeper; elsewhere Tab inserts spaces.
+          if (isListType(state.selection.$from.parent.attrs.type)) return shiftIndent(state, view.dispatch, 1) || true;
           view.dispatch(state.tr.insertText("    ").scrollIntoView());
           return true;
         }
@@ -579,6 +610,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         const tmpl = t();
         const { state, view } = this.editor;
         if (!tmpl.tabCycle.length) {
+          if (isListType(state.selection.$from.parent.attrs.type)) return shiftIndent(state, view.dispatch, -1) || true;
           // Poems and notes: remove up to four spaces of indentation.
           const $from = state.selection.$from;
           const lead = $from.parent.textContent.match(/^ {1,4}/)?.[0].length ?? 0;
@@ -589,11 +621,13 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         return setLineType(state, view.dispatch, cycleNext(tmpl.tabCycle, cur, -1));
       },
       Backspace: () => {
-        // Backspace at the start of a list item, quote or heading turns it back into text.
+        // Backspace at the start of a nested list item brings it out one level;
+        // at the start of a list item, quote or heading it turns the line back into text.
         const { state, view } = this.editor;
         const { $from, empty } = state.selection;
         if (!empty || $from.parentOffset !== 0 || $from.parent.type.name !== "element") return false;
         const type = $from.parent.attrs.type as ElementType;
+        if (isListType(type) && $from.parent.attrs.indent > 0) return shiftIndent(state, view.dispatch, -1);
         const to = t().backspaceTo?.[type] ?? (type === "divider" ? "paragraph" : undefined);
         return to ? setLineType(state, view.dispatch, to) : false;
       },
@@ -672,10 +706,13 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               decos.push(Decoration.node($from.before(), $from.after(), { class: "is-empty", "data-placeholder": label }));
             }
             // Numbered lists: each item shows its number (counted from the first item of the list).
-            let n = 0;
-            state.doc.forEach((node, pos) => {
-              n = node.type.name === "element" && node.attrs.type === "numbered" ? n + 1 : 0;
-              if (n) decos.push(Decoration.node(pos, pos + node.nodeSize, { "data-num": `${n}.` }));
+            // Nested lists count on their own.
+            const lines: { type: string; indent: number; pos: number; size: number }[] = [];
+            state.doc.forEach((node, pos) =>
+              lines.push({ type: node.type.name === "element" ? node.attrs.type : node.type.name, indent: node.attrs.indent ?? 0, pos, size: node.nodeSize }),
+            );
+            listNumbers(lines).forEach((n, i) => {
+              if (n) decos.push(Decoration.node(lines[i].pos, lines[i].pos + lines[i].size, { "data-num": `${n}.` }));
             });
             // Web addresses: underlined and clickable.
             state.doc.descendants((node, pos) => {
@@ -779,11 +816,16 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               tr.delete(tr.mapping.map(pos), tr.mapping.map(pos + node.nodeSize));
               return;
             }
+            if (node.attrs.indent && !isListType(node.attrs.type) && hasType(tmpl, node.attrs.type)) {
+              tr ??= state.tr;
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, indent: 0 });
+              return;
+            }
             if (!hasType(tmpl, node.attrs.type)) {
               tr ??= state.tr;
               // A document replaced wholesale (select all + type) starts like a new one.
               const type = index === 0 && state.doc.childCount === 1 ? tmpl.firstElement : fallback;
-              tr.setNodeMarkup(pos, undefined, { ...node.attrs, type });
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, type, indent: isListType(type) ? node.attrs.indent : 0 });
             }
           });
           return tr;

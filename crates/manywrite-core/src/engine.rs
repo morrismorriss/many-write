@@ -5,12 +5,13 @@
 //! the network: fonts and templates are compiled into the binary.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use typst::diag::{FileError, FileResult, SourceDiagnostic};
 use typst::foundations::{Bytes, Datetime};
-use typst::layout::Point;
+use typst::layout::{PageRanges, Point};
 use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
@@ -193,6 +194,28 @@ pub struct Diagnostic {
     pub hints: Vec<String>,
 }
 
+/// Pages to export, counted from 1; `to: None` runs to the last page.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+pub struct PageSpan {
+    pub from: usize,
+    #[serde(default)]
+    pub to: Option<usize>,
+}
+
+impl PageSpan {
+    fn contains(&self, page: usize) -> bool {
+        page >= self.from && self.to.is_none_or(|to| page <= to)
+    }
+
+    fn describe(&self) -> String {
+        match self.to {
+            Some(to) if to == self.from => format!("{}", self.from),
+            Some(to) => format!("{}-{to}", self.from),
+            None => format!("{}-", self.from),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CompileReport {
@@ -317,10 +340,43 @@ impl Engine {
 
     /// Export the last successful compile to PDF.
     pub fn pdf(&self) -> Result<Vec<u8>, String> {
+        self.pdf_pages(None).map(|(bytes, _)| bytes)
+    }
+
+    /// Export some pages of the last successful compile to PDF. Pages are
+    /// counted from 1 as in the preview; a range with no end runs to the last
+    /// page. Returns the PDF and how many pages it holds.
+    pub fn pdf_pages(&self, ranges: Option<&[PageSpan]>) -> Result<(Vec<u8>, usize), String> {
         let doc = self.doc.as_ref().ok_or("Nothing has been typeset yet.")?;
-        typst_pdf::pdf(doc, &typst_pdf::PdfOptions::default()).map_err(|errs| {
+        let total = doc.pages().len();
+        let mut options = typst_pdf::PdfOptions::default();
+        let mut count = total;
+        if let Some(ranges) = ranges {
+            if ranges.is_empty() {
+                return Err("No pages were chosen.".into());
+            }
+            for r in ranges {
+                if r.from == 0 || r.to.is_some_and(|to| to < r.from) {
+                    return Err(format!("{} is not a range of pages.", r.describe()));
+                }
+                if r.from > total {
+                    let s = if total == 1 { "" } else { "s" };
+                    return Err(format!("This document has {total} page{s}, so there is no page {}.", r.from));
+                }
+            }
+            count = (1..=total).filter(|p| ranges.iter().any(|r| r.contains(*p))).count();
+            let spans = ranges
+                .iter()
+                .map(|r| NonZeroUsize::new(r.from)..=r.to.and_then(NonZeroUsize::new))
+                .collect();
+            options.page_ranges = Some(PageRanges::new(spans));
+            // Typst can't keep the accessibility tags when it leaves pages out.
+            options.tagged = false;
+        }
+        let bytes = typst_pdf::pdf(doc, &options).map_err(|errs| {
             errs.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; ")
-        })
+        })?;
+        Ok((bytes, count))
     }
 }
 

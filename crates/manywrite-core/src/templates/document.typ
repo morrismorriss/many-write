@@ -20,13 +20,18 @@
   body
 }
 
-// Items of one list sit close together; a new list (or a different kind) gets a paragraph gap.
+// Items of one list (and the lists nested in it) sit close together; a new list
+// (or a different kind) gets a paragraph gap. Nested items step in one marker width per level.
 #let family(kind) = if kind in ("todo", "todo_done") { "todo" } else { kind }
-#let list-item(kind, prev, marker, body) = block(
-  above: if family(kind) == family(prev) { 0.45em } else { 0.9em }, below: 0pt,
-  grid(columns: (1.6em, 1fr), column-gutter: 0.55em, align(right, marker), body))
+#let list-kinds = ("bullet", "numbered", "todo", "todo_done")
+#let list-item(kind, prev, level, prev-level, marker, body) = block(
+  above: if family(kind) == family(prev) or (prev in list-kinds and (level > 0 or prev-level > 0)) { 0.45em } else { 0.9em },
+  below: 0pt,
+  pad(left: level * 2.15em, grid(columns: (1.6em, 1fr), column-gutter: 0.55em, align(right, marker), body)))
+// Bullets by level: disc, circle, square, then round again.
+#let bullet-marker(level) = ([•], [◦], [▪]).at(calc.rem(level, 3))
 
-#let el(kind, prev, body) = {
+#let el(kind, prev, level: 0, prev-level: 0, num: none, body) = {
   let gap = 0.9em
   if kind in ("text_left", "text_right") {
     text-bubble(kind, prev, body)
@@ -37,15 +42,19 @@
   } else if kind == "subheading" {
     block(sticky: true, above: 1.2em, below: 0.5em, text(size: 12.5pt, weight: "bold", body))
   } else if kind == "bullet" {
-    list-item(kind, prev, [•], body)
+    list-item(kind, prev, level, prev-level, bullet-marker(level), body)
   } else if kind == "numbered" {
-    if prev != "numbered" { mw-num.update(0) }
-    mw-num.step()
-    list-item(kind, prev, context [#mw-num.get().first().], body)
+    if num != none {
+      list-item(kind, prev, level, prev-level, str(num) + ".", body)
+    } else {
+      if prev != "numbered" { mw-num.update(0) }
+      mw-num.step()
+      list-item(kind, prev, level, prev-level, context [#mw-num.get().first().], body)
+    }
   } else if kind == "todo" {
-    list-item(kind, prev, box(width: 0.75em, height: 0.75em, stroke: 0.6pt, radius: 1.5pt), body)
+    list-item(kind, prev, level, prev-level, box(width: 0.75em, height: 0.75em, stroke: 0.6pt, radius: 1.5pt), body)
   } else if kind == "todo_done" {
-    list-item(kind, prev, box(width: 0.75em, height: 0.75em, stroke: 0.6pt, radius: 1.5pt, fill: luma(60), align(center + horizon, text(size: 0.6em, fill: white, sym.checkmark))), text(fill: luma(110), strike(body)))
+    list-item(kind, prev, level, prev-level, box(width: 0.75em, height: 0.75em, stroke: 0.6pt, radius: 1.5pt, fill: luma(60), align(center + horizon, text(size: 0.6em, fill: white, sym.checkmark))), text(fill: luma(110), strike(body)))
   } else if kind == "quote" {
     block(above: gap, below: 0pt, inset: (left: 1em), stroke: (left: 2pt + luma(170)), emph(body))
   } else if kind == "callout" {
