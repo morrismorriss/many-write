@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::engine::{ElementSpan, Engine, PageSpan};
-use crate::{export, fs, import};
+use crate::{export, fs, import, zotero};
 
 pub struct Core {
     preview: Mutex<Engine>,
@@ -155,6 +155,11 @@ impl Core {
                 let path = path_arg(args, "path")?;
                 let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
                 Ok(serde_json::to_value(import::rtf(&String::from_utf8_lossy(&bytes))).unwrap())
+            }
+            "zotero.search" => {
+                let query: String = arg(args, "query")?;
+                let limit: Option<usize> = arg(args, "limit")?;
+                zotero::search(&query, limit.unwrap_or(25))
             }
             "export.pdf" => {
                 let source: String = arg(args, "source")?;

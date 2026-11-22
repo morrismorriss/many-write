@@ -623,3 +623,10 @@ figure.mw-image.ProseMirror-selectednode img { outline: 2px solid var(--accent);
 .cite-preview-label { font-family: "Inter", system-ui, sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 6px 0 2px; }
 .cite-preview-label:first-child { margin-top: 0; }
 .cite-entry { padding-left: 2em; text-indent: -2em; }
+.zotero-search { display: flex; flex-direction: column; gap: 8px; }
+.zotero-row { display: flex; gap: 6px; }
+.zotero-row input { flex: 1; min-width: 0; }
+.zotero-results { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.zotero-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 8px 10px; background: none; border: 0; border-bottom: 1px solid var(--border); color: var(--text); font: inherit; cursor: pointer; }
+.zotero-item:last-child { border-bottom: 0; }
+.zotero-item:hover { background: var(--hover); }

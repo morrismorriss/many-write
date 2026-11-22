@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanSource, inTextCitation, referenceEntry, sameSource, sortKey, type Source } from "./citations";
+import { cleanSource, inTextCitation, noteEntry, referenceEntry, sameSource, sortKey, type Source } from "./citations";
 import type { Run } from "./markdown";
 
 const md = (runs: Run[]) => runs.map((r) => (r.italic ? `*${r.text}*` : r.text)).join("");
@@ -43,6 +43,26 @@ describe("Chicago author–date", () => {
     expect(md(referenceEntry(book, "chicago"))).toBe("Morrison, Toni. 1987. *Beloved*. New York: Knopf.");
     expect(md(referenceEntry(article, "chicago"))).toBe("Lee, Ann, and Bo Kim. 2020. “Reading Slowly.” *Journal of Reading* 12 (3): 10–20.");
     expect(md(inTextCitation(book, "chicago", "23").runs)).toBe("(Morrison 1987, 23)");
+  });
+});
+
+describe("Chicago notes–bibliography", () => {
+  it("writes a note with the page after the publication details", () => {
+    expect(md(noteEntry(book, "23"))).toBe("Toni Morrison, *Beloved* (New York: Knopf, 1987), 23.");
+    expect(md(noteEntry(article, "15"))).toBe("Ann Lee and Bo Kim, “Reading Slowly,” *Journal of Reading* 12, no. 3 (2020): 15.");
+    expect(md(noteEntry({ ...web, authors: [{ first: "Ann", last: "Lee" }] }))).toBe(
+      "Ann Lee, “How Tides Work,” Ocean Facts, 4 May 2024, https://www.example.com/tides.",
+    );
+  });
+  it("writes the bibliography with the year at the end", () => {
+    expect(md(referenceEntry(book, "chicago-notes"))).toBe("Morrison, Toni. *Beloved*. New York: Knopf, 1987.");
+    expect(md(referenceEntry(article, "chicago-notes"))).toBe("Lee, Ann, and Bo Kim. “Reading Slowly.” *Journal of Reading* 12, no. 3 (2020): 10–20.");
+    expect(md(referenceEntry(web, "chicago-notes"))).toBe("“How Tides Work.” Ocean Facts. 4 May 2024. https://www.example.com/tides.");
+  });
+  it("copes with a missing author and missing publication details", () => {
+    const bare: Source = { id: "4", kind: "book", authors: [], title: "Anonymous" };
+    expect(md(noteEntry(bare, "7"))).toBe("*Anonymous*, 7.");
+    expect(md(referenceEntry(bare, "chicago-notes"))).toBe("*Anonymous*.");
   });
 });
 

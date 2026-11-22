@@ -3,11 +3,12 @@ import Document from "@tiptap/extension-document";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { Fragment, Slice, type Node as PMNode, type Schema } from "@tiptap/pm/model";
-import { cycleNext, elementLabel, hasType, isListType, listNumbers, MAX_INDENT, type ElementType, type Template } from "../formats/templates";
-import { parseDoc, serializeDoc, adaptScriptTypes, type Block, type Run } from "../formats/markdown";
+import { cycleNext, elementLabel, hasType, isListType, listNumbers, MAX_INDENT, type ElementType, type NotePlacement, type Template } from "../formats/templates";
+import { parseDoc, serializeDoc, adaptScriptTypes, noteNumbers, type Block, type Run } from "../formats/markdown";
 import { linkTarget, URL_RE } from "../formats/typst";
 import { openUrl } from "../lib/backend";
-import { inTextCitation, sourceLabel, sourceMatches, type CitationStyle, type Source } from "../formats/citations";
+import { inTextCitation, noteEntry, sourceLabel, sourceMatches, type CitationStyle, type ReferenceStyle, type Source } from "../formats/citations";
+import { newId } from "../project/model";
 
 // --------------------------------------------------------------- schema
 
@@ -93,11 +94,59 @@ export const ElementNode = Node.create({
   },
 });
 
+/** A superscript number pointing at a footnote or endnote; the text lives in the document's notes. */
+export const NoteRefNode = Node.create({
+  name: "noteRef",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return { id: { default: "" }, number: { default: 0 } };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: "sup[data-note]",
+        getAttrs: (el) => ({ id: (el as HTMLElement).dataset.note ?? "", number: Number((el as HTMLElement).textContent ?? 0) }),
+      },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["sup", { class: "mw-note", "data-note": HTMLAttributes.id }, String(HTMLAttributes.number || "")];
+  },
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        // Keep the printed numbers in step with the text: first reference is 1.
+        appendTransaction: (trs, _old, state) => {
+          if (!trs.some((t) => t.docChanged)) return null;
+          let n = 0;
+          let tr: Transaction | null = null;
+          state.doc.descendants((node, pos) => {
+            if (node.type.name !== "noteRef") return;
+            n++;
+            if (node.attrs.number !== n) {
+              tr ??= state.tr;
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, number: n });
+            }
+          });
+          return tr;
+        },
+      }),
+    ];
+  },
+});
+
 // ---------------------------------------------------- blocks <-> editor
 
-function runsToInline(runs: Run[]): JSONContent[] {
+function runsToInline(runs: Run[], numbers?: Map<string, number>): JSONContent[] {
   const out: JSONContent[] = [];
   for (const r of runs) {
+    if (r.note) {
+      out.push({ type: "noteRef", attrs: { id: r.note, number: numbers?.get(r.note) ?? 0 } });
+      continue;
+    }
     const marks = [r.bold && { type: "bold" }, r.italic && { type: "italic" }, r.underline && { type: "underline" }].filter(Boolean) as { type: string }[];
     r.text.split("\n").forEach((piece, i) => {
       if (i > 0) out.push({ type: "hardBreak" });
@@ -109,12 +158,13 @@ function runsToInline(runs: Run[]): JSONContent[] {
 
 export function blocksToContent(blocks: Block[], template: Template): JSONContent {
   const list: Block[] = blocks.length ? blocks : [{ type: template.firstElement, runs: [] }];
+  const numbers = noteNumbers({ blocks: list, frontMatter: null });
   return {
     type: "doc",
     content: list.map((b) =>
       b.type === "image"
         ? { type: "image", attrs: { src: b.src ?? "", alt: b.runs.map((r) => r.text).join("") } }
-        : { type: "element", attrs: { type: b.type, indent: isListType(b.type) ? Math.min(b.indent ?? 0, MAX_INDENT) : 0 }, content: runsToInline(b.runs) },
+        : { type: "element", attrs: { type: b.type, indent: isListType(b.type) ? Math.min(b.indent ?? 0, MAX_INDENT) : 0 }, content: runsToInline(b.runs, numbers) },
     ),
   };
 }
@@ -128,6 +178,10 @@ export function docToBlocks(doc: PMNode): Block[] {
     }
     const runs: Run[] = [];
     node.forEach((child) => {
+      if (child.type.name === "noteRef") {
+        runs.push({ text: "", note: child.attrs.id as string });
+        return;
+      }
       if (child.type.name === "hardBreak") {
         const last = runs[runs.length - 1];
         if (last) last.text += "\n";
@@ -252,14 +306,20 @@ export interface ScriptKeysOptions {
   /** Grey text for an empty document, and the type its first line starts as. */
   getHint: () => { text: string; type?: ElementType } | null;
   /** Essays, books, articles and documents: the sources cited so far (newest first). null = no "/cite" here. */
-  getCitations?: () => { sources: Source[]; style: CitationStyle } | null;
+  getCitations?: () => { sources: Source[]; style: ReferenceStyle } | null;
+  /** Chicago notes: where a citation lands; null = in-text citations. */
+  getNotePlacement?: () => NotePlacement | null;
   /** "/cite" › New citation: ask for a source; the dialog then calls insertCitation. */
   requestCitation?: () => void;
   /** A remembered source was cited again. */
   onCite?: (id: string) => void;
+  /** "/note": ask the writer for the text of a new note. */
+  requestNote?: () => void;
+  /** A remembered source was cited as a note: its text is ready to store. */
+  addNote?: (id: string, runs: Run[]) => void;
 }
 
-const CITE_WORDS = ["citation", "cite", "source", "reference", "mla", "chicago", "works cited", "bibliography", "footnote"];
+const CITE_WORDS = ["citation", "cite", "source", "reference", "mla", "chicago", "works cited", "bibliography", "footnote", "endnote", "note"];
 
 export interface SearchHighlight {
   re: RegExp;
@@ -267,7 +327,12 @@ export interface SearchHighlight {
   current?: { index: number; from: number } | null;
 }
 
-function slashItems(t: Template, query: string, cite: { sources: Source[]; style: CitationStyle } | null = null): MenuItem[] {
+function slashItems(
+  t: Template,
+  query: string,
+  cite: { sources: Source[]; style: ReferenceStyle } | null = null,
+  notePlacement: NotePlacement | null = null,
+): MenuItem[] {
   const q = query.toLowerCase();
   const items: MenuItem[] = t.elements
     .filter((e) => e.type !== "todo_done")
@@ -276,9 +341,13 @@ function slashItems(t: Template, query: string, cite: { sources: Source[]; style
   if (!cite) return items;
   // "/cite" offers a new citation first, then every source cited before, newest first.
   const citeWord = !!q && CITE_WORDS.some((w) => w.startsWith(q));
-  const style = cite.style === "mla" ? "MLA" : "Chicago";
+  const style = cite.style === "mla" ? "MLA" : cite.style === "chicago-notes" ? "Notes" : "Chicago";
+  const hint = notePlacement ? (notePlacement === "footnotes" ? "Footnote" : "Endnote") : style;
   const out: MenuItem[] = [];
-  if (!q || citeWord) out.push({ label: "Citation…", value: "cite:new", hint: style });
+  if (!q || citeWord) {
+    out.push({ label: "Citation…", value: "cite:new", hint });
+    if (notePlacement) out.push({ label: "Note…", value: "note:new", hint: notePlacement === "footnotes" ? "Footnote" : "Endnote" });
+  }
   const saved = cite.sources.filter((s) => citeWord || (q.length >= 2 && sourceMatches(s, q))).slice(0, 8);
   for (const s of saved) out.push({ label: `Cite ${sourceLabel(s)}`, value: `cite:${s.id}` });
   // Typing "/cite" puts citations at the top; otherwise they follow the blocks.
@@ -311,6 +380,24 @@ export function insertCitation(view: EditorView, src: Source, style: CitationSty
   view.focus();
 }
 
+/** Put a footnote/endnote marker at the cursor, after a space when it follows a word. */
+export function insertNoteRef(view: EditorView, id: string): boolean {
+  const { state } = view;
+  const { $from } = state.selection;
+  if ($from.parent.type.name !== "element") return false;
+  const node = state.schema.nodes.noteRef.create({ id, number: 0 });
+  const before = $from.parent.textBetween(Math.max(0, $from.parentOffset - 1), $from.parentOffset);
+  const lead = before && !/\s/.test(before) ? [state.schema.text(" ")] : [];
+  let tr = state.tr.deleteSelection();
+  const at = tr.selection.from;
+  const frag = Fragment.from([...lead, node]);
+  tr = tr.insert(at, frag);
+  tr = tr.setSelection(TextSelection.create(tr.doc, at + frag.size));
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+  return true;
+}
+
 function popupInfo(state: EditorState, opts: ScriptKeysOptions): PopupInfo | null {
   const ps = popupKey.getState(state);
   const { $from, empty } = state.selection;
@@ -323,7 +410,7 @@ function popupInfo(state: EditorState, opts: ScriptKeysOptions): PopupInfo | nul
     if (from < lineStart || from >= lineEnd || state.doc.textBetween(from, from + 1) !== "/" || $from.pos <= from) return null;
     const query = state.doc.textBetween(from + 1, $from.pos);
     if (query.length > 24 || /\s{2}/.test(query)) return null;
-    const items = slashItems(opts.getTemplate(), query.trim(), opts.getCitations?.() ?? null);
+    const items = slashItems(opts.getTemplate(), query.trim(), opts.getCitations?.() ?? null, opts.getNotePlacement?.() ?? null);
     if (!items.length) return null;
     return { kind: "slash", from, to: $from.pos, items, index: Math.min(ps.index ?? 0, items.length - 1) };
   }
@@ -369,6 +456,11 @@ function choose(view: EditorView, info: PopupInfo, i: number, opts: ScriptKeysOp
   let tr = view.state.tr.setMeta(popupKey, { slashFrom: null, index: null, dismissed: null });
   if (info.kind === "slash") {
     tr.delete(info.from, info.to);
+    if (item.value === "note:new") {
+      view.dispatch(tr);
+      opts.requestNote?.();
+      return true;
+    }
     if (item.value.startsWith("cite:")) {
       view.dispatch(tr);
       const id = item.value.slice(5);
@@ -379,8 +471,13 @@ function choose(view: EditorView, info: PopupInfo, i: number, opts: ScriptKeysOp
       const cite = opts.getCitations?.();
       const src = cite?.sources.find((s) => s.id === id);
       if (src && cite) {
-        insertCitation(view, src, cite.style);
-        opts.onCite?.(id);
+        if (cite.style === "chicago-notes" && opts.getNotePlacement?.()) {
+          const noteId = newId();
+          if (insertNoteRef(view, noteId)) opts.addNote?.(noteId, noteEntry(src));
+        } else {
+          insertCitation(view, src, cite.style === "mla" ? "mla" : "chicago");
+          opts.onCite?.(id);
+        }
       }
       return true;
     }

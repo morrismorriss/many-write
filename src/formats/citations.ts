@@ -7,6 +7,9 @@
 import type { Run } from "./markdown";
 
 export type CitationStyle = "mla" | "chicago";
+/** Chicago notes–bibliography: a superscript marker and a note, not an in-text citation. */
+export type NoteStyle = "chicago-notes";
+export type ReferenceStyle = CitationStyle | NoteStyle;
 export type SourceKind = "book" | "article" | "website";
 
 export interface SourceAuthor {
@@ -43,19 +46,24 @@ export const SOURCE_KINDS: { id: SourceKind; name: string }[] = [
 ];
 
 /** The title of the sources page each style calls for. */
-export function sourcesPageTitle(style: CitationStyle): string {
+export function sourcesPageTitle(style: ReferenceStyle): string {
   return style === "mla" ? "Works Cited" : "Bibliography";
 }
 
 const clean = (s: string | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
 /** Add a full stop unless the text already ends with punctuation. */
 const stop = (s: string) => (/[.?!]["”’]?$/.test(s) ? s : `${s}.`);
+/** A quoted title for Chicago notes: the comma or full stop sits inside the closing quote. */
+const noteTitle = (title: string, end: "," | ".") => {
+  const t = clean(title).replace(/[.,;:]+$/, "");
+  return /[?!]$/.test(t) ? `“${t}”` : `“${t}${end}”`;
+};
 const authorsOf = (s: Source) => s.authors.map((a) => ({ first: clean(a.first), last: clean(a.last) })).filter((a) => a.first || a.last);
 const full = (a: SourceAuthor) => [a.first, a.last].filter(Boolean).join(" ");
 const inverted = (a: SourceAuthor) => (a.last && a.first ? `${a.last}, ${a.first}` : a.last || a.first);
 
 /** The author part of an entry, without its closing full stop. */
-function authorList(s: Source, style: CitationStyle): string {
+function authorList(s: Source, style: ReferenceStyle): string {
   const as = authorsOf(s);
   if (!as.length) return "";
   if (as.length === 1) return inverted(as[0]);
@@ -85,9 +93,14 @@ function webAddress(url: string): string {
   return url.replace(/^https?:\/\//i, "");
 }
 
+/** Clean every string field, so a source read from a file formats predictably. */
+function normalizeSource(src: Source): Source {
+  return Object.fromEntries(Object.entries(src).map(([k, v]) => [k, typeof v === "string" ? clean(v) : v])) as Source;
+}
+
 /** The full entry for the Works Cited or Bibliography page. */
-export function referenceEntry(src: Source, style: CitationStyle): Run[] {
-  const s = Object.fromEntries(Object.entries(src).map(([k, v]) => [k, typeof v === "string" ? clean(v) : v])) as Source;
+export function referenceEntry(src: Source, style: ReferenceStyle): Run[] {
+  const s = normalizeSource(src);
   const b = new Builder();
   const who = authorList(s, style);
   const title = s.title || "Untitled";
@@ -120,6 +133,32 @@ export function referenceEntry(src: Source, style: CitationStyle): Run[] {
       }
       if (s.kind === "website" && s.accessed) b.text(` Accessed ${stop(s.accessed)}`);
     }
+  } else if (style === "chicago-notes") {
+    // Notes–bibliography: the year moves to the end of the entry.
+    if (who) b.text(`${stop(who)} `);
+    if (s.kind === "book") {
+      b.italic(title.replace(/[.,;:]+$/, "")).text(". ");
+      const pub = [s.city, s.publisher].filter(Boolean).join(": ");
+      const tail = [pub, s.year].filter(Boolean).join(", ");
+      if (tail) b.text(stop(tail));
+    } else if (s.kind === "article") {
+      b.text(`${noteTitle(title, ".")} `);
+      if (s.container) b.italic(s.container);
+      let tail = "";
+      if (s.volume) tail += ` ${s.volume}`;
+      if (s.issue) tail += `, no. ${s.issue}`;
+      if (s.year) tail += ` (${s.year})`;
+      if (s.pages) tail += `: ${s.pages}`;
+      if (tail) b.text(`${tail}.`);
+      if (s.url) b.text(` ${stop(s.url)}`);
+    } else {
+      b.text(`${noteTitle(title, ".")} `);
+      if (s.container) b.text(`${stop(s.container)} `);
+      if (s.date) b.text(`${stop(s.date)} `);
+      else if (s.year) b.text(`${s.year}. `);
+      if (s.url) b.text(stop(s.url));
+      if (s.accessed) b.text(` Accessed ${stop(s.accessed)}`);
+    }
   } else {
     // Chicago author–date: the year follows the author.
     const year = s.year || (s.kind === "website" ? "n.d." : "");
@@ -146,6 +185,59 @@ export function referenceEntry(src: Source, style: CitationStyle): Run[] {
       }
       if (s.url) b.text(` ${stop(s.url)}`);
     }
+  }
+  const runs = b.runs.map((r) => ({ ...r, text: r.text.replace(/\s{2,}/g, " ") }));
+  if (runs.length) runs[runs.length - 1].text = runs[runs.length - 1].text.trimEnd();
+  return runs.filter((r) => r.text);
+}
+
+/** Authors as they appear in a note, in natural order: "Ann Lee and Bo Kim". */
+function noteAuthors(s: Source): string {
+  const as = authorsOf(s);
+  if (!as.length) return "";
+  if (as.length === 1) return full(as[0]);
+  if (as.length === 2) return `${full(as[0])} and ${full(as[1])}`;
+  return `${as.slice(0, -1).map(full).join(", ")}, and ${full(as[as.length - 1])}`;
+}
+
+/**
+ * The text of a Chicago notes–bibliography note, without its number (the
+ * renderer adds "1. "). A page number goes after the publication details:
+ * `Toni Morrison, *Beloved* (New York: Knopf, 1987), 23.`
+ */
+export function noteEntry(src: Source, page = ""): Run[] {
+  const s = normalizeSource(src);
+  const b = new Builder();
+  const who = noteAuthors(s);
+  const p = clean(page);
+  const title = (s.title || "Untitled").replace(/[.,;:]+$/, "");
+  if (who) b.text(`${who}, `);
+  if (s.kind === "book") {
+    b.italic(title);
+    const pub = [s.city, s.publisher].filter(Boolean).join(": ");
+    const tail = [pub, s.year].filter(Boolean).join(", ");
+    if (tail) b.text(` (${tail})`);
+    if (p) b.text(`, ${p}`);
+    b.text(".");
+  } else if (s.kind === "article") {
+    let tail = "";
+    if (s.volume) tail += ` ${s.volume}`;
+    if (s.issue) tail += `, no. ${s.issue}`;
+    if (s.year) tail += ` (${s.year})`;
+    const cited = p || s.pages;
+    if (cited) tail += `: ${cited}`;
+    b.text(`${noteTitle(title, tail ? "," : ".")} `);
+    if (s.container) b.italic(s.container);
+    if (tail) b.text(`${tail}.`);
+    if (s.url) b.text(` ${stop(s.url)}`);
+  } else {
+    const tail: string[] = [];
+    if (s.container) tail.push(clean(s.container));
+    if (s.date || s.year) tail.push((s.date || s.year)!);
+    if (s.accessed) tail.push(`accessed ${clean(s.accessed)}`);
+    if (s.url) tail.push(s.url);
+    b.text(noteTitle(title, tail.length ? "," : "."));
+    if (tail.length) b.text(` ${tail.join(", ")}.`);
   }
   const runs = b.runs.map((r) => ({ ...r, text: r.text.replace(/\s{2,}/g, " ") }));
   if (runs.length) runs[runs.length - 1].text = runs[runs.length - 1].text.trimEnd();

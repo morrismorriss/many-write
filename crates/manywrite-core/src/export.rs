@@ -4,6 +4,8 @@
 //! paragraph styles. Word re-paginates on open, so DOCX carries "keep with
 //! next" and widow/orphan control flags rather than fixed page breaks.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -16,6 +18,17 @@ pub struct Run {
     pub bold: bool,
     #[serde(default)]
     pub underline: bool,
+    /// Chicago notes: the id of the note this run points at.
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    pub id: String,
+    #[serde(default)]
+    pub runs: Vec<Run>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,12 +60,18 @@ pub struct ExportDoc {
     #[serde(default)]
     pub id: String,
     pub blocks: Vec<Block>,
-    /// Essays: "mla" or "chicago".
+    /// Essays: "mla", "chicago" (author–date) or "chicago-notes".
     #[serde(default)]
     pub style: String,
     /// Essays: text before the page number in the running header (MLA: the surname).
     #[serde(default)]
     pub running_head: String,
+    /// Chicago notes: "footnotes" or "endnotes"; empty when notes are not printed.
+    #[serde(default)]
+    pub note_placement: String,
+    /// Chicago notes: the note texts, keyed by the ids on the note runs.
+    #[serde(default)]
+    pub notes: Vec<Note>,
 }
 
 fn default_lang() -> String {
@@ -73,6 +92,22 @@ fn xml_escape(s: &str) -> String {
             c => out.push(c),
         }
     }
+    out
+}
+
+/// One run of text as WordprocessingML. Note runs are handled by the caller.
+fn text_run_xml(run: &Run) -> String {
+    let mut rpr = String::new();
+    if run.bold { rpr.push_str("<w:b/>"); }
+    if run.italic { rpr.push_str("<w:i/>"); }
+    if run.underline { rpr.push_str("<w:u w:val=\"single\"/>"); }
+    let mut out = String::from("<w:r>");
+    if !rpr.is_empty() { out.push_str(&format!("<w:rPr>{rpr}</w:rPr>")); }
+    for (i, part) in run.text.split('\n').enumerate() {
+        if i > 0 { out.push_str("<w:br/>"); }
+        out.push_str(&format!("<w:t xml:space=\"preserve\">{}</w:t>", xml_escape(part)));
+    }
+    out.push_str("</w:r>");
     out
 }
 
@@ -355,7 +390,7 @@ impl PageNumbers {
 pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let script = matches!(doc.template.as_str(), "stage-play" | "screenplay");
     let essay = doc.template == "essay";
-    let chicago = essay && doc.style == "chicago";
+    let chicago = essay && (doc.style == "chicago" || doc.style == "chicago-notes");
     let styles = if essay {
         essay_styles(chicago)
     } else if script {
@@ -370,6 +405,23 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     } else {
         ("Georgia", 23)
     };
+
+    let footnotes = doc.note_placement == "footnotes";
+    let note_texts: HashMap<&str, &Note> = doc.notes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let mut note_numbers: HashMap<&str, usize> = HashMap::new();
+    if footnotes || doc.note_placement == "endnotes" {
+        for block in &doc.blocks {
+            for run in &block.runs {
+                if let Some(id) = &run.note {
+                    if note_texts.contains_key(id.as_str()) && !note_numbers.contains_key(id.as_str()) {
+                        let n = note_numbers.len() + 1;
+                        note_numbers.insert(id.as_str(), n);
+                    }
+                }
+            }
+        }
+    }
+    let notes_on = !note_numbers.is_empty();
 
     let mut styles_xml = String::new();
     styles_xml.push_str(r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -388,8 +440,12 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             rpr = s.rpr
         ));
     }
+    if notes_on {
+        let (ref_style, text_style) = if footnotes { ("FootnoteReference", "FootnoteText") } else { ("EndnoteReference", "EndnoteText") };
+        styles_xml.push_str(&format!(r#"<w:style w:type="character" w:styleId="{ref_style}"><w:name w:val="{ref_style}"/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style>"#));
+        styles_xml.push_str(&format!(r#"<w:style w:type="paragraph" w:styleId="{text_style}"><w:name w:val="{text_style}"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/></w:rPr></w:style>"#));
+    }
     styles_xml.push_str("</w:styles>");
-
     let known: Vec<&str> = styles.iter().map(|s| s.id).collect();
     let mut body = String::new();
     for block in &doc.blocks {
@@ -418,27 +474,16 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             body.push_str("<w:r><w:t>* * *</w:t></w:r>");
         }
         for run in &block.runs {
-            let mut rpr = String::new();
-            if run.bold {
-                rpr.push_str("<w:b/>");
-            }
-            if run.italic {
-                rpr.push_str("<w:i/>");
-            }
-            if run.underline {
-                rpr.push_str("<w:u w:val=\"single\"/>");
-            }
-            body.push_str("<w:r>");
-            if !rpr.is_empty() {
-                body.push_str(&format!("<w:rPr>{rpr}</w:rPr>"));
-            }
-            for (i, part) in run.text.split('\n').enumerate() {
-                if i > 0 {
-                    body.push_str("<w:br/>");
+            if let Some(id) = &run.note {
+                if let Some(n) = note_numbers.get(id.as_str()) {
+                    let (tag, style) = if footnotes { ("footnoteReference", "FootnoteReference") } else { ("endnoteReference", "EndnoteReference") };
+                    body.push_str(&format!(r#"<w:r><w:rPr><w:rStyle w:val="{style}"/></w:rPr><w:{tag} w:id="{n}"/></w:r>"#));
                 }
-                body.push_str(&format!("<w:t xml:space=\"preserve\">{}</w:t>", xml_escape(part)));
+                if run.text.is_empty() {
+                    continue;
+                }
             }
-            body.push_str("</w:r>");
+            body.push_str(&text_run_xml(run));
         }
         body.push_str("</w:p>");
     }
@@ -468,9 +513,15 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         // Books, articles, poems: centred at the bottom.
         _ => Some(PageNumbers { footer: true, suffix: "", title_page }),
     };
+    let note_pr = if notes_on {
+        if footnotes { r#"<w:footnotePr><w:numFmt w:val="decimal"/></w:footnotePr>"# } else { r#"<w:endnotePr><w:numFmt w:val="decimal"/></w:endnotePr>"# }
+    } else {
+        ""
+    };
+    let sect = sect.replacen("<w:pgSz", &format!("{note_pr}<w:pgSz"), 1);
     let sect = match &numbering {
-        Some(n) => n.wire(sect),
-        None => sect.to_string(),
+        Some(n) => n.wire(&sect),
+        None => sect,
     };
 
     let document = format!(
@@ -483,14 +534,48 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         xml_escape(&doc.title),
         xml_escape(&doc.author)
     );
+    let note_part = if footnotes { "footnotes" } else { "endnotes" };
+    let note_tag = if footnotes { "footnote" } else { "endnote" };
+    let note_ref = if footnotes { "footnoteRef" } else { "endnoteRef" };
+    let note_style = if footnotes { "FootnoteText" } else { "EndnoteText" };
+    let note_ref_style = if footnotes { "FootnoteReference" } else { "EndnoteReference" };
+    let mut note_xml = String::new();
+    if notes_on {
+        note_xml.push_str(&format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:{note_part} xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+        ));
+        for (kind, id) in [("separator", -1), ("continuationSeparator", 0)] {
+            note_xml.push_str(&format!(
+                r#"<w:{note_tag} w:type="{kind}" w:id="{id}"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:{kind}/></w:r></w:p></w:{note_tag}>"#
+            ));
+        }
+        let mut ordered: Vec<(&str, usize)> = note_numbers.iter().map(|(id, n)| (*id, *n)).collect();
+        ordered.sort_by_key(|(_, n)| *n);
+        for (id, n) in ordered {
+            let note = note_texts.get(id).expect("numbered notes have text");
+            note_xml.push_str(&format!(
+                r#"<w:{note_tag} w:id="{n}"><w:p><w:pPr><w:pStyle w:val="{note_style}"/></w:pPr><w:r><w:rPr><w:rStyle w:val="{note_ref_style}"/></w:rPr><w:{note_ref}/></w:r><w:r><w:t xml:space="preserve"> </w:t></w:r>"#
+            ));
+            for run in &note.runs {
+                note_xml.push_str(&text_run_xml(run));
+            }
+            note_xml.push_str(&format!("</w:p></w:{note_tag}>"));
+        }
+        note_xml.push_str(&format!("</w:{note_part}>"));
+    }
     let header_types = if essay {
         r#"<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/header2.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>"#.to_string()
     } else {
         numbering.as_ref().map(|n| n.content_types()).unwrap_or_default()
     };
+    let notes_types = if notes_on {
+        format!(r#"<Override PartName="/word/{note_part}.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.{note_part}+xml"/>"#)
+    } else {
+        String::new()
+    };
     let content_types = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>{header_types}</Types>"#
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>{header_types}{notes_types}</Types>"#
     );
     let rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>"#;
@@ -499,9 +584,14 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     } else {
         numbering.as_ref().map(|n| n.rels()).unwrap_or_default()
     };
+    let notes_rel = if notes_on {
+        format!(r#"<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/{note_part}" Target="{note_part}.xml"/>"#)
+    } else {
+        String::new()
+    };
     let doc_rels = format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>{header_rels}</Relationships>"#
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>{header_rels}{notes_rel}</Relationships>"#
     );
 
     let mut files = vec![
@@ -524,6 +614,10 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     }
     if let Some(n) = &numbering {
         files.extend(n.parts());
+    }
+    if notes_on {
+        let name = if footnotes { "word/footnotes.xml" } else { "word/endnotes.xml" };
+        files.push((name, note_xml.into_bytes()));
     }
     Ok(zip_store(&files))
 }
@@ -557,11 +651,62 @@ p.bubble.right { background: #2f7cf6; color: #fff; margin-left: auto; }
 .poem p { text-indent: -2em; margin-left: 2em; white-space: pre-wrap; }
 .poem .stanza-break { height: 1em; }
 .part { text-align: center; margin-top: 30%; font-variant: small-caps; }
+a.noteref { vertical-align: super; font-size: 0.75em; text-decoration: none; }
+.endnotes h1 { text-align: left; }
+.endnotes ol { padding-left: 1.5em; }
+.endnotes li { margin: 0.6em 0; text-indent: 0; }
+a.backlink { text-decoration: none; }
 "#;
 
-fn epub_inline(runs: &[Run], preserve_space: bool) -> String {
+/// Endnote numbering and links for the EPUB. Notes live on their own page, so a
+/// reference links to notes.xhtml and the note links back to the chapter.
+struct NoteLinks {
+    numbers: HashMap<String, usize>,
+    chapter: HashMap<usize, usize>,
+    refs: HashMap<usize, usize>,
+}
+
+impl NoteLinks {
+    fn new(doc: &ExportDoc) -> Self {
+        let mut numbers = HashMap::new();
+        if doc.note_placement == "footnotes" || doc.note_placement == "endnotes" {
+            for b in &doc.blocks {
+                for r in &b.runs {
+                    if let Some(id) = &r.note {
+                        if !numbers.contains_key(id) && doc.notes.iter().any(|n| &n.id == id) {
+                            let n = numbers.len() + 1;
+                            numbers.insert(id.clone(), n);
+                        }
+                    }
+                }
+            }
+        }
+        Self { numbers, chapter: HashMap::new(), refs: HashMap::new() }
+    }
+
+    fn marker(&mut self, id: &str, chapter: usize) -> Option<String> {
+        let n = *self.numbers.get(id)?;
+        self.chapter.entry(n).or_insert(chapter);
+        let count = self.refs.entry(n).or_insert(0);
+        *count += 1;
+        let suffix = if *count == 1 { String::new() } else { format!("-{}", *count) };
+        Some(format!(
+            r#"<a class="noteref" id="fnref-{n}{suffix}" href="notes.xhtml#fn-{n}" epub:type="noteref">{n}</a>"#
+        ))
+    }
+}
+
+fn epub_inline(runs: &[Run], preserve_space: bool, mut notes: Option<&mut NoteLinks>, chapter: usize) -> String {
     let mut s = String::new();
     for r in runs {
+        if let Some(id) = &r.note {
+            if let Some(links) = notes.as_deref_mut() {
+                if let Some(marker) = links.marker(id, chapter) {
+                    s.push_str(&marker);
+                }
+            }
+            continue;
+        }
         let mut t = xml_escape(&r.text).replace('\n', "<br/>");
         if preserve_space {
             // Leading and repeated spaces matter in poems.
@@ -594,6 +739,7 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let mut chapters: Vec<(String, String)> = Vec::new();
     let mut current: Option<(String, String)> = None;
     let mut prev_kind = String::new();
+    let mut note_links = NoteLinks::new(doc);
     for b in &doc.blocks {
         let starts_chapter = matches!(b.kind.as_str(), "chapter" | "folder_heading" | "matter_title")
             || (poem && b.kind == "title");
@@ -608,8 +754,9 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             };
             current = Some((title, String::new()));
         }
+        let chapter_index = chapters.len();
         let html = &mut current.as_mut().unwrap().1;
-        let inline = epub_inline(&b.runs, poem);
+        let inline = epub_inline(&b.runs, poem, Some(&mut note_links), chapter_index);
         // A matter page whose title is left off the page: it only starts a new chapter.
         if b.kind == "matter_title" && plain(&b.runs).trim().is_empty() {
             prev_kind = "chapter".to_string();
@@ -688,6 +835,33 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         spine.push_str(&format!("<itemref idref=\"c{i}\"/>"));
         nav.push_str(&format!("<li><a href=\"{name}\">{}</a></li>", if t.is_empty() { format!("Section {}", i + 1) } else { t }));
     }
+    if !note_links.numbers.is_empty() {
+        let mut ordered: Vec<(&String, usize)> = note_links.numbers.iter().map(|(id, n)| (id, *n)).collect();
+        ordered.sort_by_key(|(_, n)| *n);
+        let mut items = String::new();
+        for (id, n) in ordered {
+            let text = doc
+                .notes
+                .iter()
+                .find(|x| &x.id == id)
+                .map(|x| epub_inline(&x.runs, false, None, 0))
+                .unwrap_or_default();
+            let back = note_links
+                .chapter
+                .get(&n)
+                .map(|c| format!(r#" <a class="backlink" href="ch{:03}.xhtml#fnref-{n}">↩</a>"#, *c + 1))
+                .unwrap_or_default();
+            items.push_str(&format!(r#"<li id="fn-{n}" epub:type="endnote">{text}{back}</li>"#));
+        }
+        let notes_html = format!(r#"<section class="endnotes" epub:type="endnotes"><h1>Endnotes</h1><ol>{items}</ol></section>"#);
+        let page = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"{lang}\" lang=\"{lang}\"><head><meta charset=\"UTF-8\"/><title>Endnotes</title><link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/></head><body>\n{notes_html}</body></html>\n"
+        );
+        files.push(("OEBPS/notes.xhtml".into(), page.into_bytes()));
+        manifest.push_str(r#"<item id="notes" href="notes.xhtml" media-type="application/xhtml+xml"/>"#);
+        spine.push_str(r#"<itemref idref="notes"/>"#);
+        nav.push_str(r#"<li><a href="notes.xhtml">Endnotes</a></li>"#);
+    }
     let nav_page = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" xml:lang=\"{lang}\" lang=\"{lang}\"><head><meta charset=\"UTF-8\"/><title>{title}</title></head><body><nav epub:type=\"toc\" id=\"toc\"><h1>Contents</h1><ol>{nav}</ol></nav></body></html>\n"
     );
@@ -713,4 +887,74 @@ fn now_iso() -> String {
     let rem = secs.rem_euclid(86_400);
     let (y, m, d) = crate::engine::civil_from_days_pub(days);
     format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, (rem % 3600) / 60, rem % 60)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(text: &str) -> Run {
+        Run { text: text.into(), italic: false, bold: false, underline: false, note: None }
+    }
+
+    fn doc(placement: &str) -> ExportDoc {
+        ExportDoc {
+            title: "Essay".into(),
+            author: "A".into(),
+            template: "essay".into(),
+            lang: "en".into(),
+            id: "urn:uuid:x".into(),
+            style: "chicago-notes".into(),
+            running_head: String::new(),
+            note_placement: placement.into(),
+            notes: vec![Note { id: "n1".into(), runs: vec![run("First note.")] }],
+            blocks: vec![Block {
+                kind: "paragraph".into(),
+                runs: vec![
+                    Run { text: "One".into(), italic: false, bold: false, underline: false, note: Some("n1".into()) },
+                    run(" two."),
+                ],
+                label: None,
+                indent: 0,
+            }],
+        }
+    }
+
+    fn text(bytes: &[u8]) -> String {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+
+    #[test]
+    fn docx_footnotes_carry_text_and_references() {
+        let zip = text(&docx(&doc("footnotes")).unwrap());
+        assert!(zip.contains("word/footnotes.xml"));
+        assert!(zip.contains(r#"<w:footnoteReference w:id="1"/>"#));
+        assert!(zip.contains("First note."));
+        assert!(!zip.contains("word/endnotes.xml"));
+    }
+
+    #[test]
+    fn docx_endnotes_use_the_endnote_parts() {
+        let zip = text(&docx(&doc("endnotes")).unwrap());
+        assert!(zip.contains("word/endnotes.xml"));
+        assert!(zip.contains(r#"<w:endnoteReference w:id="1"/>"#));
+        assert!(zip.contains("<w:endnoteRef/>"));
+    }
+
+    #[test]
+    fn docx_without_a_placement_has_no_notes_part() {
+        let zip = text(&docx(&doc("")).unwrap());
+        assert!(!zip.contains("word/footnotes.xml"));
+        assert!(!zip.contains("word/endnotes.xml"));
+        assert!(!zip.contains("First note."));
+    }
+
+    #[test]
+    fn epub_links_references_to_an_endnotes_page() {
+        let zip = text(&epub(&doc("footnotes")).unwrap());
+        assert!(zip.contains(r#"<a class="noteref" id="fnref-1" href="notes.xhtml#fn-1" epub:type="noteref">1</a>"#));
+        assert!(zip.contains(r#"<section class="endnotes" epub:type="endnotes">"#));
+        assert!(zip.contains(r#"<li id="fn-1" epub:type="endnote">First note."#));
+        assert!(zip.contains(r#"href="ch001.xhtml#fnref-1""#));
+    }
 }

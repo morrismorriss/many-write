@@ -1,9 +1,9 @@
 // Turns a manuscript into Typst source. Preview and PDF export both use this
 // output with the same engine, so they cannot drift apart.
 
-import type { Block, Run } from "./markdown";
+import type { Block, Note, Run } from "./markdown";
 import { blockText } from "./markdown";
-import { isListType, listNumbers, MAX_INDENT, type EssayStyle, type Template } from "./templates";
+import { isListType, listNumbers, MAX_INDENT, type EssayStyle, type NotePlacement, type Template } from "./templates";
 
 export type ManuscriptItem =
   /** `chapter`: a book chapter split into sections; its title is the chapter heading. */
@@ -11,9 +11,9 @@ export type ManuscriptItem =
   /** A whole play inside a collection: its own title page; its front matter and acts follow. */
   | { kind: "play"; id: string; title: string }
   /** `section`: part of a book chapter; it runs on from the one before, with no heading or page break. */
-  | { kind: "doc"; id: string; title: string; blocks: Block[]; section?: boolean }
+  | { kind: "doc"; id: string; title: string; blocks: Block[]; notes?: Note[]; section?: boolean }
   /** A front or back matter page: typeset as plain prose on its own page. */
-  | { kind: "matter"; id: string; title: string; blocks: Block[]; where: "front" | "back" };
+  | { kind: "matter"; id: string; title: string; blocks: Block[]; notes?: Note[]; where: "front" | "back" };
 
 export interface ProjectMeta {
   title: string;
@@ -23,7 +23,7 @@ export interface ProjectMeta {
   titlePage: boolean;
   paper: "us-letter" | "a4";
   /** Essays only. */
-  essay?: { style: EssayStyle; instructor: string; course: string; date: string };
+  essay?: { style: EssayStyle | "chicago"; notePlacement?: NotePlacement; instructor: string; course: string; date: string };
   /** Scripts: every scene starts on a new page. */
   sceneNewPage?: boolean;
   /** Scripts: a cue repeated after a direction, with no other speaker between, gets (CONT'D). */
@@ -40,7 +40,7 @@ export function sceneBreakText(style: string | undefined): string {
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** Today as each style writes it: MLA "16 November 2026", Chicago "November 16, 2026". */
-export function essayDate(style: EssayStyle, d = new Date()): string {
+export function essayDate(style: EssayStyle | "chicago", d = new Date()): string {
   return style === "mla" ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
@@ -141,10 +141,31 @@ export function contdLines(blocks: Block[]): Set<number> {
   return out;
 }
 
+/** How note references are rendered, and where their text comes from. */
+export interface NoteRender {
+  placement: NotePlacement;
+  number: (id: string) => number;
+  text: (id: string) => Run[];
+  /** Endnotes: record the text once, in reference order. */
+  collect?: (number: number, runs: Run[]) => void;
+}
+
 /** Typst markup for a run list. Text always goes in string literals, so nothing the writer types can be read as Typst code. */
-export function runsToTypst(runs: Run[], preserveSpaces = false): string {
+export function runsToTypst(runs: Run[], preserveSpaces = false, notes?: NoteRender): string {
   let out = "";
   for (const r of runs) {
+    if (r.note) {
+      if (!notes) continue;
+      const text = notes.text(r.note);
+      if (notes.placement === "footnotes") {
+        out += `#footnote[${runsToTypst(text)}]`;
+      } else {
+        const n = notes.number(r.note);
+        notes.collect?.(n, text);
+        out += `#super[${n}]`;
+      }
+      continue;
+    }
     const pieces = r.text.split("\n");
     let inner = pieces
       .map((p) => {
@@ -203,6 +224,38 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
   const revMark = (docId: string, index: number) => (prod?.revised.get(docId)?.has(index) ? "#mw-rev()" : "");
   const image = (b: Block) => `#block(above: 1em, below: 0pt, width: 100%, align(center, image(${str("/" + (b.src ?? "").replace(/^\/+/, ""))}, width: 75%)))\n`;
 
+  // Chicago notes: number every marker in reading order, and gather endnotes for the end.
+  const notePlacement: NotePlacement | null =
+    template.id === "essay" && meta.essay?.style === "chicago-notes" ? (meta.essay.notePlacement ?? "footnotes") : null;
+  const noteKeys = new Map<string, number>();
+  if (notePlacement) {
+    for (const item of items) {
+      if (item.kind !== "doc" && item.kind !== "matter") continue;
+      for (const b of item.blocks) {
+        for (const r of b.runs) {
+          if (!r.note) continue;
+          const key = `${item.id}:${r.note}`;
+          if (!noteKeys.has(key)) noteKeys.set(key, noteKeys.size + 1);
+        }
+      }
+    }
+  }
+  const endnotes = new Map<number, Run[]>();
+  const notesFor = (item: { id: string; notes?: Note[] }): NoteRender | undefined => {
+    if (!notePlacement) return undefined;
+    return {
+      placement: notePlacement,
+      number: (id) => noteKeys.get(`${item.id}:${id}`) ?? 0,
+      text: (id) => item.notes?.find((n) => n.id === id)?.runs ?? [],
+      collect:
+        notePlacement === "endnotes"
+          ? (n, runs) => {
+              if (!endnotes.has(n)) endnotes.set(n, runs);
+            }
+          : undefined,
+    };
+  };
+
   emit(`// Generated by Many Write. Edit the markdown files, not this.\n`);
   emit(`#import "/mw/${template.typst}": *\n`);
   emit(`#show: conf.with(${confArgs.join(", ")})\n`);
@@ -212,6 +265,19 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
   let prevLevel = 0;
   let first = true;
   let matterImported = false;
+  let endnotesEmitted = false;
+  const emitEndnotes = () => {
+    if (endnotesEmitted || !endnotes.size) return;
+    endnotesEmitted = true;
+    if (!matterImported) {
+      emit(`#import "/mw/matter.typ": matter-start, matter-el\n`);
+      matterImported = true;
+    }
+    emit(`#matter-start("Endnotes", first: false)\n`);
+    for (const [n, runs] of [...endnotes.entries()].sort((a, b) => a[0] - b[0])) {
+      emit(`#matter-el("citation", "none")[${n}. ${runsToTypst(runs)}]\n`);
+    }
+  };
   let lastWhere: "front" | "body" | "back" = "front";
   // The kinds of empty lines kept as blank space on the page (pressing Enter twice).
   const blankKinds = new Set(["paragraph", "centered"]);
@@ -224,6 +290,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
   let afterHeading = false;
   for (const item of items) {
     const where = item.kind === "matter" ? item.where : item.kind === "play" ? "front" : "body";
+    if (where === "back") emitEndnotes();
     const script = template.mode === "script";
     if (item.kind === "play") {
       // A play of a collection: its title page, then its own front matter (unnumbered).
@@ -271,7 +338,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
         if (empty && b.type !== "scene_break" && (!blankKinds.has(b.type) || index > mlast)) return;
         lockFor(elementId(item.id, index));
         const start = bytes;
-        emit(`#matter-el(${str(b.type)}, ${mprev})[${empty && b.type !== "scene_break" ? blank : runsToTypst(b.runs)}]\n`);
+        emit(`#matter-el(${str(b.type)}, ${mprev})[${empty && b.type !== "scene_break" ? blank : runsToTypst(b.runs, false, notesFor(item))}]\n`);
         elements.push({ id: elementId(item.id, index), kind: b.type, start, end: bytes });
         mprev = str(b.type);
       });
@@ -357,7 +424,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       if (empty && b.type !== "scene_break" && b.type !== "divider" && !blankLine) return;
       lockFor(elementId(item.id, index));
       const start = bytes;
-      const body = blankLine ? blank : runsToTypst(contd?.has(index) ? [...b.runs, { text: " (CONT'D)" }] : b.runs);
+      const body = blankLine ? blank : runsToTypst(contd?.has(index) ? [...b.runs, { text: " (CONT'D)" }] : b.runs, false, notesFor(item));
       // Document lists: how deep each item is nested, and the number it shows.
       let listArgs = "";
       if (template.mode === "notes" && isListType(b.type)) {
@@ -370,5 +437,6 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       prev = str(b.type);
     });
   }
+  emitEndnotes();
   return { source: parts.join(""), elements };
 }

@@ -107,3 +107,112 @@ describe("generated Typst", () => {
     expect(withPlay.slice(0, 4)).toEqual(["title", "character", "page_break", "title"]);
   });
 });
+
+describe("Chicago notes", () => {
+  const essayMeta = (placement: "footnotes" | "endnotes") => ({
+    ...meta,
+    essay: { style: "chicago-notes" as const, notePlacement: placement, instructor: "", course: "", date: "" },
+  });
+  const run = (text: string, note?: string) => (note ? { text, note } : { text });
+  const items = [
+    {
+      kind: "doc" as const,
+      id: "e",
+      title: "Essay",
+      blocks: [{ type: "paragraph" as const, runs: [run("One", "n1"), run(" two", "n2")] }],
+      notes: [
+        { id: "n1", runs: [{ text: "First note." }] },
+        { id: "n2", runs: [{ text: "Second note." }] },
+      ],
+    },
+    { kind: "matter" as const, id: "bib", title: "Bibliography", blocks: [b("citation", "Morrison, Toni. Beloved.")], where: "back" as const },
+  ];
+
+  it("prints footnotes where they are cited", () => {
+    const src = generateTypst(TEMPLATES.essay, essayMeta("footnotes"), items).source;
+    expect(src).toContain('#footnote[#"First note."]');
+    expect(src).toContain('#footnote[#"Second note."]');
+    expect(src).not.toContain('#matter-start("Endnotes"');
+  });
+
+  it("gathers endnotes into an Endnotes section before the bibliography", () => {
+    const src = generateTypst(TEMPLATES.essay, essayMeta("endnotes"), items).source;
+    expect(src).toContain("#super[1]");
+    expect(src).toContain("#super[2]");
+    expect(src).toContain('#matter-start("Endnotes", first: false)');
+    expect(src).toContain('#matter-el("citation", "none")[1. #"First note."]');
+    expect(src.indexOf('"Notes"')).toBeLessThan(src.indexOf('"Bibliography"'));
+  });
+
+  it("numbers endnotes by first reference, not by definition order", () => {
+    const doc = {
+      kind: "doc" as const,
+      id: "e",
+      title: "Essay",
+      blocks: [{ type: "paragraph" as const, runs: [run("One", "b"), run(" two", "a")] }],
+      notes: [
+        { id: "a", runs: [{ text: "A." }] },
+        { id: "b", runs: [{ text: "B." }] },
+      ],
+    };
+    const src = generateTypst(TEMPLATES.essay, essayMeta("endnotes"), [doc]).source;
+    expect(src.indexOf('[1. #"B."]')).toBeLessThan(src.indexOf('[2. #"A."]'));
+  });
+
+  it("defaults to footnotes when the placement is missing", () => {
+    const src = generateTypst(TEMPLATES.essay, { ...meta, essay: { style: "chicago-notes" as const, instructor: "", course: "", date: "" } }, items).source;
+    expect(src).toContain("#footnote[");
+  });
+
+  it("leaves legacy author–date essays in text", () => {
+    const legacy = { ...meta, essay: { style: "chicago" as const, instructor: "", course: "", date: "" } };
+    const src = generateTypst(TEMPLATES.essay, legacy, items).source;
+    expect(src).not.toContain("#footnote");
+    expect(src).not.toContain('#matter-start("Endnotes"');
+    expect(src).not.toContain("First note");
+  });
+
+  it("leaves notes out of other templates", () => {
+    const doc = {
+      kind: "doc" as const,
+      id: "e",
+      title: "Chapter",
+      blocks: [{ type: "paragraph" as const, runs: [run("One", "n1")] }],
+      notes: [{ id: "n1", runs: [{ text: "Not printed." }] }],
+    };
+    const src = generateTypst(TEMPLATES.book, meta, [doc]).source;
+    expect(src).not.toContain("Not printed");
+  });
+});
+
+describe("export documents", () => {
+  const essay = { ...meta, essay: { style: "chicago-notes" as const, notePlacement: "footnotes" as const, instructor: "", course: "", date: "" } };
+  const items = [
+    {
+      kind: "doc" as const,
+      id: "e",
+      title: "Essay",
+      blocks: [{ type: "paragraph" as const, runs: [{ text: "One", note: "a" }, { text: " two", note: "b" }] }],
+      notes: [
+        { id: "a", runs: [{ text: "First." }] },
+        { id: "b", runs: [{ text: "Second." }] },
+      ],
+    },
+    { kind: "matter" as const, id: "bib", title: "Bibliography", where: "back" as const, blocks: [] },
+  ];
+
+  it("numbers notes across files and carries their text", () => {
+    const doc = toExportDoc(TEMPLATES.essay, essay, items, "x");
+    expect(doc.notePlacement).toBe("footnotes");
+    expect(doc.notes).toEqual([
+      { id: "n1", runs: [{ text: "First." }] },
+      { id: "n2", runs: [{ text: "Second." }] },
+    ]);
+    expect(doc.blocks.find((x) => x.kind === "paragraph")?.runs.map((r) => r.note)).toEqual(["n1", "n2"]);
+  });
+
+  it("does not choose a placement for the legacy author–date style", () => {
+    const legacy = { ...meta, essay: { style: "chicago" as const, instructor: "", course: "", date: "" } };
+    expect(toExportDoc(TEMPLATES.essay, legacy, items, "x").notePlacement).toBeUndefined();
+  });
+});

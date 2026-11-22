@@ -6,11 +6,13 @@ import Italic from "@tiptap/extension-italic";
 import Underline from "@tiptap/extension-underline";
 import HardBreak from "@tiptap/extension-hard-break";
 import { UndoRedo } from "@tiptap/extensions";
-import { ElementNode, ImageNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, insertCitation, setLineType, type SearchHighlight } from "./extensions";
+import { ElementNode, ImageNode, NoteRefNode, ScriptDocument, ScriptKeys, blocksToContent, docToBlocks, insertCitation, insertNoteRef, setLineType, type SearchHighlight } from "./extensions";
 import { CitationDialog } from "../components/CitationDialog";
-import { roleOf } from "../project/model";
+import { NoteDialog } from "../components/NoteDialog";
+import { newId, roleOf } from "../project/model";
 import { elementLabel, hasType, type ElementType, type Template } from "../formats/templates";
-import { parseDoc, serializeDoc, type Block } from "../formats/markdown";
+import { parseInline, serializeRuns, parseDoc, serializeDoc, type Block } from "../formats/markdown";
+import { noteEntry } from "../formats/citations";
 import type { ProjectStore } from "../project/store";
 import { imageUrl, pickImage } from "../lib/backend";
 import { ChevronDown } from "../components/icons";
@@ -41,18 +43,21 @@ const CITING = ["essay", "book", "article", "document"];
 function extensions(
   store: ProjectStore,
   opts: {
+    docId: string;
     template: () => Template;
     names: () => string[];
     search: () => SearchHighlight | null;
     hint?: () => { text: string; type?: ElementType } | null;
     citations?: () => boolean;
     requestCitation?: () => void;
+    requestNote?: () => void;
   },
 ) {
   return [
     ScriptDocument,
     Text,
     ElementNode,
+    NoteRefNode,
     ImageNode.configure({ getRoot: () => store.root, loadUrl: imageUrl }),
     Bold,
     Italic,
@@ -66,6 +71,9 @@ function extensions(
       getHint: opts.hint ?? (() => null),
       getCitations: () => (opts.citations?.() ? { sources: store.sources, style: store.citationStyle } : null),
       requestCitation: opts.requestCitation,
+      getNotePlacement: () => (opts.citations?.() ? store.notePlacement : null),
+      requestNote: opts.requestNote,
+      addNote: (id, runs) => store.addNote(opts.docId, id, runs),
       onCite: (id) => store.touchSource(id),
       pickImage: async () => {
         const f = await pickImage();
@@ -103,6 +111,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
   const [lineType, setType] = useState<ElementType>(template.firstElement);
   const [menuOpen, setMenuOpen] = useState(false);
   const [citing, setCiting] = useState(false);
+  const [noteEdit, setNoteEdit] = useState<{ id: string; isNew: boolean } | null>(null);
   const citable = () => CITING.includes(templateRef.current.id) && ["manuscript", "archive"].includes(roleOf(store.data, docId) ?? "");
   const extRev = useRef(doc.externalRev);
   const breakStyle = useSceneBreakStyle(store, template);
@@ -117,7 +126,7 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
   };
 
   const editor = useEditor({
-    extensions: extensions(store, { template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current, hint, citations: citable, requestCitation: () => setCiting(true) }),
+    extensions: extensions(store, { docId, template: () => templateRef.current, names: () => namesRef.current, search: () => searchRef.current, hint, citations: citable, requestCitation: () => setCiting(true), requestNote: () => setNoteEdit({ id: newId(), isNew: true }) }),
     content: initial(doc.blocks),
     autofocus: "end",
     editorProps: {
@@ -125,6 +134,11 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
         class: `mw-editor mode-${template.mode} tmpl-${template.id}`,
         spellcheck: String(spellcheck),
         "data-testid": "editor",
+      },
+      handleClickOn: (_view, _pos, node) => {
+        if (node.type.name !== "noteRef") return false;
+        setNoteEdit({ id: node.attrs.id as string, isNew: false });
+        return true;
       },
     },
     onUpdate: ({ editor }) => {
@@ -214,15 +228,47 @@ export function EditorPane({ store, docId, template, onCursor, header, focusReq,
         <CitationDialog
           style={store.citationStyle}
           fixedStyle={store.data.template === "essay"}
+          notes={store.notePlacement}
           onCancel={() => {
             setCiting(false);
             editor?.commands.focus();
           }}
           onDone={(src, page, style) => {
             setCiting(false);
-            if (editor) insertCitation(editor.view, src, style, page);
+            if (!editor) return;
+            if (style === "chicago-notes") {
+              const id = newId();
+              if (insertNoteRef(editor.view, id)) store.addNote(docId, id, noteEntry(src, page));
+            } else {
+              insertCitation(editor.view, src, style, page);
+            }
             void store.addSource(src, style);
           }}
+        />
+      )}
+      {noteEdit && (
+        <NoteDialog
+          title={noteEdit.isNew ? "Add a note" : "Edit the note"}
+          initial={noteEdit.isNew ? "" : serializeRuns(store.noteOf(docId, noteEdit.id)?.runs ?? [])}
+          onCancel={() => {
+            setNoteEdit(null);
+            editor?.commands.focus();
+          }}
+          onSave={(text) => {
+            if (noteEdit.isNew && (!editor || !insertNoteRef(editor.view, noteEdit.id))) return;
+            store.addNote(docId, noteEdit.id, parseInline(text));
+            setNoteEdit(null);
+            editor?.commands.focus();
+          }}
+          onDelete={
+            noteEdit.isNew
+              ? undefined
+              : () => {
+                  store.removeNote(docId, noteEdit.id);
+                  setNoteEdit(null);
+                  editor?.commands.focus();
+                }
+          }
         />
       )}
     </div>
@@ -234,7 +280,7 @@ export function NotesEditor({ store, nodeId, markdown, template, spellcheck, onC
   const templateRef = useRef(template);
   const last = useRef(markdown);
   const editor = useEditor({
-    extensions: extensions(store, { template: () => templateRef.current, names: () => [], search: () => null }),
+    extensions: extensions(store, { docId: nodeId, template: () => templateRef.current, names: () => [], search: () => null }),
     content: blocksToContent(parseDoc(markdown, "notes").blocks, template),
     editorProps: { attributes: { class: "mw-editor mode-notes notes-editor", spellcheck: String(spellcheck), "data-testid": "notes" } },
     onUpdate: ({ editor }) => {

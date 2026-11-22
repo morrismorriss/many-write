@@ -30,7 +30,7 @@
   if subtitle != none and subtitle != "" { title = title + ": " + subtitle }
   let author = if author != none { author } else { "" }
   let date = if date != none { date } else { "" }
-  let chicago = style == "chicago"
+  let chicago = style == "chicago" or style == "chicago-notes"
   set document(title: title)
   set text(font: font, size: 12pt, fill: text-fill, lang: "en", hyphenate: false,
     top-edge: 0.8em, bottom-edge: -0.2em,
@@ -81,7 +81,7 @@
 }
 
 #let el(kind, prev, body) = context {
-  let chicago = mw-essay.get() == "chicago"
+  let chicago = mw-essay.get() == "chicago" or mw-essay.get() == "chicago-notes"
   if kind == "title" or kind == "heading" {
     block(sticky: true, above: double, below: 0pt, width: 100%,
       if chicago { align(center, par(first-line-indent: 0pt, strong(body))) } else { par(first-line-indent: 0pt, strong(body)) })

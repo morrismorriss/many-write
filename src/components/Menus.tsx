@@ -5,7 +5,7 @@ import { sceneNewPageDefault, type SceneBreakStyle } from "../project/model";
 import { call, fsApi, imageUrl, join, pickImage, pickSavePath } from "../lib/backend";
 import { essayDate, generateTypst } from "../formats/typst";
 import { toExportDoc, toFdx, toFountain } from "../formats/exporters";
-import { ESSAY_STYLES, type EssayStyle, type ExportFormat } from "../formats/templates";
+import { ESSAY_STYLES, type EssayStyle, type ExportFormat, type NotePlacement } from "../formats/templates";
 import { describeRanges, parsePageRanges, type PageRange } from "../formats/pages";
 import type { ProjectStore } from "../project/store";
 import type { Theme } from "../themes/themes";
@@ -242,12 +242,13 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
       store.toast(`Could not add the picture: ${(e as Error).message}`, "error");
     }
   };
-  const [essayStyle, setEssayStyle] = useState<EssayStyle>(d.settings.essayStyle ?? "mla");
+  const [essayStyle, setEssayStyle] = useState<EssayStyle | "chicago">(d.settings.essayStyle ?? "mla");
+  const [notePlacement, setNotePlacement] = useState<NotePlacement>(d.settings.notePlacement ?? "footnotes");
   const [instructor, setInstructor] = useState(d.settings.instructor ?? "");
   const [course, setCourse] = useState(d.settings.course ?? "");
   const [date, setDate] = useState(d.settings.date ?? "");
   const save = async () => {
-    const essaySettings = essay ? { essayStyle, instructor, course, date } : {};
+    const essaySettings = essay ? { essayStyle, notePlacement, instructor, course, date } : {};
     const bookSettings = book ? { sceneBreak: sceneBreak === "image" && !breakImage ? ("asterisks" as const) : sceneBreak, sceneBreakImage: breakImage } : {};
     const scriptSettings = script ? { sceneNewPage, autoContd } : {};
     await store.updateMeta({ title: title.trim() || "Untitled", subtitle: subtitle.trim(), author, contact, settings: { titlePage, paper, ...essaySettings, ...bookSettings, ...scriptSettings } });
@@ -286,6 +287,22 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
                 ))}
               </div>
             </div>
+            {essayStyle === "chicago" && (
+              <p className="muted small-text">This project still uses the older Chicago author–date style. Choosing Chicago switches it to notes–bibliography.</p>
+            )}
+            {essayStyle === "chicago-notes" && (
+              <div className="field">
+                <span>Notes</span>
+                <div className="segmented" data-testid="settings-note-placement">
+                  <button className={notePlacement === "footnotes" ? "on" : ""} onClick={() => setNotePlacement("footnotes")}>
+                    Footnotes
+                  </button>
+                  <button className={notePlacement === "endnotes" ? "on" : ""} onClick={() => setNotePlacement("endnotes")}>
+                    Endnotes
+                  </button>
+                </div>
+              </div>
+            )}
             <label className="field">
               <span>Instructor</span>
               <input value={instructor} placeholder="Professor Surname" onChange={(e) => setInstructor(e.target.value)} data-testid="essay-instructor" />
@@ -298,7 +315,7 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
               <span>Date</span>
               <input value={date} placeholder={`Today: ${essayDate(essayStyle)}`} onChange={(e) => setDate(e.target.value)} />
             </label>
-            {essayStyle === "chicago" && (
+            {(essayStyle === "chicago" || essayStyle === "chicago-notes") && (
               <label className="check">
                 <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
                 <span>Title page</span>

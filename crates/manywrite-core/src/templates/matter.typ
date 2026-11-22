@@ -13,7 +13,7 @@
     if essay != none {
       // MLA: the title centred at the top, plain. Chicago: the same, then a blank line.
       if title != "" {
-        block(sticky: true, above: 0pt, below: if essay == "chicago" { 2.4em } else { 0pt }, width: 100%,
+        block(sticky: true, above: 0pt, below: if essay == "chicago" or essay == "chicago-notes" { 2.4em } else { 0pt }, width: 100%,
           align(center, par(first-line-indent: 0pt, title)))
       }
     } else {
@@ -32,7 +32,7 @@
   if essay == "mla" {
     // Double-spaced throughout, no extra space between entries.
     block(above: 1em, below: 0pt, par(first-line-indent: 0pt, hanging-indent: 0.5in, body))
-  } else if essay == "chicago" {
+  } else if essay == "chicago" or essay == "chicago-notes" {
     // Single-spaced entries with a blank line between them.
     block(above: 1.4em, below: 0pt, par(first-line-indent: 0pt, hanging-indent: 0.5in, leading: 0.2em, body))
   } else {
