@@ -3,7 +3,7 @@
 // order in Finder, Explorer or Obsidian. Reordering renames files but never
 // rewrites their contents.
 
-import type { EssayStyle, TemplateId } from "../formats/templates";
+import type { EssayStyle, NotePlacement, TemplateId } from "../formats/templates";
 import type { CitationStyle, Source } from "../formats/citations";
 
 export type Role = "front" | "manuscript" | "back" | "characters" | "research" | "archive";
@@ -45,8 +45,10 @@ export interface BinderNode {
 export interface ProjectSettings {
   titlePage: boolean;
   paper: "us-letter" | "a4";
-  /** Essays: citation style, and the details MLA's heading and Chicago's title page show. */
-  essayStyle?: EssayStyle;
+  /** Essays: MLA or Chicago notes–bibliography. Older files may say "chicago" (author–date). */
+  essayStyle?: EssayStyle | "chicago";
+  /** Chicago notes: footnotes at the foot of the page, or endnotes gathered at the end. */
+  notePlacement?: NotePlacement;
   instructor?: string;
   course?: string;
   /** As it should be printed; empty means today's date. */

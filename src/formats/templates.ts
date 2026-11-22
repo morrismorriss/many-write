@@ -36,8 +36,10 @@ export type ElementType =
 
 export type TemplateId = "stage-play" | "screenplay" | "poem" | "book" | "article" | "essay" | "document";
 
-/** Citation style of an essay. */
-export type EssayStyle = "mla" | "chicago";
+/** Citation style of an essay. Older projects may also say "chicago" (author–date); it still renders. */
+export type EssayStyle = "mla" | "chicago-notes";
+/** How Chicago notes print: at the foot of the page, or gathered at the end. */
+export type NotePlacement = "footnotes" | "endnotes";
 
 export const ESSAY_STYLES: { id: EssayStyle; name: string; description: string; sources: string }[] = [
   {
@@ -47,9 +49,9 @@ export const ESSAY_STYLES: { id: EssayStyle; name: string; description: string; 
     sources: "Works Cited",
   },
   {
-    id: "chicago",
+    id: "chicago-notes",
     name: "Chicago",
-    description: "A title page, then numbered pages; footnote-style references gathered in a bibliography.",
+    description: "A title page, then numbered pages; footnotes or endnotes, and a bibliography.",
     sources: "Bibliography",
   },
 ];

@@ -23,6 +23,8 @@ export interface Run {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  /** A footnote/endnote reference: the id of the note it points to. `text` is empty. */
+  note?: string;
 }
 
 export interface Block {
@@ -34,10 +36,19 @@ export interface Block {
   indent?: number;
 }
 
+/** A footnote or endnote definition, written as `[^1]: text` at the end of a file. */
+export interface Note {
+  /** The label as read from the file, or generated for a new note. */
+  id: string;
+  runs: Run[];
+}
+
 export interface ParsedDoc {
   blocks: Block[];
   /** YAML front matter (including the --- fences), preserved untouched. */
   frontMatter: string | null;
+  /** Footnote/endnote definitions, in the order they appear in the file. */
+  notes?: Note[];
 }
 
 export function blockText(b: Block): string {
@@ -73,9 +84,14 @@ export function plainBlock(type: ElementType, text: string): Block {
 
 const ESCAPABLE = /[\\*_]/g;
 
-export function serializeRuns(runs: Run[], { marks = true }: { marks?: boolean } = {}): string {
+export function serializeRuns(runs: Run[], { marks = true, notes }: { marks?: boolean; notes?: Map<string, number> } = {}): string {
   let out = "";
   for (const r of runs) {
+    if (r.note) {
+      const n = notes?.get(r.note);
+      out += `[^${n ?? r.note}]`;
+      continue;
+    }
     let t = r.text.replace(ESCAPABLE, (m) => "\\" + m);
     if (!marks || !t) {
       out += t;
@@ -97,8 +113,8 @@ export function serializeRuns(runs: Run[], { marks = true }: { marks?: boolean }
   return out;
 }
 
-/** Parse `*italic*`, `**bold**`, `_underline_` and backslash escapes. */
-export function parseInline(src: string): Run[] {
+/** Parse `*italic*`, `**bold**`, `_underline_`, `[^1]` notes and backslash escapes. */
+export function parseInline(src: string, { notes = false }: { notes?: boolean } = {}): Run[] {
   const runs: Run[] = [];
   const state = { bold: false, italic: false, underline: false };
   let buf = "";
@@ -109,7 +125,7 @@ export function parseInline(src: string): Run[] {
     if (state.italic) run.italic = true;
     if (state.underline) run.underline = true;
     const last = runs[runs.length - 1];
-    if (last && !!last.bold === !!run.bold && !!last.italic === !!run.italic && !!last.underline === !!run.underline) {
+    if (last && !last.note && !!last.bold === !!run.bold && !!last.italic === !!run.italic && !!last.underline === !!run.underline) {
       last.text += run.text;
     } else {
       runs.push(run);
@@ -133,6 +149,16 @@ export function parseInline(src: string): Run[] {
     if (c === "\\" && i + 1 < src.length && /[\\*_`#>@!()\[\].+&-]/.test(src[i + 1])) {
       buf += src[++i];
       continue;
+    }
+    if (notes && c === "[" && src[i + 1] === "^") {
+      // `[^label]` is a reference; `[^label]:` starts a definition, not a reference.
+      const m = src.slice(i).match(/^\[\^([^\]\s]{1,64})\](?!:)/);
+      if (m) {
+        flush();
+        runs.push({ text: "", note: m[1] });
+        i += m[0].length - 1;
+        continue;
+      }
     }
     if (c === "*" && src[i + 1] === "*") {
       if (state.bold || hasClosing("**", i + 2)) {
@@ -343,11 +369,36 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
   const [frontMatter, body] = splitFrontMatter(text.replace(/\r\n?/g, "\n"));
   const lines = body.split("\n");
   const blocks: Block[] = [];
+  const notes: Note[] = [];
+  const inline = (s: string) => parseInline(s, { notes: true });
   let i = 0;
   while (i < lines.length) {
     const t = lines[i].trim();
     if (!t) {
       i++;
+      continue;
+    }
+    // `[^1]: text` defines a note; indented lines below it continue the same note.
+    const def = t.match(/^\[\^([^\]\s]{1,64})\]:[ \t]?(.*)$/);
+    if (def && !notes.some((n) => n.id === def[1])) {
+      const parts = [def[2]];
+      i++;
+      const continues = (k: number) => k < lines.length && /^[ \t]+\S/.test(lines[k]) && !/^\[\^[^\]\s]{1,64}\]:/.test(lines[k].trim());
+      while (i < lines.length) {
+        if (continues(i)) {
+          parts.push(lines[i].replace(/^(?: {1,4}|\t)/, ""));
+          i++;
+        } else if (!lines[i].trim()) {
+          // Blank lines inside a note are written as indented blanks. Keep them
+          // while an indented continuation follows, so paragraphs stay in the note.
+          let next = i;
+          while (next < lines.length && !lines[next].trim()) next++;
+          if (!continues(next)) break;
+          for (let b = i; b < next; b++) parts.push("");
+          i = next;
+        } else break;
+      }
+      notes.push({ id: def[1], runs: parseInline(parts.join("\n")) });
       continue;
     }
     if (t === BLANK_LINE) {
@@ -380,7 +431,7 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
       const src = [t.replace(/^[-*+]\s+/, "")];
       i++;
       while (i < lines.length && lines[i].trim() && !/^\s*[-*+]\s/.test(lines[i]) && !/^(#{1,6})\s|^>/.test(lines[i].trim())) src.push(lines[i++].trim());
-      blocks.push({ type: "citation", runs: parseInline(joinSoft(src)) });
+      blocks.push({ type: "citation", runs: inline(joinSoft(src)) });
       continue;
     }
     if (/^(\*\s*){3,}$|^(-\s*){3,}$|^(_\s*){3,}$/.test(t)) {
@@ -397,10 +448,10 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
       const bubble = q[0].match(/^\[!text-(left|right)\]\s*(.*)$/i);
       if (bubble) {
         q[0] = bubble[2];
-        blocks.push({ type: bubble[1].toLowerCase() === "left" ? "text_left" : "text_right", runs: parseInline(joinSoft(q.filter((l, k) => l || k > 0))) });
+        blocks.push({ type: bubble[1].toLowerCase() === "left" ? "text_left" : "text_right", runs: inline(joinSoft(q.filter((l, k) => l || k > 0))) });
         continue;
       }
-      blocks.push({ type: "quote", runs: parseInline(joinSoft(q)) });
+      blocks.push({ type: "quote", runs: inline(joinSoft(q)) });
       continue;
     }
     const para: string[] = [];
@@ -408,9 +459,39 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
       para.push(lines[i]);
       i++;
     }
-    blocks.push({ type: "paragraph", runs: parseInline(joinSoft(para.map((l) => l.trim()))) });
+    blocks.push({ type: "paragraph", runs: inline(joinSoft(para.map((l) => l.trim()))) });
   }
-  return { blocks, frontMatter };
+  resolveNoteRefs(blocks, notes);
+  const out: ParsedDoc = { blocks, frontMatter };
+  if (notes.length) out.notes = notes;
+  return out;
+}
+
+/** A `[^x]` with no definition is literal text, so a hand-typed marker never becomes a phantom note. */
+function resolveNoteRefs(blocks: Block[], notes: Note[]) {
+  const known = new Set(notes.map((n) => n.id));
+  for (const b of blocks) {
+    for (const r of b.runs) {
+      if (r.note && !known.has(r.note)) {
+        r.text = `[^${r.note}]`;
+        delete r.note;
+      }
+    }
+  }
+}
+
+/** The number each note gets: by first reference in the text, then any unreferenced definitions. */
+export function noteNumbers(doc: ParsedDoc): Map<string, number> {
+  const numbers = new Map<string, number>();
+  for (const b of doc.blocks) {
+    for (const r of b.runs) {
+      if (r.note && !numbers.has(r.note)) numbers.set(r.note, numbers.size + 1);
+    }
+  }
+  for (const n of doc.notes ?? []) {
+    if (!numbers.has(n.id)) numbers.set(n.id, numbers.size + 1);
+  }
+  return numbers;
 }
 
 /** Join markdown lines: soft wraps become spaces, a trailing "\" is a hard break. */
@@ -426,9 +507,10 @@ function joinSoft(lines: string[]): string {
 
 export function serializeProse(doc: ParsedDoc): string {
   const parts: string[] = [];
+  const numbers = noteNumbers(doc);
   const last = lastContent(doc.blocks);
   for (const [i, b] of doc.blocks.entries()) {
-    const text = serializeRuns(b.runs).trim().replace(/\n/g, "\\\n");
+    const text = serializeRuns(b.runs, { notes: numbers }).trim().replace(/\n/g, "\\\n");
     if (!text && b.type === "paragraph") {
       if (i < last) parts.push(BLANK_LINE);
       continue;
@@ -463,10 +545,18 @@ export function serializeProse(doc: ParsedDoc): string {
         if (text) parts.push(bubbleLines(b.type, text));
         break;
       default:
-        if (text) parts.push(/^(#{1,6}\s|>|[-+]\s|(\*\s*){3,}$|(-\s*){3,}$|&nbsp;$)/.test(text) ? "\\" + text : text);
+        if (text) parts.push(/^(#{1,6}\s|>|[-+]\s|(\*\s*){3,}$|(-\s*){3,}$|&nbsp;$|\[\^[^\]\s]+\]:)/.test(text) ? "\\" + text : text);
     }
   }
-  return (doc.frontMatter ?? "") + parts.join("\n\n") + (parts.length ? "\n" : "");
+  const body = (doc.frontMatter ?? "") + parts.join("\n\n") + (parts.length ? "\n" : "");
+  const defs = [...(doc.notes ?? [])]
+    .sort((a, b) => (numbers.get(a.id) ?? 0) - (numbers.get(b.id) ?? 0))
+    .map((n) => {
+      const text = serializeRuns(n.runs).trim().replace(/\n/g, "\n    ");
+      return `[^${numbers.get(n.id)}]:${text ? ` ${text}` : ""}`;
+    });
+  if (!defs.length) return body;
+  return body + (parts.length ? "\n" : "") + defs.join("\n\n") + "\n";
 }
 
 // ------------------------------------------------------------------- poem

@@ -3,7 +3,7 @@
 // interleave with a rename or a reload.
 
 import { BackendError, call, configApi, fsApi, join } from "../lib/backend";
-import { blockText, parseDoc, serializeDoc, adaptScriptTypes, type Block } from "../formats/markdown";
+import { blockText, parseDoc, serializeDoc, adaptScriptTypes, type Block, type Note, type Run } from "../formats/markdown";
 import {
   getTemplate,
   hasType,
@@ -14,11 +14,12 @@ import {
   type ElementType,
   type EssayStyle,
   type MatterPreset,
+  type NotePlacement,
   type Template,
   type TemplateId,
 } from "../formats/templates";
 import type { ManuscriptItem, ProjectMeta } from "../formats/typst";
-import { cleanSource, referenceEntry, sameSource, sortKey, sourcesPageTitle, type CitationStyle, type Source } from "../formats/citations";
+import { cleanSource, referenceEntry, sameSource, sortKey, sourcesPageTitle, type ReferenceStyle, type Source } from "../formats/citations";
 import type { ImportNode } from "./importers";
 import {
   chapterOf,
@@ -66,6 +67,8 @@ export interface DocState {
   text: string;
   hash: string | null;
   blocks: Block[];
+  /** Footnote/endnote definitions from the file, kept alongside the blocks. */
+  notes?: Note[];
   /** Bumped whenever the content changes for a reason other than typing. */
   externalRev: number;
   rev: number;
@@ -120,7 +123,7 @@ export async function createProject(
   title: string,
   templateId: TemplateId,
   author: string,
-  opts: { essayStyle?: EssayStyle; collection?: boolean } = {},
+  opts: { essayStyle?: EssayStyle; notePlacement?: NotePlacement; collection?: boolean } = {},
 ): Promise<string> {
   const template = TEMPLATES[templateId];
   const root = join(location, title.replace(/[\\/:*?"<>|]+/g, "-").trim() || "Untitled");
@@ -129,7 +132,14 @@ export async function createProject(
   if (templateId === "essay") {
     // Chicago papers open with a title page; MLA papers never have one.
     const style = opts.essayStyle ?? "mla";
-    Object.assign(data.settings, { essayStyle: style, instructor: "", course: "", date: "", titlePage: style === "chicago" });
+    Object.assign(data.settings, {
+      essayStyle: style,
+      notePlacement: opts.notePlacement ?? "footnotes",
+      instructor: "",
+      course: "",
+      date: "",
+      titlePage: style !== "mla",
+    });
   }
   const ms = rootOf(data, "manuscript");
   const docs: { rel: string; content: string }[] = [];
@@ -157,7 +167,7 @@ export async function createProject(
   }
   if (templateId === "essay") {
     // The sources page the style calls for, ready to fill in.
-    const mla = data.settings.essayStyle !== "chicago";
+    const mla = (data.settings.essayStyle ?? "mla") === "mla";
     const title = mla ? "Works Cited" : "Bibliography";
     const file = `01-${slugify(title)}.md`;
     rootOf(data, "back").children!.push({ id: newId(), kind: "doc", title, file });
@@ -479,7 +489,7 @@ export class ProjectStore {
   /** The typeset documents' markdown now: the baseline a revision is measured against. */
   private baselineNow(): Record<string, string> {
     const out: Record<string, string> = {};
-    for (const n of this.typesetDocs()) out[n.id] = this.serialize(n.id, this.docs.get(n.id)?.blocks ?? []);
+    for (const n of this.typesetDocs()) out[n.id] = this.serialize(n.id, this.docs.get(n.id)?.blocks ?? [], this.docs.get(n.id)?.notes);
     return out;
   }
 
@@ -553,9 +563,15 @@ export class ProjectStore {
   // ------------------------------------------------------------ citations
 
   /** The style "/cite" writes in: an essay's own style, otherwise the one last chosen (MLA to start). */
-  get citationStyle(): CitationStyle {
+  get citationStyle(): ReferenceStyle {
     if (this.data.template === "essay") return this.data.settings.essayStyle ?? "mla";
     return this.data.settings.citationStyle ?? "mla";
+  }
+
+  /** Chicago notes: where notes print, or null when this project uses in-text citations. */
+  get notePlacement(): NotePlacement | null {
+    if (this.data.template !== "essay" || this.data.settings.essayStyle !== "chicago-notes") return null;
+    return this.data.settings.notePlacement ?? "footnotes";
   }
 
   /** Sources cited so far, newest first. */
@@ -568,8 +584,10 @@ export class ProjectStore {
    * (made if there isn't one yet), in alphabetical order. A source already
    * remembered is updated rather than added twice. Returns the stored source.
    */
-  async addSource(src: Source, style: CitationStyle): Promise<Source> {
-    if (this.data.template !== "essay" && style !== this.data.settings.citationStyle) this.data.settings.citationStyle = style;
+  async addSource(src: Source, style: ReferenceStyle): Promise<Source> {
+    if (this.data.template !== "essay" && (style === "mla" || style === "chicago") && style !== this.data.settings.citationStyle) {
+      this.data.settings.citationStyle = style;
+    }
     const list = (this.data.sources ??= []);
     const i = list.findIndex((s) => s.id === src.id || sameSource(s, src));
     let stored: Source;
@@ -596,7 +614,7 @@ export class ProjectStore {
     if (!this.single) void this.saveProject();
   }
 
-  private async addToSourcesPage(src: Source, style: CitationStyle) {
+  private async addToSourcesPage(src: Source, style: ReferenceStyle) {
     const back = rootOf(this.data, "back");
     const want = sourcesPageTitle(style).toLowerCase();
     const pages: BinderNode[] = [];
@@ -626,6 +644,38 @@ export class ProjectStore {
     }
     blocks.splice(at, 0, entry);
     this.replaceBlocks(page.id, blocks);
+  }
+
+  // ---------------------------------------------------------------- notes
+
+  /** The text of a footnote/endnote, if this document has one with that id. */
+  noteOf(docId: string, id: string): Note | undefined {
+    return this.docs.get(docId)?.notes?.find((n) => n.id === id);
+  }
+
+  /** Add or replace a note. The marker itself is inserted by the editor. */
+  addNote(docId: string, id: string, runs: Run[]) {
+    const d = this.docs.get(docId);
+    if (!d) return;
+    const notes = (d.notes ??= []);
+    const i = notes.findIndex((n) => n.id === id);
+    if (i >= 0) notes[i] = { id, runs };
+    else notes.push({ id, runs });
+    d.rev++;
+    this.scheduleSave(docId);
+    this.emit();
+  }
+
+  /** Delete a note and every marker pointing at it, then reload the editor. */
+  removeNote(docId: string, id: string) {
+    const d = this.docs.get(docId);
+    if (!d) return;
+    if (d.notes) d.notes = d.notes.filter((n) => n.id !== id);
+    d.blocks = d.blocks.map((b) => (b.runs.some((r) => r.note === id) ? { ...b, runs: b.runs.filter((r) => r.note !== id) } : b));
+    d.rev++;
+    d.externalRev++;
+    this.scheduleSave(docId);
+    this.emit();
   }
 
   // --------------------------------------------------------------- images
@@ -687,6 +737,7 @@ export class ProjectStore {
         this.data.template === "essay"
           ? {
               style: this.data.settings.essayStyle ?? "mla",
+              notePlacement: this.data.settings.notePlacement ?? "footnotes",
               instructor: this.data.settings.instructor ?? "",
               course: this.data.settings.course ?? "",
               date: this.data.settings.date ?? "",
@@ -699,6 +750,7 @@ export class ProjectStore {
   manuscriptItems(): ManuscriptItem[] {
     const items: ManuscriptItem[] = [];
     const usable = (id: string) => !this.conflictCopies.has(id) && !this.missing.has(id);
+    const text = (id: string) => ({ blocks: this.docs.get(id)?.blocks ?? [], notes: this.docs.get(id)?.notes });
     for (const where of ["front", "back"] as const) {
       if (where === "back") {
         const walk = (nodes: BinderNode[], depth: number, chapter: boolean) => {
@@ -706,25 +758,25 @@ export class ProjectStore {
             if (chapter) {
               // Inside a book chapter everything is a section that runs on from the one before.
               if (node.kind === "folder") walk(node.children ?? [], depth + 1, true);
-              else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [], section: true });
+              else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, ...text(node.id), section: true });
             } else if (node.kind === "folder" && node.chapter && this.data.template === "book") {
               items.push({ kind: "folder", id: node.id, title: node.title, depth, chapter: true });
               walk(node.children ?? [], depth + 1, true);
             } else if (node.kind === "folder" && node.matter) {
               // A play's own front matter: typeset like the project's, after the play's title page.
               walkNodes(node.children ?? [], (n) => {
-                if (n.kind === "doc" && usable(n.id)) items.push({ kind: "matter", id: n.id, title: n.title, blocks: this.docs.get(n.id)?.blocks ?? [], where: "front" });
+                if (n.kind === "doc" && usable(n.id)) items.push({ kind: "matter", id: n.id, title: n.title, ...text(n.id), where: "front" });
               });
             } else if (node.kind === "folder") {
               items.push(node.play ? { kind: "play", id: node.id, title: node.title } : { kind: "folder", id: node.id, title: node.title, depth });
               walk(node.children ?? [], depth + 1, false);
-            } else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [] });
+            } else if (usable(node.id)) items.push({ kind: "doc", id: node.id, title: node.title, ...text(node.id) });
           }
         };
         walk(rootOf(this.data, "manuscript")?.children ?? [], 1, false);
       }
       for (const { node } of manuscriptOrder(this.data, where)) {
-        if (node.kind === "doc" && usable(node.id)) items.push({ kind: "matter", id: node.id, title: node.title, blocks: this.docs.get(node.id)?.blocks ?? [], where });
+        if (node.kind === "doc" && usable(node.id)) items.push({ kind: "matter", id: node.id, title: node.title, ...text(node.id), where });
       }
     }
     return items;
@@ -788,9 +840,9 @@ export class ProjectStore {
 
   private frontMatter = new Map<string, string | null>();
 
-  private serialize(id: string, blocks: Block[]): string {
+  private serialize(id: string, blocks: Block[], notes?: Note[]): string {
     const t = this.templateFor(id);
-    return serializeDoc({ blocks, frontMatter: this.frontMatter.get(id) ?? null }, t.mode);
+    return serializeDoc({ blocks, frontMatter: this.frontMatter.get(id) ?? null, notes }, t.mode);
   }
 
   private setFromDisk(id: string, text: string, hash: string | null) {
@@ -803,6 +855,7 @@ export class ProjectStore {
       text,
       hash,
       blocks: this.parse(id, text),
+      notes: parsed.notes,
       externalRev: (prev?.externalRev ?? 0) + 1,
       rev,
       savedRev: rev,
@@ -941,7 +994,7 @@ export class ProjectStore {
       const path = this.pathOf(id);
       if (!path) return;
       const rev = d.rev;
-      const text = this.serialize(id, d.blocks);
+      const text = this.serialize(id, d.blocks, d.notes);
       if (text === d.text) {
         d.savedRev = rev;
         this.emit();
@@ -980,11 +1033,11 @@ export class ProjectStore {
       if (!path || !d) return;
       if (choice === "disk") {
         // Keep the unsaved version in .trash so nothing typed is lost.
-        await this.stash(path, this.serialize(c.docId, d.blocks), "unsaved");
+        await this.stash(path, this.serialize(c.docId, d.blocks, d.notes), "unsaved");
         this.setFromDisk(c.docId, c.diskText, c.diskHash);
       } else {
         await this.stash(path, c.diskText, "outside-edit");
-        const text = this.serialize(c.docId, d.blocks);
+        const text = this.serialize(c.docId, d.blocks, d.notes);
         const { hash } = await fsApi.write(path, text, null, true);
         d.text = text;
         d.hash = hash;
@@ -1595,6 +1648,10 @@ export function normalizeData(d: ProjectFile): ProjectFile {
   }
   const cs = d.settings.citationStyle;
   if (cs !== undefined && cs !== "mla" && cs !== "chicago") delete d.settings.citationStyle;
+  const es = d.settings.essayStyle;
+  if (es !== undefined && es !== "mla" && es !== "chicago-notes" && es !== "chicago") delete d.settings.essayStyle;
+  const np = d.settings.notePlacement;
+  if (np !== undefined && np !== "footnotes" && np !== "endnotes") delete d.settings.notePlacement;
   return d;
 }
 

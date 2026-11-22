@@ -149,15 +149,25 @@ of a book chapter run on. Book chapters, parts and front and back matter pages a
 
 `/cite` in an essay, book, article or document remembers each source in `project.json` under `sources`
 (`kind`: `book`, `article` or `website`; `authors` as `first`/`last` pairs; `title`, `container`, `publisher`,
-`city`, `year`, `date`, `volume`, `issue`, `pages`, `url`, `accessed`). The in-text citation is ordinary text
-in the file, e.g. `(Morrison 23)`, and the full entry is a `- ` line on the Works Cited or Bibliography page.
-Essays cite in their own style; other projects use `settings.citationStyle` (`mla` or `chicago`, author–date).
+`city`, `year`, `date`, `volume`, `issue`, `pages`, `url`, `accessed`). The full entry is a `- ` line on the
+Works Cited or Bibliography page.
+
+MLA puts the in-text citation in the file as ordinary text, e.g. `(Morrison 23)`. Chicago notes puts a
+footnote reference there, written `[^1]`, and the note itself at the end of the file as `[^1]: text`.
+Notes are renumbered by first reference when the file is written, so inserting or deleting one needs no
+manual renumbering. Word exports write them as real footnotes or endnotes; EPUB exports write an
+Endnotes page and link each marker to it. Other projects use `settings.citationStyle` (`mla` or
+`chicago`, author–date).
 
 ## Essays
 
-`project.json` keeps the essay's style and heading details in `settings`: `essayStyle` (`mla` or `chicago`), `instructor`, `course` and `date` (empty means today).
+`project.json` keeps the essay's style and heading details in `settings`: `essayStyle` (`mla` or
+`chicago-notes`), `notePlacement` (`footnotes` or `endnotes`), `instructor`, `course` and `date` (empty
+means today). Older projects may still say `essayStyle: "chicago"`; that is the author–date style and
+still renders.
 MLA puts the name, instructor, course and date at the top left of page 1, the title centred under them, and "Surname n" at the top right of every page.
-Chicago starts with a title page (unless turned off) and numbers pages from 2. Both are 12pt, double-spaced, with 1in margins.
+Chicago starts with a title page (unless turned off), prints notes at the foot of the page or in an Endnotes
+section after the manuscript, and numbers pages from 2. Both are 12pt, double-spaced, with 1in margins.
 
 ## production.json
 

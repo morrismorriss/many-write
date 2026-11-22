@@ -91,7 +91,7 @@ await sleep(1500);
 await page.screenshot({ path: path.join(SHOTS, "essay-works-cited.png") });
 
 // ---- Chicago essay
-root = await newProject("essay", "Bridges", "Grace Hopper", () => page.getByTestId("style-chicago").click());
+root = await newProject("essay", "Bridges", "Grace Hopper", () => page.getByTestId("style-chicago-notes").click());
 ok(fs.existsSync(path.join(root, "back-matter/01-bibliography.md")), "Chicago essay starts with a Bibliography page");
 await editor.click();
 await type("Bridges were built to last. ".repeat(20));

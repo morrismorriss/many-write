@@ -339,3 +339,159 @@ describe("hostile image paths", () => {
     expect(() => serializeDoc({ blocks: [{ type: "image", runs: [], src }], frontMatter: null }, "prose")).not.toThrow();
   });
 });
+
+describe("footnotes and endnotes", () => {
+  const doc = `A first claim.[^1] A second.[^2]
+
+[^1]: First note.
+
+[^2]: Second note.
+`;
+
+  it("reads references and definitions, and round-trips", () => {
+    const parsed = parseProse(doc, false);
+    expect(parsed.notes?.map((n) => n.id)).toEqual(["1", "2"]);
+    expect(blockText(parsed.blocks[0])).toBe("A first claim. A second.");
+    expect(parsed.blocks[0].runs.filter((r) => r.note).map((r) => r.note)).toEqual(["1", "2"]);
+    expect(serializeProse(parsed)).toBe(doc);
+  });
+
+  it("numbers notes by first reference, not by definition order", () => {
+    const md = `A[^b] B[^a]
+
+[^a]: Note A.
+
+[^b]: Note B.
+`;
+    expect(serializeProse(parseProse(md, false))).toBe(`A[^1] B[^2]
+
+[^1]: Note B.
+
+[^2]: Note A.
+`);
+  });
+
+  it("renumbers when a note is inserted before an existing one", () => {
+    const parsed = parseProse(`A[^1] B[^2]
+
+[^1]: One.
+
+[^2]: Two.
+`, false);
+    parsed.blocks[0].runs.splice(3, 0, { text: "", note: "new" });
+    parsed.notes!.push({ id: "new", runs: [{ text: "New." }] });
+    expect(serializeProse(parsed)).toBe(`A[^1] B[^2][^3]
+
+[^1]: One.
+
+[^2]: New.
+
+[^3]: Two.
+`);
+  });
+
+  it("keeps the marker out of the block's text, so it is not a word", () => {
+    const parsed = parseProse(`A[^1] word
+
+[^1]: Note.
+`, false);
+    expect(blockText(parsed.blocks[0])).toBe("A word");
+  });
+
+  it("leaves a reference with no definition as literal text", () => {
+    const parsed = parseProse("A[^7]\n", false);
+    expect(parsed.notes).toBeUndefined();
+    expect(blockText(parsed.blocks[0])).toBe("A[^7]");
+    expect(serializeProse(parsed)).toBe("A[^7]\n");
+  });
+
+  it("keeps a definition nothing references, numbered after the rest", () => {
+    const md = `A[^1]
+
+[^1]: One.
+
+[^9]: Orphan.
+`;
+    expect(serializeProse(parseProse(md, false))).toBe(`A[^1]
+
+[^1]: One.
+
+[^2]: Orphan.
+`);
+  });
+
+  it("continues an indented definition on the next line", () => {
+    const md = `A[^1]
+
+[^1]: First line
+    second line.
+`;
+    const parsed = parseProse(md, false);
+    expect(parsed.notes![0].runs.map((r) => r.text).join("")).toBe("First line\nsecond line.");
+    expect(serializeProse(parsed)).toBe(md);
+  });
+
+  it("keeps emphasis inside a note", () => {
+    const md = `A[^1]
+
+[^1]: See *Beloved*, p. 3.
+`;
+    expect(serializeProse(parseProse(md, false))).toBe(md);
+  });
+
+  it("takes the first definition when a label repeats, and keeps the rest as text", () => {
+    const parsed = parseProse(`A[^1]
+
+[^1]: First.
+
+[^1]: Second.
+`, false);
+    expect(parsed.notes).toHaveLength(1);
+    expect(parsed.notes![0].runs.map((r) => r.text).join("")).toBe("First.");
+    const once = serializeProse(parsed);
+    expect(once).toBe(`A[^1]
+
+\\[^1]: Second.
+
+[^1]: First.
+`);
+    // Stable: reading it back gives the same file.
+    expect(serializeProse(parseProse(once, false))).toBe(once);
+  });
+
+  it("does not read a marker followed by a colon as a reference", () => {
+    const parsed = parseProse("See [^1]: this.\n", false);
+    expect(blockText(parsed.blocks[0])).toBe("See [^1]: this.");
+    expect(parsed.notes).toBeUndefined();
+  });
+
+  it("round-trips an empty note", () => {
+    const md = "A[^1]\n\n[^1]:\n";
+    expect(serializeProse(parseProse(md, false))).toBe(md);
+  });
+
+  it("is not special in scripts or poems", () => {
+    expect(parseScript("A[^1]\n").blocks[0].runs).toEqual([{ text: "A[^1]" }]);
+    expect(parsePoem("A[^1]\n").blocks[0].runs).toEqual([{ text: "A[^1]" }]);
+  });
+
+  it("keeps a note with a blank line in it as one note", () => {
+    const doc = parseProse("Hello[^1]\n\n[^1]: x\n", false);
+    doc.notes![0].runs = [{ text: "Para one.\n\nPara two." }];
+    const back = parseProse(serializeProse(doc), false);
+    expect(back.blocks).toHaveLength(1);
+    expect(back.notes![0].runs.map((r) => r.text).join("")).toBe("Para one.\n\nPara two.");
+  });
+
+  it("keeps several blank lines inside a note", () => {
+    const doc = parseProse("Hello[^1]\n\n[^1]: x\n", false);
+    doc.notes![0].runs = [{ text: "One.\n\n\nTwo." }];
+    const back = parseProse(serializeProse(doc), false);
+    expect(back.blocks).toHaveLength(1);
+    expect(back.notes![0].runs.map((r) => r.text).join("")).toBe("One.\n\n\nTwo.");
+  });
+
+  it("writes a stable label when no number map is given", () => {
+    expect(serializeRuns([{ text: "A" }, { text: "", note: "abc" }])).toBe("A[^abc]");
+  });
+});

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { inTextCitation, referenceEntry, SOURCE_KINDS, sourcesPageTitle, type CitationStyle, type Source, type SourceAuthor, type SourceKind } from "../formats/citations";
+import { inTextCitation, noteEntry, referenceEntry, SOURCE_KINDS, sourcesPageTitle, type ReferenceStyle, type Source, type SourceAuthor, type SourceKind } from "../formats/citations";
+import type { NotePlacement } from "../formats/templates";
+import { searchZotero, zoteroItemToSource, zoteroSummary, type ZoteroItem } from "../formats/zotero";
 import type { Run } from "../formats/markdown";
 import { newId } from "../project/model";
 import { Close, Plus, Trash } from "./icons";
@@ -13,7 +15,7 @@ function Runs({ runs }: { runs: Run[] }) {
   );
 }
 
-type Field = { key: keyof Source; label: string; placeholder: string; only?: CitationStyle };
+type Field = { key: keyof Source; label: string; placeholder: string; only?: "chicago" };
 
 const FIELDS: Record<SourceKind, Field[]> = {
   book: [
@@ -46,24 +48,60 @@ const FIELDS: Record<SourceKind, Field[]> = {
 export function CitationDialog({
   style: initialStyle,
   fixedStyle,
+  notes,
   onDone,
   onCancel,
 }: {
-  style: CitationStyle;
+  style: ReferenceStyle;
   /** Essays: the style is set by the essay itself. */
   fixedStyle: boolean;
-  onDone: (src: Source, page: string, style: CitationStyle) => void;
+  /** Chicago notes: footnotes or endnotes; null = an in-text citation. */
+  notes: NotePlacement | null;
+  onDone: (src: Source, page: string, style: ReferenceStyle) => void;
   onCancel: () => void;
 }) {
-  const [style, setStyle] = useState<CitationStyle>(initialStyle);
+  const [style, setStyle] = useState<ReferenceStyle>(initialStyle);
   const [kind, setKind] = useState<SourceKind>("book");
   const [authors, setAuthors] = useState<SourceAuthor[]>([{ first: "", last: "" }]);
   const [fields, setFields] = useState<Partial<Record<keyof Source, string>>>({});
   const [page, setPage] = useState("");
+  const [zotero, setZotero] = useState<{ open: boolean; query: string; busy: boolean; error: string; searched: boolean; items: ZoteroItem[] }>({
+    open: false,
+    query: "",
+    busy: false,
+    error: "",
+    searched: false,
+    items: [],
+  });
   const set = (k: keyof Source, v: string) => setFields((f) => ({ ...f, [k]: v }));
+  const applyZotero = (item: ZoteroItem) => {
+    const imported = zoteroItemToSource(item, newId());
+    const next: Partial<Record<keyof Source, string>> = { title: imported.title };
+    for (const key of ["container", "publisher", "city", "year", "date", "volume", "issue", "pages", "url", "accessed"] as const) {
+      const value = imported[key];
+      if (value) next[key] = value;
+    }
+    setKind(imported.kind);
+    setAuthors(imported.authors.length ? imported.authors : [{ first: "", last: "" }]);
+    setFields(next);
+    setPage("");
+    setZotero((z) => ({ ...z, open: false, items: [], error: "" }));
+  };
+  const runZotero = async () => {
+    const query = zotero.query.trim();
+    if (zotero.busy) return;
+    setZotero((z) => ({ ...z, busy: true, error: "" }));
+    try {
+      const items = await searchZotero(query);
+      setZotero((z) => ({ ...z, busy: false, searched: true, items }));
+    } catch (e) {
+      const message = (e as Error).message || "Zotero did not answer.";
+      setZotero((z) => ({ ...z, busy: false, searched: true, items: [], error: message }));
+    }
+  };
   const source = (): Source => {
     const s: Source = { id: newId(), kind, authors: authors.filter((a) => a.first.trim() || a.last.trim()), title: (fields.title ?? "").trim() };
-    for (const f of FIELDS[kind]) if (fields[f.key]?.trim() && (!f.only || f.only === style)) (s as unknown as Record<string, string>)[f.key] = fields[f.key]!.trim();
+    for (const f of FIELDS[kind]) if (fields[f.key]?.trim() && (!f.only || style !== "mla")) (s as unknown as Record<string, string>)[f.key] = fields[f.key]!.trim();
     return s;
   };
   const src = source();
@@ -91,7 +129,9 @@ export function CitationDialog({
         <div className="field">
           <span>Style</span>
           {fixedStyle ? (
-            <span className="muted small-text">{style === "mla" ? "MLA" : "Chicago (author–date)"}, as set for this essay</span>
+            <span className="muted small-text">
+              {style === "mla" ? "MLA" : style === "chicago-notes" ? "Chicago (notes–bibliography)" : "Chicago (author–date)"}, as set for this essay
+            </span>
           ) : (
             <div className="segmented" data-testid="cite-style">
               <button className={style === "mla" ? "on" : ""} onClick={() => setStyle("mla")}>
@@ -101,6 +141,56 @@ export function CitationDialog({
                 Chicago
               </button>
             </div>
+          )}
+        </div>
+        <div className="field">
+          <span>Zotero</span>
+          {zotero.open ? (
+            <div className="zotero-search">
+              <div className="zotero-row">
+                <input
+                  autoFocus
+                  value={zotero.query}
+                  placeholder="Search your Zotero library, or leave empty to browse"
+                  onChange={(e) => setZotero((z) => ({ ...z, query: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runZotero();
+                    }
+                  }}
+                  data-testid="zotero-query"
+                />
+                <button className="btn" disabled={zotero.busy} onClick={() => void runZotero()} data-testid="zotero-search">
+                  {zotero.busy ? "Searching…" : "Search"}
+                </button>
+                <button className="btn ghost" onClick={() => setZotero((z) => ({ ...z, open: false }))}>
+                  Close
+                </button>
+              </div>
+              {zotero.error && (
+                <p className="muted small-text" data-testid="zotero-error">
+                  {zotero.error}
+                </p>
+              )}
+              {zotero.items.length > 0 && (
+                <ul className="zotero-results" data-testid="zotero-results">
+                  {zotero.items.map((item) => (
+                    <li key={item.key}>
+                      <button className="zotero-item" onClick={() => applyZotero(item)}>
+                        <span>{item.data.title || "Untitled"}</span>
+                        <span className="muted small-text">{zoteroSummary(item)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!zotero.busy && !zotero.error && zotero.searched && zotero.items.length === 0 && <p className="muted small-text">No items matched.</p>}
+            </div>
+          ) : (
+            <button className="btn ghost small" onClick={() => setZotero((z) => ({ ...z, open: true }))} data-testid="zotero-open">
+              From Zotero…
+            </button>
           )}
         </div>
         <div className="field">
@@ -153,7 +243,7 @@ export function CitationDialog({
         </label>
         <div className="cite-grid">
           {FIELDS[kind]
-            .filter((f) => !f.only || f.only === style)
+            .filter((f) => !f.only || style !== "mla")
             .map((f) => (
               <label key={f.key} className="field">
                 <span>{f.label}</span>
@@ -166,21 +256,36 @@ export function CitationDialog({
           </label>
         </div>
         <div className="cite-preview" aria-live="polite">
-          <div className="cite-preview-label">In the text</div>
-          <div data-testid="cite-preview-intext">
-            <Runs runs={inTextCitation(src, style, page).runs} />
-          </div>
-          <div className="cite-preview-label">{sourcesPageTitle(style)}</div>
-          <div className="cite-entry" data-testid="cite-preview-entry">
-            <Runs runs={referenceEntry(src, style)} />
-          </div>
+          {notes ? (
+            <>
+              <div className="cite-preview-label">In the note</div>
+              <div data-testid="cite-preview-note">
+                <Runs runs={noteEntry(src, page)} />
+              </div>
+              <div className="cite-preview-label">{sourcesPageTitle(style)}</div>
+              <div className="cite-entry" data-testid="cite-preview-entry">
+                <Runs runs={referenceEntry(src, style)} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="cite-preview-label">In the text</div>
+              <div data-testid="cite-preview-intext">
+                <Runs runs={inTextCitation(src, style === "chicago-notes" ? "chicago" : style, page).runs} />
+              </div>
+              <div className="cite-preview-label">{sourcesPageTitle(style)}</div>
+              <div className="cite-entry" data-testid="cite-preview-entry">
+                <Runs runs={referenceEntry(src, style)} />
+              </div>
+            </>
+          )}
         </div>
         <div className="modal-foot">
           <button className="btn ghost" onClick={onCancel}>
             Cancel
           </button>
           <button className="btn primary" disabled={!ready} onClick={done} data-testid="cite-insert">
-            Insert citation
+            {notes ? "Insert note" : "Insert citation"}
           </button>
         </div>
       </div>

@@ -144,10 +144,14 @@ async function create(template, title) {
   await page.getByTestId("cite-url").fill("https://www.example.com/tides");
   await page.getByTestId("cite-insert").click();
   await sleep(1800);
-  ok((await page.getByTestId("editor").innerText()).includes("Tides are slow (“How Tides Work” 2024)"), "Chicago author–date citation in the text");
+  ok(!(await page.getByTestId("editor").innerText()).includes("(“How Tides Work” 2024)"), "Chicago notes puts no author–date citation in the text");
+  const ms = section(root, "manuscript").children[0];
+  const scene = fs.readFileSync(path.join(root, "manuscript", ms.file), "utf8");
+  ok(/Tides are slow ?\[\^1\]/.test(scene), `a note marker follows the text (${scene.trim()})`);
+  ok(/^\[\^1\]: “How Tides Work,” Ocean Facts, 2024/m.test(scene), "the note carries the full reference");
   const bib = section(root, "back").children.find((n) => n.title === "Bibliography");
   const text = fs.readFileSync(path.join(root, "back-matter", bib.file), "utf8");
-  ok(text.includes("“How Tides Work.” 2024. Ocean Facts."), `the essay's Bibliography gets the entry (${text.trim()})`);
+  ok(text.includes("“How Tides Work.” Ocean Facts. 2024."), `the essay's Bibliography gets the entry (${text.trim()})`);
 }
 
 // ---- Screenplays run scenes on by default; stage plays don't

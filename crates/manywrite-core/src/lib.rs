@@ -6,5 +6,6 @@ pub mod engine;
 pub mod export;
 pub mod fs;
 pub mod import;
+pub mod zotero;
 
 pub use api::Core;

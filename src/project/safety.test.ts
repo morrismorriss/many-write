@@ -97,3 +97,24 @@ describe("prototype keys in project.json", () => {
     expect(getTemplate("book")).toBe(TEMPLATES.book);
   });
 });
+
+describe("essay settings from disk", () => {
+  const essay = { title: "E", template: "essay", binder: [] } as unknown as ProjectFile;
+
+  it("keeps the notes style and its placement", () => {
+    const d = normalizeData({ ...essay, settings: { essayStyle: "chicago-notes", notePlacement: "endnotes" } } as unknown as ProjectFile);
+    expect(d.settings.essayStyle).toBe("chicago-notes");
+    expect(d.settings.notePlacement).toBe("endnotes");
+  });
+
+  it("still accepts the legacy author–date style", () => {
+    const d = normalizeData({ ...essay, settings: { essayStyle: "chicago" } } as unknown as ProjectFile);
+    expect(d.settings.essayStyle).toBe("chicago");
+  });
+
+  it("drops a style or placement it does not know", () => {
+    const d = normalizeData({ ...essay, settings: { essayStyle: "apa", notePlacement: "sidenotes" } } as unknown as ProjectFile);
+    expect(d.settings.essayStyle).toBeUndefined();
+    expect(d.settings.notePlacement).toBeUndefined();
+  });
+});

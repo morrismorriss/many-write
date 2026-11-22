@@ -1,7 +1,7 @@
 // Text-based exports built in the UI: Fountain and Final Draft (.fdx) XML,
 // plus the neutral block list the core turns into .docx and .epub.
 
-import { blockText, serializeRuns, serializeScript, type Block, type Run } from "./markdown";
+import { blockText, serializeRuns, serializeScript, type Block, type Note, type Run } from "./markdown";
 import { contdLines, essayDate, sceneBreakText, type ManuscriptItem, type ProjectMeta } from "./typst";
 import { isListType, listNumbers, MAX_INDENT, type Template } from "./templates";
 
@@ -132,10 +132,19 @@ export interface ExportDoc {
   lang: string;
   id: string;
   blocks: ExportBlock[];
-  /** Essays: "mla" or "chicago". */
+  /** Essays: "mla", "chicago" (author–date) or "chicago-notes". */
   style?: string;
   /** Essays: the words before the page number in the running header (MLA: the author's surname). */
   runningHead?: string;
+  /** Chicago notes: "footnotes" or "endnotes". */
+  notePlacement?: string;
+  /** Chicago notes: the note texts, keyed by the ids on the note runs. */
+  notes?: ExportNote[];
+}
+
+export interface ExportNote {
+  id: string;
+  runs: Run[];
 }
 
 /** Essay opening: MLA's heading block and title, or Chicago's title page or title and byline. */
@@ -159,6 +168,23 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
   const blocks: ExportBlock[] = [];
   const script = template.mode === "script";
   const essay = template.id === "essay";
+  // The export is one document, so notes from every file share one numbering space.
+  const notes: ExportNote[] = [];
+  const noteIds = new Map<string, string>();
+  const exportRuns = (runs: Run[], owner: { id: string; notes?: Note[] }): Run[] =>
+    runs.flatMap((r) => {
+      if (!r.note) return [r];
+      const key = `${owner.id}:${r.note}`;
+      let id = noteIds.get(key);
+      if (!id) {
+        const note = owner.notes?.find((n) => n.id === r.note);
+        if (!note) return [];
+        id = `n${notes.length + 1}`;
+        noteIds.set(key, id);
+        notes.push({ id, runs: note.runs.filter((x) => !x.note) });
+      }
+      return [{ ...r, note: id }];
+    });
   if (essay) blocks.push(...essayOpening(meta));
   if (meta.titlePage && (script || template.id === "book")) {
     blocks.push({ kind: "title", runs: [{ text: meta.title || "Untitled" }] });
@@ -204,7 +230,7 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
       blocks.push(essay ? { kind: "matter_title", runs: [{ text: item.title }] } : { kind: "matter_title", runs: [], label: item.title });
       item.blocks.forEach((b, i, all) => {
         if (keptBlank(b, i, all)) blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: blankLine });
-        else if (blockText(b).trim() || b.type === "scene_break") blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: b.runs });
+        else if (blockText(b).trim() || b.type === "scene_break") blocks.push({ kind: b.type === "paragraph" ? "matter_paragraph" : b.type, runs: exportRuns(b.runs, item) });
       });
       newPage = true;
       continue;
@@ -225,7 +251,7 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
           continue;
         }
         prevEmpty = false;
-        blocks.push({ kind: b.type === "title" ? "title" : "line", runs: b.runs });
+        blocks.push({ kind: b.type === "title" ? "title" : "line", runs: exportRuns(b.runs, item) });
         continue;
       }
       if (!script && keptBlank(b, i, item.blocks)) {
@@ -240,21 +266,23 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
       if (template.mode === "notes") {
         const k = exportKind(b, nums[i]);
         const indent = isListType(b.type) ? Math.min(b.indent ?? 0, MAX_INDENT) : 0;
-        blocks.push({ kind: k.kind, runs: k.prefix ? [{ text: k.prefix }, ...b.runs] : b.runs, ...(indent ? { indent } : {}) });
+        blocks.push({ kind: k.kind, runs: exportRuns(k.prefix ? [{ text: k.prefix }, ...b.runs] : b.runs, item), ...(indent ? { indent } : {}) });
         continue;
       }
       if (b.type === "scene_break" && meta.sceneBreak && meta.sceneBreak.style !== "asterisks") {
         blocks.push({ kind: b.type, runs: [{ text: sceneBreakText(meta.sceneBreak.style) }] });
         continue;
       }
-      blocks.push({ kind: b.type, runs: normalizeRuns(b) });
+      blocks.push({ kind: b.type, runs: exportRuns(normalizeRuns(b), item) });
     }
   }
   const doc: ExportDoc = { title: meta.title || "Untitled", author: meta.author, template: template.id, lang: "en", id: `urn:uuid:${projectId}`, blocks };
   if (essay) {
     doc.style = meta.essay?.style ?? "mla";
     doc.runningHead = doc.style === "mla" ? (meta.author.trim().split(/\s+/).pop() ?? "") : "";
+    if (doc.style === "chicago-notes") doc.notePlacement = meta.essay?.notePlacement ?? "footnotes";
   }
+  if (notes.length) doc.notes = notes;
   return doc;
 }
 
