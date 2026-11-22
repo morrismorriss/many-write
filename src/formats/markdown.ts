@@ -383,9 +383,16 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
     if (def && !notes.some((n) => n.id === def[1])) {
       const parts = [def[2]];
       i++;
-      while (i < lines.length && /^[ \t]+\S/.test(lines[i]) && !/^\[\^[^\]\s]{1,64}\]:/.test(lines[i].trim())) {
-        parts.push(lines[i].replace(/^(?: {1,4}|\t)/, ""));
-        i++;
+      const continues = (k: number) => k < lines.length && /^[ \t]+\S/.test(lines[k]) && !/^\[\^[^\]\s]{1,64}\]:/.test(lines[k].trim());
+      while (i < lines.length) {
+        if (continues(i)) {
+          parts.push(lines[i].replace(/^(?: {1,4}|\t)/, ""));
+          i++;
+        } else if (!lines[i].trim() && continues(i + 1)) {
+          // A blank line inside a note, as serializeProse writes it: the note goes on.
+          parts.push("");
+          i++;
+        } else break;
       }
       notes.push({ id: def[1], runs: parseInline(parts.join("\n")) });
       continue;

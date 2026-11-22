@@ -475,6 +475,14 @@ describe("footnotes and endnotes", () => {
     expect(parsePoem("A[^1]\n").blocks[0].runs).toEqual([{ text: "A[^1]" }]);
   });
 
+  it("keeps a note with a blank line in it as one note", () => {
+    const doc = parseProse("Hello[^1]\n\n[^1]: x\n", false);
+    doc.notes![0].runs = [{ text: "Para one.\n\nPara two." }];
+    const back = parseProse(serializeProse(doc), false);
+    expect(back.blocks).toHaveLength(1);
+    expect(back.notes![0].runs.map((r) => r.text).join("")).toBe("Para one.\n\nPara two.");
+  });
+
   it("writes a stable label when no number map is given", () => {
     expect(serializeRuns([{ text: "A" }, { text: "", note: "abc" }])).toBe("A[^abc]");
   });
