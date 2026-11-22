@@ -483,6 +483,14 @@ describe("footnotes and endnotes", () => {
     expect(back.notes![0].runs.map((r) => r.text).join("")).toBe("Para one.\n\nPara two.");
   });
 
+  it("keeps several blank lines inside a note", () => {
+    const doc = parseProse("Hello[^1]\n\n[^1]: x\n", false);
+    doc.notes![0].runs = [{ text: "One.\n\n\nTwo." }];
+    const back = parseProse(serializeProse(doc), false);
+    expect(back.blocks).toHaveLength(1);
+    expect(back.notes![0].runs.map((r) => r.text).join("")).toBe("One.\n\n\nTwo.");
+  });
+
   it("writes a stable label when no number map is given", () => {
     expect(serializeRuns([{ text: "A" }, { text: "", note: "abc" }])).toBe("A[^abc]");
   });

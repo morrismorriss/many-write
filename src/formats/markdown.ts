@@ -388,10 +388,14 @@ export function parseProse(text: string, hasTitle: boolean, citations = false): 
         if (continues(i)) {
           parts.push(lines[i].replace(/^(?: {1,4}|\t)/, ""));
           i++;
-        } else if (!lines[i].trim() && continues(i + 1)) {
-          // A blank line inside a note, as serializeProse writes it: the note goes on.
-          parts.push("");
-          i++;
+        } else if (!lines[i].trim()) {
+          // Blank lines inside a note are written as indented blanks. Keep them
+          // while an indented continuation follows, so paragraphs stay in the note.
+          let next = i;
+          while (next < lines.length && !lines[next].trim()) next++;
+          if (!continues(next)) break;
+          for (let b = i; b < next; b++) parts.push("");
+          i = next;
         } else break;
       }
       notes.push({ id: def[1], runs: parseInline(parts.join("\n")) });
