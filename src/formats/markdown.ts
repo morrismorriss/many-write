@@ -13,6 +13,11 @@
 //
 //   > BLACKOUT.                   transition: starts with ">"
 //
+//   ~~ Defying Gravity            song title (musicals)
+//
+//   ELPHABA                       lyrics: "~" lines, under a cue or on their own
+//   ~Something has changed within me
+//
 //   @McCoy                        forced character cue (mixed case or no dialogue)
 //   !NOBODY MOVES.                forced direction (would otherwise look like a cue)
 
@@ -146,7 +151,7 @@ export function parseInline(src: string, { notes = false }: { notes?: boolean } 
   };
   for (let i = 0; i < src.length; i++) {
     const c = src[i];
-    if (c === "\\" && i + 1 < src.length && /[\\*_`#>@!()\[\].+&-]/.test(src[i + 1])) {
+    if (c === "\\" && i + 1 < src.length && /[\\*_`#>@!()\[\].+&~-]/.test(src[i + 1])) {
       buf += src[++i];
       continue;
     }
@@ -245,6 +250,19 @@ export function parseScript(text: string): ParsedDoc {
       i++;
       continue;
     }
+    // Musicals: "~~ Title" is a song, "~line" a lyric (Fountain's lyric mark).
+    if (t.startsWith("~~")) {
+      blocks.push({ type: "song", runs: parseInline(t.slice(2).trim()) });
+      i++;
+      continue;
+    }
+    if (t.startsWith("~")) {
+      while (!isBlank(lines[i]) && lines[i].trim().startsWith("~") && !lines[i].trim().startsWith("~~")) {
+        blocks.push({ type: "lyric", runs: parseInline(lines[i].trim().slice(1).trim()) });
+        i++;
+      }
+      continue;
+    }
     if (t.startsWith(">")) {
       blocks.push({ type: "transition", runs: parseInline(t.slice(1).replace(/<\s*$/, "").trim()) });
       i++;
@@ -262,6 +280,7 @@ export function parseScript(text: string): ParsedDoc {
       while (!isBlank(lines[i])) {
         const d = lines[i].trim();
         if (/^\(.*\)$/.test(d)) blocks.push({ type: "parenthetical", runs: parseInline(d) });
+        else if (d.startsWith("~")) blocks.push({ type: "lyric", runs: parseInline(d.slice(1).trim()) });
         else blocks.push({ type: "dialogue", runs: parseInline(d) });
         i++;
       }
@@ -282,10 +301,19 @@ export function parseScript(text: string): ParsedDoc {
 /** Does a direction/action paragraph need a "!" so it is not read as something else? */
 function needsForcing(text: string): boolean {
   const first = text.split("\n")[0].trim();
-  if (/^[#>@!.]/.test(first)) return true;
+  if (/^[#>@!.~]/.test(first)) return true;
   if (looksLikeCue(first) && text.includes("\n")) return true;
   if (SCENE_HEADING_RE.test(first) || TRANSITION_RE.test(first)) return true;
   return false;
+}
+
+/** A lyric block as "~" lines; a line break inside it (Shift-Enter) is another sung line. */
+function lyricLines(b: Block): string[] {
+  return serializeRuns(b.runs)
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => "~" + (l.startsWith("~") ? "\\" : "") + l);
 }
 
 export function serializeScript(doc: ParsedDoc, actionType: ElementType = "direction"): string {
@@ -306,17 +334,19 @@ export function serializeScript(doc: ParsedDoc, actionType: ElementType = "direc
         if (!text) continue;
         const lines: string[] = [];
         let j = i + 1;
-        for (; j < bs.length && (bs[j].type === "parenthetical" || bs[j].type === "dialogue"); j++) {
+        for (; j < bs.length && (bs[j].type === "parenthetical" || bs[j].type === "dialogue" || bs[j].type === "lyric"); j++) {
           const t = blockText(bs[j]).trim();
           if (!t) continue;
-          if (bs[j].type === "parenthetical") {
+          if (bs[j].type === "lyric") {
+            lines.push(...lyricLines(bs[j]));
+          } else if (bs[j].type === "parenthetical") {
             lines.push(/^\(.*\)$/.test(t) ? t : `(${t.replace(/^\(|\)$/g, "")})`);
           } else {
             // A dialogue line that looks like a parenthetical stays dialogue via escape.
             for (let d of serializeRuns(bs[j].runs).trim().split("\n")) {
               d = d.trim();
               if (!d) continue;
-              if (/^\(.*\)$/.test(d)) d = "\\" + d;
+              if (/^\(.*\)$/.test(d) || d.startsWith("~")) d = "\\" + d;
               lines.push(d);
             }
           }
@@ -324,6 +354,18 @@ export function serializeScript(doc: ParsedDoc, actionType: ElementType = "direc
         const name = text.toUpperCase().replace(/\n/g, " ");
         const cue = lines.length && looksLikeCue(name) ? name : `@${name}`;
         groups.push([cue, ...lines].join("\n"));
+        i = j - 1;
+        break;
+      }
+      case "song":
+        groups.push(`~~ ${serializeRuns(b.runs).replace(/\n/g, " ").trim()}`);
+        break;
+      case "lyric": {
+        // Lyrics with no cue above them (a chorus, the ensemble): one group of "~" lines.
+        const lines: string[] = [];
+        let j = i;
+        for (; j < bs.length && bs[j].type === "lyric"; j++) lines.push(...lyricLines(bs[j]));
+        if (lines.length) groups.push(lines.join("\n"));
         i = j - 1;
         break;
       }

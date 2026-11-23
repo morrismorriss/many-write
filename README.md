@@ -89,6 +89,10 @@ Choose **Play collection** when you create a project (or press the masks button 
 
 To bring in an existing script, hover over a play and press the import button: its scenes go into that play (replacing the empty Scene 1 of a new play), and the play takes its title from the Final Draft title page. Fountain, Word, PDF and RTF scripts work the same way.
 
+## Musicals
+
+In a stage play or screenplay, type **/song** to start a song anywhere in a scene. Type its title, then Enter: a character cue, and after it a **lyric** line instead of dialogue. Enter goes on to the next sung line; Enter on an empty lyric starts the next singer's cue. Inside a song, cues keep getting lyrics (stage directions and parentheticals in between are fine) until someone speaks: Tab or Shift-Tab switches a line between lyric and dialogue. On the page the title is centred, bold and underlined, and lyrics are in italics, one line each. Files write a song as `~~ Title` and lyrics as `~line`, Fountain's lyric mark.
+
 ## Open and import
 
 - **Open document…** edits a single `.md`, `.txt` or `.fountain` file in place, with the preview and exports, without creating a project. Plain files open in the **Document** format: headings, paragraphs, lists, to-dos, quotes and callouts, typeset as a clean page.

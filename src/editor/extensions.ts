@@ -3,7 +3,7 @@ import Document from "@tiptap/extension-document";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import { Fragment, Slice, type Node as PMNode, type Schema } from "@tiptap/pm/model";
-import { cycleNext, elementLabel, hasType, isListType, listNumbers, MAX_INDENT, type ElementType, type NotePlacement, type Template } from "../formats/templates";
+import { cycleNext, elementLabel, hasType, inSong, isListType, listNumbers, MAX_INDENT, type ElementType, type NotePlacement, type Template } from "../formats/templates";
 import { parseDoc, serializeDoc, adaptScriptTypes, noteNumbers, type Block, type Run } from "../formats/markdown";
 import { linkTarget, URL_RE } from "../formats/typst";
 import { openUrl } from "../lib/backend";
@@ -261,6 +261,20 @@ export function shiftIndent(state: EditorState, dispatch: ((tr: Transaction) => 
   return true;
 }
 
+/**
+ * In a musical, the line after a cue or parenthetical inside a song is a lyric,
+ * not spoken dialogue. `index` is the position (among the document's top-level
+ * lines) the new line will take.
+ */
+function songAware(doc: PMNode, index: number, next: ElementType, template: Template): ElementType {
+  if (next !== "dialogue" || !hasType(template, "lyric")) return next;
+  const types: ElementType[] = [];
+  doc.forEach((n, _, i) => {
+    if (i < index) types.push(n.attrs.type as ElementType);
+  });
+  return inSong(types, index) ? "lyric" : next;
+}
+
 // ------------------------------------------------------------ popup menu
 // One small menu serves two jobs: the "/" block menu and, on a character
 // line, the list of names already used in the script (as in Scrivener).
@@ -486,14 +500,24 @@ function choose(view: EditorView, info: PopupInfo, i: number, opts: ScriptKeysOp
       void pickImageFor(view);
       return true;
     }
+    if (item.value === "song" && tr.selection.$from.parent.textContent.trim()) {
+      // "/song" typed after some words: the song starts on its own line below them.
+      const end = tr.selection.$from.after();
+      tr.insert(end, view.state.schema.nodes.element.create({ type: "song" }));
+      tr.setSelection(TextSelection.create(tr.doc, end + 1));
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    }
     tr = retype(tr, item.value as ElementType);
     view.dispatch(tr.scrollIntoView());
     return true;
   }
-  // A picked name fills the cue and moves on to the dialogue line.
+  // A picked name fills the cue and moves on to the dialogue line (a lyric inside a song).
   tr.insertText(item.value, info.from, info.to);
   const at = tr.selection.$from.end();
-  tr.split(at, 1, [{ type: view.state.schema.nodes.element, attrs: { type: template.afterEnter.character ?? "dialogue" } }]);
+  const cueIndex = tr.selection.$from.index(0);
+  const next = songAware(tr.doc, cueIndex + 1, template.afterEnter.character ?? "dialogue", template);
+  tr.split(at, 1, [{ type: view.state.schema.nodes.element, attrs: { type: next } }]);
   tr.setSelection(TextSelection.create(tr.doc, at + 2));
   view.dispatch(tr.scrollIntoView());
   return true;
@@ -631,6 +655,7 @@ function handleEnter(view: EditorView, template: Template): boolean {
   }
   let nextType = atEnd ? (template.afterEnter[type] ?? type) : type;
   if (nextType === "todo_done") nextType = "todo";
+  if (atEnd) nextType = songAware(tr.doc, $at.index(0) + 1, nextType, template);
   tr = tr.split(at, 1, [{ type: state.schema.nodes.element, attrs: { type: nextType, indent: isListType(nextType) ? indent : 0 } }]);
   // The new line's content starts two positions after the split point.
   tr = tr.setSelection(TextSelection.create(tr.doc, at + 2));
@@ -861,7 +886,7 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               return true;
             }
             // "(" on an empty dialogue line starts a parenthetical.
-            if (text === "(" && type === "dialogue" && $from.parent.content.size === 0) {
+            if (text === "(" && (type === "dialogue" || type === "lyric") && $from.parent.content.size === 0) {
               return setLineType(state, view.dispatch, "parenthetical");
             }
             // Notion-style markdown shortcuts in notes and prose.

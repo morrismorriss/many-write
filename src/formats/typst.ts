@@ -130,7 +130,7 @@ export function contdLines(blocks: Block[]): Set<number> {
   const out = new Set<number>();
   let last: string | null = null;
   blocks.forEach((b, i) => {
-    if (b.type === "scene_heading" || b.type === "transition") last = null;
+    if (b.type === "scene_heading" || b.type === "transition" || b.type === "song") last = null;
     if (b.type !== "character") return;
     const text = blockText(b).trim();
     const name = cueName(text);

@@ -177,6 +177,9 @@ const FDX_MAP: Record<string, Block["type"]> = {
   Dialogue: "dialogue",
   Transition: "transition",
   Shot: "scene_heading",
+  Lyrics: "lyric",
+  Lyric: "lyric",
+  Song: "song",
   General: "direction",
 };
 
@@ -219,14 +222,14 @@ export function importFountain(src: string, path: string): ImportPlan {
 export async function importDocx(path: string): Promise<ImportPlan> {
   const paras = await call<Para[]>("import.docx", { path });
   const style = (p: Para) => p.style.toLowerCase();
-  const scriptStyles = ["character", "dialogue", "scene heading", "parenthetical", "action", "transition", "direction", "stage direction"];
+  const scriptStyles = ["character", "dialogue", "scene heading", "parenthetical", "action", "transition", "direction", "stage direction", "lyric", "lyrics", "song"];
   const scripty = paras.filter((p) => scriptStyles.includes(style(p))).length > paras.length * 0.3;
   if (scripty) {
     const blocks: Block[] = [];
     for (const p of paras) {
       if (!text(p).trim()) continue;
       const s = style(p);
-      const type: Block["type"] = s === "scene heading" ? "scene_heading" : s === "character" ? "character" : s === "dialogue" ? "dialogue" : s === "parenthetical" ? "parenthetical" : s === "transition" ? "transition" : "direction";
+      const type: Block["type"] = s === "scene heading" ? "scene_heading" : s === "character" ? "character" : s === "dialogue" ? "dialogue" : s === "parenthetical" ? "parenthetical" : s === "transition" ? "transition" : s === "lyric" || s === "lyrics" ? "lyric" : s === "song" ? "song" : "direction";
       blocks.push({ type, runs: p.runs });
     }
     return finishScript(fileTitle(path), blocks, `${blocks.length} script paragraphs from Word.`);

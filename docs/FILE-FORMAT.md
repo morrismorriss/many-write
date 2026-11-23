@@ -55,12 +55,26 @@ with a blank line.
 | Transition | A line starting with `>` | `> BLACKOUT.` |
 | Forced cue | `@` before a name (mixed case, or a cue with no dialogue) | `@McCoy` |
 | Forced direction | `!` before a paragraph that would otherwise look like a cue | `!NOBODY MOVES.` |
+| Song title (musicals) | A line starting with `~~` | `~~ The Long Way Home` |
+| Lyric (musicals) | A line starting with `~` (Fountain's lyric mark), under a cue or on its own | `~I walked the road alone` |
 
 Rules for lines that could be either a character cue or a direction:
 
 1. A line in capitals **directly followed by a non-blank line** is a character cue.
 2. A line in capitals **followed by a blank line** is a direction (`BLACKOUT.`).
 3. `@` always means a character cue; `!` always means a direction.
+
+A song in a musical looks like this; a parenthetical or a spoken line can sit among
+the lyrics, and lyrics with no cue above them are sung by everyone on stage:
+
+```
+~~ The Long Way Home
+
+ANNA
+~I walked the road alone
+(to BEN)
+~Until you
+```
 
 Emphasis uses markdown: `*italic*`, `**bold**`, `_underline_`.
 

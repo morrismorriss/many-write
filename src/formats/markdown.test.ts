@@ -14,7 +14,7 @@ import {
   type Block,
 } from "./markdown";
 
-import { listNumbers } from "./templates";
+import { inSong, listNumbers } from "./templates";
 
 const types = (bs: Block[]) => bs.map((b) => `${b.type}:${blockText(b)}`);
 
@@ -493,5 +493,76 @@ describe("footnotes and endnotes", () => {
 
   it("writes a stable label when no number map is given", () => {
     expect(serializeRuns([{ text: "A" }, { text: "", note: "abc" }])).toBe("A[^abc]");
+  });
+});
+
+describe("songs in a musical", () => {
+  const sample = `## Scene 3
+
+~~ The Long Way Home
+
+ANNA
+~I walked the road alone
+~And never looked behind
+(to BEN)
+~Until you
+
+She takes his hand.
+
+BEN
+~Sing it again
+
+They turn to the audience.
+
+~All the road, all the way
+~All the way home
+
+> BLACKOUT.
+`;
+
+  it("reads song titles and lyrics, under a cue or on their own", () => {
+    expect(types(parseScript(sample).blocks)).toEqual([
+      "scene_heading:Scene 3",
+      "song:The Long Way Home",
+      "character:ANNA",
+      "lyric:I walked the road alone",
+      "lyric:And never looked behind",
+      "parenthetical:(to BEN)",
+      "lyric:Until you",
+      "direction:She takes his hand.",
+      "character:BEN",
+      "lyric:Sing it again",
+      "direction:They turn to the audience.",
+      "lyric:All the road, all the way",
+      "lyric:All the way home",
+      "transition:BLACKOUT.",
+    ]);
+  });
+
+  it("writes them back unchanged", () => {
+    expect(serializeScript(parseScript(sample))).toBe(sample);
+  });
+
+  it("keeps a cue whose only lines are sung", () => {
+    const md = serializeScript({ blocks: [{ type: "character", runs: [{ text: "Anna" }] }, { type: "lyric", runs: [{ text: "La la" }] }], frontMatter: null });
+    expect(md).toBe("ANNA\n~La la\n");
+  });
+
+  it("keeps spoken lines and directions that start with ~ as they are", () => {
+    const blocks: Block[] = [
+      { type: "character", runs: [{ text: "ANNA" }] },
+      { type: "dialogue", runs: [{ text: "~approximately" }] },
+      { type: "direction", runs: [{ text: "~ A wave." }] },
+      { type: "lyric", runs: [{ text: "~tilde" }] },
+    ];
+    const back = parseScript(serializeScript({ blocks, frontMatter: null })).blocks;
+    expect(types(back)).toEqual(["character:ANNA", "dialogue:~approximately", "direction:~ A wave.", "lyric:~tilde"]);
+  });
+
+  it("knows when a cue is inside a song", () => {
+    expect(inSong(["song", "character"], 2)).toBe(true);
+    expect(inSong(["lyric", "direction", "character", "parenthetical"], 4)).toBe(true);
+    expect(inSong(["song", "character", "lyric", "character", "dialogue", "character"], 6)).toBe(false);
+    expect(inSong(["scene_heading", "character"], 2)).toBe(false);
   });
 });

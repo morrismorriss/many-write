@@ -10,6 +10,9 @@ export type ElementType =
   | "direction"
   | "action"
   | "transition"
+  // Musicals: a song's title, and its sung lines.
+  | "song"
+  | "lyric"
   | "title"
   | "line"
   | "heading"
@@ -112,6 +115,21 @@ const BUBBLE_FLOW = {
   backspaceTo: { text_left: "paragraph", text_right: "paragraph" } as Partial<Record<ElementType, ElementType>>,
 };
 
+/** Songs in a musical, offered in stage plays and screenplays ("/song"). */
+const SONG_ELEMENTS: ElementDef[] = [
+  { type: "song", label: "Song", placeholder: "SONG TITLE", aliases: ["musical", "number", "song title"] },
+  { type: "lyric", label: "Lyric", placeholder: "Sung line", aliases: ["lyrics", "sing", "sung", "verse", "chorus"] },
+];
+/**
+ * A song's title is followed by a cue; each lyric is its own line, so Enter
+ * starts the next one. Enter on an empty lyric turns it into the next singer's
+ * cue (and a cue inside a song is followed by lyrics; see `inSong`).
+ */
+const SONG_FLOW = {
+  afterEnter: { song: "character", lyric: "lyric" } as Partial<Record<ElementType, ElementType>>,
+  emptyExit: { lyric: "character" } as Partial<Record<ElementType, ElementType>>,
+};
+
 const scriptExports: ExportFormat[] = ["pdf", "docx", "fdx", "fountain", "epub"];
 const proseExports: ExportFormat[] = ["pdf", "docx", "epub"];
 
@@ -130,6 +148,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       { type: "direction", label: "Stage direction", placeholder: "Stage direction", aliases: ["action", "sd"] },
       { type: "scene_heading", label: "Scene heading", placeholder: "SCENE", aliases: ["heading", "scene"] },
       { type: "transition", label: "Transition", placeholder: "BLACKOUT.", aliases: ["blackout", "cut"] },
+      ...SONG_ELEMENTS,
     ],
     firstElement: "scene_heading",
     afterEnter: {
@@ -139,9 +158,11 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       direction: "character",
       scene_heading: "direction",
       transition: "scene_heading",
+      ...SONG_FLOW.afterEnter,
     },
+    emptyExit: SONG_FLOW.emptyExit,
     emptyCycle: ["character", "direction", "transition", "scene_heading"],
-    tabCycle: ["character", "dialogue", "parenthetical", "direction", "scene_heading", "transition"],
+    tabCycle: ["character", "dialogue", "lyric", "parenthetical", "direction", "scene_heading", "transition"],
     typst: "stage-play.typ",
     pageFont: "Courier Prime",
     docNoun: "Scene",
@@ -162,6 +183,7 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       { type: "parenthetical", label: "Parenthetical", placeholder: "(beat)" },
       { type: "dialogue", label: "Dialogue", placeholder: "Dialogue" },
       { type: "transition", label: "Transition", placeholder: "CUT TO:" },
+      ...SONG_ELEMENTS,
     ],
     firstElement: "scene_heading",
     afterEnter: {
@@ -171,9 +193,11 @@ export const TEMPLATES: Record<TemplateId, Template> = {
       parenthetical: "dialogue",
       dialogue: "character",
       transition: "scene_heading",
+      ...SONG_FLOW.afterEnter,
     },
+    emptyExit: SONG_FLOW.emptyExit,
     emptyCycle: ["character", "action", "transition", "scene_heading"],
-    tabCycle: ["action", "character", "dialogue", "parenthetical", "scene_heading", "transition"],
+    tabCycle: ["action", "character", "dialogue", "lyric", "parenthetical", "scene_heading", "transition"],
     typst: "screenplay.typ",
     pageFont: "Courier Prime",
     docNoun: "Scene",
@@ -505,6 +529,21 @@ export function cycleNext(cycle: ElementType[], current: ElementType, step = 1):
   const i = cycle.indexOf(current);
   if (i < 0) return cycle[0];
   return cycle[(i + step + cycle.length) % cycle.length];
+}
+
+/**
+ * Is a line at `index` inside a song? Looking back past cues, parentheticals and
+ * directions, the nearest song title or lyric says yes; spoken dialogue, a scene
+ * heading or a transition says no. A cue inside a song is followed by lyrics.
+ */
+export function inSong(types: ElementType[], index: number): boolean {
+  for (let i = index - 1; i >= 0; i--) {
+    const t = types[i];
+    if (t === "song" || t === "lyric") return true;
+    if (t === "character" || t === "parenthetical" || t === "direction" || t === "action") continue;
+    return false;
+  }
+  return false;
 }
 
 /** Element types that keep their text in capitals. */

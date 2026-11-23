@@ -27,8 +27,8 @@
 }
 
 #let gap(kind, prev) = {
-  if kind in ("dialogue", "parenthetical") and prev in ("character", "parenthetical", "dialogue") { 0pt }
-  else if kind == "scene_heading" { line-h * 2 }
+  if kind in ("dialogue", "parenthetical", "lyric") and prev in ("character", "parenthetical", "dialogue", "lyric") { 0pt }
+  else if kind in ("scene_heading", "song") { line-h * 2 }
   else { line-h }
 }
 
@@ -42,6 +42,12 @@
     block(sticky: true, above: above, below: 0pt, width: 100%, pad(left: 1.6in, right: 2in, body))
   } else if kind == "dialogue" {
     block(above: above, below: 0pt, width: 100%, pad(left: 1in, right: 1.5in, body))
+  } else if kind == "song" {
+    // Musicals: the song's title, centred, before its first cue.
+    block(sticky: true, above: above, below: 0pt, width: 100%, align(center, strong(underline(upper(body)))))
+  } else if kind == "lyric" {
+    // A sung line: in italics, one line of the song per line.
+    block(above: above, below: 0pt, width: 100%, pad(left: 1in, right: 1.5in, emph(body)))
   } else if kind == "transition" {
     block(above: above, below: 0pt, width: 100%, align(right, upper(body)))
   } else {

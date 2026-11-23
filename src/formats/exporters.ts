@@ -31,6 +31,9 @@ export function toFountain(template: Template, meta: ProjectMeta, items: Manuscr
     const fixed = md
       .split("\n")
       .map((l) => {
+        // A song's title is centred text in Fountain; its "~" lyrics are already Fountain.
+        const song = l.match(/^~~\s*(.*)$/);
+        if (song) return `> ${song[1].toUpperCase()} <`;
         const h = l.match(/^#{1,6}\s+(.*)$/);
         if (!h) return l;
         return SCENE_RE.test(h[1]) ? h[1].toUpperCase() : `.${h[1].toUpperCase()}`;
@@ -86,6 +89,16 @@ export function toFdx(meta: ProjectMeta, items: ManuscriptItem[]): string {
     }
     for (const b of item.blocks) {
       if (!blockText(b).trim()) continue;
+      // Musicals: Final Draft has no song elements, so a song title is centred bold
+      // action and lyrics are dialogue in italics (Final Draft's own lyric style).
+      if (b.type === "song") {
+        paras.push(`    <Paragraph Type="Action" Alignment="Center">${fdxText(b.runs.map((r) => ({ ...r, bold: true, underline: true })), true)}</Paragraph>`);
+        continue;
+      }
+      if (b.type === "lyric") {
+        paras.push(`    <Paragraph Type="Dialogue">${fdxText(b.runs.map((r) => ({ ...r, italic: true })))}</Paragraph>`);
+        continue;
+      }
       const type = FDX_TYPES[b.type] ?? "General";
       const upper = b.type === "scene_heading" || b.type === "character" || b.type === "transition";
       paras.push(`    <Paragraph Type="${type}">${fdxText(b.runs, upper)}</Paragraph>`);

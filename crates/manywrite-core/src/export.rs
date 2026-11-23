@@ -201,6 +201,8 @@ fn script_styles(screenplay: bool) -> Vec<Style> {
             Style { id: "parenthetical", ppr: "<w:keepNext/><w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:left=\"2304\" w:right=\"2880\"/>", rpr: "" },
             Style { id: "dialogue", ppr: "<w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:left=\"1440\" w:right=\"2160\"/>", rpr: "" },
             Style { id: "transition", ppr: "<w:spacing w:before=\"240\" w:after=\"0\"/><w:jc w:val=\"right\"/>", rpr: "<w:caps/>" },
+            Style { id: "song", ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"480\" w:after=\"0\"/>", rpr: "<w:b/><w:u w:val=\"single\"/><w:caps/>" },
+            Style { id: "lyric", ppr: "<w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:left=\"1440\" w:right=\"2160\"/>", rpr: "<w:i/>" },
             Style { id: "folder_heading", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:after=\"480\"/>", rpr: "<w:b/><w:u w:val=\"single\"/><w:caps/>" },
             Style { id: "matter_title", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"960\" w:after=\"480\"/>", rpr: "<w:b/><w:caps/>" },
             Style { id: "matter_paragraph", ppr: "<w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
@@ -221,6 +223,8 @@ fn script_styles(screenplay: bool) -> Vec<Style> {
             Style { id: "direction", ppr: "<w:spacing w:before=\"240\" w:after=\"0\"/><w:ind w:left=\"3600\"/>", rpr: "<w:i/>" },
             Style { id: "action", ppr: "<w:spacing w:before=\"240\" w:after=\"0\"/><w:ind w:left=\"3600\"/>", rpr: "<w:i/>" },
             Style { id: "transition", ppr: "<w:spacing w:before=\"240\" w:after=\"0\"/><w:jc w:val=\"right\"/>", rpr: "<w:caps/>" },
+            Style { id: "song", ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"480\" w:after=\"0\"/>", rpr: "<w:b/><w:u w:val=\"single\"/><w:caps/>" },
+            Style { id: "lyric", ppr: "<w:spacing w:before=\"0\" w:after=\"0\"/><w:ind w:left=\"720\"/>", rpr: "<w:i/>" },
             Style { id: "folder_heading", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:after=\"480\"/>", rpr: "<w:b/><w:u w:val=\"single\"/><w:caps/>" },
             Style { id: "matter_title", ppr: "<w:keepNext/><w:pageBreakBefore/><w:jc w:val=\"center\"/><w:spacing w:before=\"960\" w:after=\"480\"/>", rpr: "<w:b/><w:caps/>" },
             Style { id: "matter_paragraph", ppr: "<w:spacing w:before=\"200\" w:after=\"0\"/>", rpr: "" },
@@ -782,6 +786,8 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             "character" => html.push_str(&format!("<p class=\"first\" style=\"text-align:center;margin-top:1em\">{}</p>\n", inline.to_uppercase())),
             "parenthetical" | "direction" | "action" => html.push_str(&format!("<p class=\"first\" style=\"margin:0.6em 0\"><em>{inline}</em></p>\n")),
             "transition" => html.push_str(&format!("<p class=\"first\" style=\"text-align:right\">{inline}</p>\n")),
+            "song" => html.push_str(&format!("<p class=\"first\" style=\"text-align:center;margin-top:1.5em;font-weight:bold;text-decoration:underline\">{}</p>\n", inline.to_uppercase())),
+            "lyric" => html.push_str(&format!("<p class=\"first\" style=\"margin:0 0 0 2em\"><em>{inline}</em></p>\n")),
             _ => {
                 let class = if doc.template == "article" {
                     "article"

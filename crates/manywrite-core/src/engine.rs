@@ -237,7 +237,7 @@ pub struct CompileReport {
 
 /// Kinds that must never sit alone at the bottom of a page.
 const KEEP_WITH_NEXT: &[&str] =
-    &["character", "parenthetical", "scene_heading", "heading", "title", "folder_heading"];
+    &["character", "parenthetical", "scene_heading", "song", "heading", "title", "folder_heading"];
 /// Kinds whose paragraphs must not leave a single line on either side of a page break.
 const FLOWING: &[&str] = &["dialogue", "direction", "action", "paragraph", "quote", "line"];
 
