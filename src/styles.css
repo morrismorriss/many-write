@@ -276,9 +276,9 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
 .mode-prose .el-scene_break { text-align: center; margin-top: 0.85em; color: var(--muted); }
 /* An empty scene break shows its divider whether or not the cursor is on it. */
 .mode-prose .el-scene_break.is-empty::before,
-.mode-prose .el-scene_break:has(> br.ProseMirror-trailingBreak:only-child)::before { content: var(--break, "* * *"); }
+.mode-prose .el-scene_break:has(> br.ProseMirror-trailingBreak)::before { content: var(--break, "* * *"); }
 .break-img .mode-prose .el-scene_break.is-empty::before,
-.break-img .mode-prose .el-scene_break:has(> br.ProseMirror-trailingBreak:only-child)::before {
+.break-img .mode-prose .el-scene_break:has(> br.ProseMirror-trailingBreak)::before {
   content: ""; display: inline-block; width: 8em; height: 1.6em; background: var(--break-img) center / contain no-repeat; vertical-align: middle;
 }
 .mode-prose > p:first-child { margin-top: 0; }
