@@ -11,6 +11,35 @@ import { TEMPLATES } from "../formats/templates";
 const schema = getSchema([ScriptDocument, Text, ElementNode, ImageNode, NoteRefNode, Bold, Italic, Underline, HardBreak]);
 const essay = TEMPLATES.essay;
 
+describe("simultaneous dialogue", () => {
+  const play = TEMPLATES["stage-play"];
+
+  it("keeps each speaker's column through a round trip", () => {
+    const blocks = [
+      { type: "character" as const, runs: [{ text: "ANNA" }], sim: 0 },
+      { type: "dialogue" as const, runs: [{ text: "Left." }], sim: 0 },
+      { type: "character" as const, runs: [{ text: "BEN" }], sim: 1 },
+      { type: "dialogue" as const, runs: [{ text: "Right." }], sim: 1 },
+      { type: "character" as const, runs: [{ text: "MARA" }] },
+      { type: "dialogue" as const, runs: [{ text: "Alone." }] },
+    ];
+    const doc = schema.nodeFromJSON(blocksToContent(blocks, play));
+    expect(docToBlocks(doc)).toEqual(blocks);
+  });
+
+  it("writes the column into the line's HTML, and leaves an ordinary line unmarked", () => {
+    const content = blocksToContent(
+      [
+        { type: "character", runs: [{ text: "ANNA" }], sim: 2 },
+        { type: "character", runs: [{ text: "BEN" }] },
+      ],
+      play,
+    );
+    expect(content.content?.[0].attrs).toMatchObject({ type: "character", sim: 2 });
+    expect(content.content?.[1].attrs).toMatchObject({ type: "character", sim: -1 });
+  });
+});
+
 describe("notes in the editor", () => {
   it("keeps note markers and their ids through a round trip", () => {
     const blocks = [{ type: "paragraph" as const, runs: [{ text: "One" }, { text: "", note: "n1" }, { text: " two", bold: true }] }];

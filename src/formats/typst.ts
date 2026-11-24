@@ -413,15 +413,12 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
     const contd = template.mode === "script" && meta.autoContd ? contdLines(item.blocks) : null;
     const last = lastFilled(item.blocks);
     const nums = template.mode === "notes" ? listNumbers(item.blocks) : [];
-    item.blocks.forEach((b, index) => {
-      if (b.type === "image") {
-        if (b.src) emit(image(b));
-        return;
-      }
+    /** One line; returns the kind the next line in its column follows, or "" for a skipped line. */
+    const emitLine = (b: Block, index: number, before: string, together = false): string => {
       const empty = !blockText(b).trim();
       // An empty paragraph (Enter pressed twice) is kept as a blank line, except at the very end.
       const blankLine = empty && template.mode !== "script" && blankKinds.has(b.type) && index < last;
-      if (empty && b.type !== "scene_break" && b.type !== "divider" && !blankLine) return;
+      if (empty && b.type !== "scene_break" && b.type !== "divider" && !blankLine) return "";
       lockFor(elementId(item.id, index));
       const start = bytes;
       const body = blankLine ? blank : runsToTypst(contd?.has(index) ? [...b.runs, { text: " (CONT'D)" }] : b.runs, false, notesFor(item));
@@ -432,10 +429,46 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
         listArgs = `, level: ${level}, prev-level: ${prevLevel}${nums[index] ? `, num: ${nums[index]}` : ""}`;
         prevLevel = level;
       } else prevLevel = 0;
-      emit(`#el(${str(b.type)}, ${prev}${listArgs})[${revMark(item.id, index)}${body}]\n`);
+      const simArg = together ? ", sim: true" : "";
+      emit(`#el(${str(b.type)}, ${before}${listArgs}${simArg})[${revMark(item.id, index)}${body}]\n`);
       elements.push({ id: elementId(item.id, index), kind: b.type, start, end: bytes });
-      prev = str(b.type);
-    });
+      return str(b.type);
+    };
+    // Parallel speech only exists in the two script formats; anywhere else the lines print as written.
+    const beside = (x: Block) => template.mode === "script" && (x.sim ?? -1) >= 0;
+    for (let index = 0; index < item.blocks.length; index++) {
+      const b = item.blocks[index];
+      if (b.type === "image") {
+        if (b.src) emit(image(b));
+        continue;
+      }
+      if (beside(b)) {
+        // Speakers one beside another: a grid, one cell per speaker (see `sim` in the template).
+        if (index > 0 && beside(item.blocks[index - 1])) continue;
+        let end = index;
+        while (end < item.blocks.length && beside(item.blocks[end])) end++;
+        const row = item.blocks.slice(index, end);
+        const columns = Math.max(...row.map((x) => x.sim ?? 0)) + 1;
+        emit(`#sim(${columns}, `);
+        for (let column = 0; column < columns; column++) {
+          if (column) emit(", ");
+          emit("[");
+          let before = "none";
+          row.forEach((cell, k) => {
+            if ((cell.sim ?? 0) !== column) return;
+            const kind = emitLine(cell, index + k, before, true);
+            if (kind) before = kind;
+          });
+          emit("]");
+        }
+        emit(")\n");
+        prev = str(row[row.length - 1].type);
+        index = end - 1;
+        continue;
+      }
+      const kind = emitLine(b, index, prev);
+      if (kind) prev = kind;
+    }
   }
   emitEndnotes();
   return { source: parts.join(""), elements };

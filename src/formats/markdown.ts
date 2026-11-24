@@ -22,6 +22,7 @@
 //   !NOBODY MOVES.                forced direction (would otherwise look like a cue)
 
 import { listNumbers, MAX_INDENT, type ElementType, type FileMode } from "./templates";
+import { joinColumn } from "./simultaneous";
 
 export interface Run {
   text: string;
@@ -39,6 +40,8 @@ export interface Block {
   src?: string;
   /** List items: how many levels it is nested under the item above (0 or absent = not nested). */
   indent?: number;
+  /** Scripts: the speaker's column in a simultaneous row (0 = leftmost). Absent = a normal line. */
+  sim?: number;
 }
 
 /** A footnote or endnote definition, written as `[^1]: text` at the end of a file. */
@@ -275,13 +278,25 @@ export function parseScript(text: string): ParsedDoc {
     }
     const forcedCue = t.startsWith("@");
     if (forcedCue || (looksLikeCue(t) && !t.startsWith("!") && !isBlank(lines[i + 1]))) {
-      blocks.push({ type: "character", runs: parseInline(forcedCue ? t.slice(1).trim() : t) });
+      let cue = forcedCue ? t.slice(1).trim() : t;
+      // A trailing "^" (Fountain's dual-dialogue mark) puts this cue beside the speaker above.
+      let sim = -1;
+      if (/\^$/.test(cue)) {
+        const join = joinColumn(blocks, blocks.length);
+        if (join) {
+          cue = cue.replace(/\s*\^$/, "").trim();
+          sim = join.column;
+          if (join.first) for (let k = join.first.start; k < join.first.end; k++) blocks[k] = { ...blocks[k], sim: 0 };
+        }
+      }
+      blocks.push({ type: "character", runs: parseInline(cue), ...(sim >= 0 ? { sim } : {}) });
       i++;
       while (!isBlank(lines[i])) {
         const d = lines[i].trim();
-        if (/^\(.*\)$/.test(d)) blocks.push({ type: "parenthetical", runs: parseInline(d) });
-        else if (d.startsWith("~")) blocks.push({ type: "lyric", runs: parseInline(d.slice(1).trim()) });
-        else blocks.push({ type: "dialogue", runs: parseInline(d) });
+        const line = sim >= 0 ? { sim } : {};
+        if (/^\(.*\)$/.test(d)) blocks.push({ type: "parenthetical", runs: parseInline(d), ...line });
+        else if (d.startsWith("~")) blocks.push({ type: "lyric", runs: parseInline(d.slice(1).trim()), ...line });
+        else blocks.push({ type: "dialogue", runs: parseInline(d), ...line });
         i++;
       }
       continue;
@@ -352,7 +367,9 @@ export function serializeScript(doc: ParsedDoc, actionType: ElementType = "direc
           }
         }
         const name = text.toUpperCase().replace(/\n/g, " ");
-        const cue = lines.length && looksLikeCue(name) ? name : `@${name}`;
+        // A second or later speaker in a simultaneous row: the caret, as Fountain writes dual dialogue.
+        const together = (b.sim ?? -1) > 0 ? " ^" : "";
+        const cue = (lines.length && looksLikeCue(name) ? name : `@${name}`) + together;
         groups.push([cue, ...lines].join("\n"));
         i = j - 1;
         break;

@@ -32,9 +32,17 @@
   else { line-h }
 }
 
-#let el(kind, prev, body) = {
+#let el(kind, prev, body, sim: false) = {
   let above = gap(kind, prev)
-  if kind == "scene_heading" {
+  // In a simultaneous row the cell is the column: no page-width blocks, so cells stay level.
+  if sim {
+    if kind == "character" { align(center, upper(body)) }
+    else if kind == "parenthetical" { align(center, emph(body)) }
+    else if kind == "song" { align(center, strong(underline(upper(body)))) }
+    else if kind == "lyric" { emph(body) }
+    else if kind == "transition" { align(right, upper(body)) }
+    else { body }
+  } else if kind == "scene_heading" {
     block(sticky: true, above: above, below: 0pt, width: 100%, align(center, strong(upper(body))))
   } else if kind == "character" {
     // Sticky: a cue always moves to the next page with its dialogue.
@@ -56,6 +64,10 @@
     block(above: above, below: 0pt, width: 100%, pad(left: 2.5in, emph(body)))
   }
 }
+
+// Two to six characters speaking at once: one cell each, left to right.
+#let sim(cols, ..cells) = block(above: line-h, below: 0pt, width: 100%,
+  grid(columns: (1fr,) * cols, column-gutter: 0.18in, align: top, ..cells.pos()))
 
 #let folder(title, depth, first: false) = {
   if not first { pagebreak(weak: true) }

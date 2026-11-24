@@ -1,0 +1,127 @@
+// Characters speaking at once: "^" at the end of a cue, "/simultaneous", dragging a name to
+// the side, the grid the editor lays them on, and the file convention (a caret on the joined
+// cues). Usage:
+//   cargo run -p manywrite-devserver &   npx vite &   node e2e/simultaneous.mjs
+// Env: MW_URL (default http://localhost:1420), MW_E2E_DIR (projects folder), MW_SHOTS (screenshot folder).
+
+import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+
+const { chromium } = createRequire(import.meta.url)("playwright");
+
+const URL = process.env.MW_URL ?? "http://localhost:1420";
+const DIR = process.env.MW_E2E_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "mw-e2e-"));
+const SHOTS = process.env.MW_SHOTS ?? "e2e/out";
+fs.mkdirSync(SHOTS, { recursive: true });
+fs.rmSync(path.join(DIR, "Test Duet"), { recursive: true, force: true });
+fs.rmSync(path.join(DIR, "Test Drag"), { recursive: true, force: true });
+
+let failures = 0;
+const ok = (cond, msg) => {
+  console.log(`${cond ? "PASS" : "FAIL"}  ${msg}`);
+  if (!cond) failures++;
+};
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1480, height: 920 }, deviceScaleFactor: Number(process.env.MW_DPR ?? 1) });
+page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
+
+const type = async (text) => page.keyboard.type(text, { delay: 5 });
+const pill = async () => (await page.getByTestId("type-pill").innerText()).trim();
+// Every line of a row carries a column: the two halves of the page start at grid lines 1 and 31.
+const columns = () => page.$$eval(".ProseMirror p[data-sim]", (ps) => ps.map((p) => getComputedStyle(p).gridColumnStart));
+
+const newProject = async (title) => {
+  await page.goto(URL);
+  await page.getByTestId("new-project").click();
+  await page.getByTestId("tmpl-stage-play").click();
+  await page.getByTestId("new-title").fill(title);
+  await page.getByTestId("new-location").fill(DIR);
+  await page.getByTestId("create-project").click();
+  await page.getByTestId("editor").waitFor();
+  await page.getByTestId("editor").click();
+  await page.keyboard.press("Control+End");
+};
+
+// ---- a caret at the end of a cue joins it to the speaker above
+await newProject("Test Duet");
+await type("Scene 1");
+await page.keyboard.press("Enter");
+await type("A quay at dawn.");
+await page.keyboard.press("Enter");
+await type("Anna");
+await page.keyboard.press("Enter");
+await type("Left.");
+await page.keyboard.press("Enter");
+await type("Ben");
+await type("^");
+ok((await pill()) === "Character", "^ keeps the line a cue");
+let cols = await columns();
+ok(cols.join() === "1,1,31", `the joined cue moves to the right half (${cols.join(", ")})`);
+await page.keyboard.press("Enter");
+ok((await pill()) === "Dialogue", "Enter under a joined cue writes its dialogue");
+await type("Right.");
+cols = await columns();
+ok(cols.join() === "1,1,31,31", `its dialogue stays in the right column (${cols.join(", ")})`);
+await page.keyboard.press("Enter");
+ok((await pill()) === "Character", "the next cue is a line of its own again");
+
+// ---- "/simultaneous" does the same, from the slash menu
+await type("Cy");
+await page.keyboard.press("Enter");
+await type("Third.");
+await page.keyboard.press("Enter");
+await type("Dee");
+await type(" /simultaneous");
+ok((await page.locator(".popup-menu[data-kind=slash]").innerText()).toLowerCase().includes("together"), "/simultaneous is offered");
+await page.keyboard.press("Enter");
+ok((await pill()) === "Character", "/simultaneous keeps the line a cue");
+await page.keyboard.press("Enter");
+await type("Fourth.");
+cols = await columns();
+ok(cols.join() === "1,1,31,31,1,1,31,31", `the second pair makes a row of its own (${cols.join(", ")})`);
+await page.screenshot({ path: path.join(SHOTS, "simultaneous-rows.png") });
+
+await page.waitForTimeout(1200);
+const duet = fs.readFileSync(path.join(DIR, "Test Duet", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
+ok(/^ANNA\nLeft\.$/m.test(duet), "the first speaker stays plain in the file");
+ok(/^BEN \^\nRight\.$/m.test(duet), "the second speaker is marked with a caret");
+ok(/^DEE \^\nFourth\.$/m.test(duet), "and so is the third");
+
+// ---- dragging a name to the side of another name
+await newProject("Test Drag");
+await type("Scene 1");
+await page.keyboard.press("Enter");
+await type("A quay at dawn.");
+await page.keyboard.press("Enter");
+await type("Anna");
+await page.keyboard.press("Enter");
+await type("Left.");
+await page.keyboard.press("Enter");
+await type("Ben");
+await page.keyboard.press("Enter");
+await type("Right.");
+const anna = page.locator(".ProseMirror p.el-character", { hasText: /ANNA/i }).first();
+const ben = page.locator(".ProseMirror p.el-character", { hasText: /BEN/i }).first();
+const target = await anna.boundingBox();
+await ben.hover();
+const grip = await ben.locator(".mw-grip").boundingBox();
+ok(!!grip, "a grip appears beside the character name");
+await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+await page.mouse.down();
+await page.mouse.move(target.x + target.width * 0.9, target.y + target.height / 2, { steps: 8 });
+ok((await page.locator(".mw-drop-side").count()) === 1, "the line it would join is highlighted while dragging");
+await page.screenshot({ path: path.join(SHOTS, "simultaneous-drag.png") });
+await page.mouse.up();
+cols = await columns();
+ok(cols.join() === "1,1,31,31", `dropping to the side shares the line (${cols.join(", ")})`);
+
+await page.waitForTimeout(1200);
+const drag = fs.readFileSync(path.join(DIR, "Test Drag", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
+ok(/^BEN \^\nRight\.$/m.test(drag), "and the file records it");
+
+await browser.close();
+console.log(failures ? `${failures} check(s) failed` : "All simultaneous checks passed");
+process.exit(failures ? 1 : 0);

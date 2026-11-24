@@ -44,6 +44,14 @@ pub struct Block {
     /// List items: how many levels deep the item is nested (0 = not nested).
     #[serde(default)]
     pub indent: u32,
+    /// Scripts: the speaker's column when two to six characters speak at once (0 = leftmost).
+    #[serde(default)]
+    pub sim: Option<u32>,
+}
+
+/** The cue that opens a simultaneous row: two to six characters speak together. */
+fn starts_row(block: &Block) -> bool {
+    block.kind == "character" && block.sim == Some(0)
 }
 
 #[derive(Debug, Deserialize)]
@@ -452,10 +460,10 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     styles_xml.push_str("</w:styles>");
     let known: Vec<&str> = styles.iter().map(|s| s.id).collect();
     let mut body = String::new();
-    for block in &doc.blocks {
+    // One paragraph; `in_cell` drops the page-style indents so a speaker fits its column.
+    let para = |block: &Block, in_cell: bool| -> String {
         if block.kind == "page_break" {
-            body.push_str("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>");
-            continue;
+            return "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>".to_string();
         }
         let style = if known.contains(&block.kind.as_str()) {
             block.kind.as_str()
@@ -464,32 +472,72 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         } else {
             "paragraph"
         };
-        body.push_str(&format!("<w:p><w:pPr><w:pStyle w:val=\"{style}\"/>"));
+        let mut p = format!("<w:p><w:pPr><w:pStyle w:val=\"{style}\"/>");
         if style == "paragraph" || style == "dialogue" || style == "line" {
-            body.push_str("<w:widowControl/>");
+            p.push_str("<w:widowControl/>");
         }
-        if block.indent > 0 {
+        if in_cell {
+            p.push_str("<w:ind w:left=\"0\" w:right=\"0\"/>");
+        } else if block.indent > 0 {
             // A nested list item steps in a quarter inch per level from the list style's 540.
             let left = 540 + 360 * block.indent.min(5);
-            body.push_str(&format!("<w:ind w:left=\"{left}\" w:hanging=\"360\"/>"));
+            p.push_str(&format!("<w:ind w:left=\"{left}\" w:hanging=\"360\"/>"));
         }
-        body.push_str("</w:pPr>");
+        p.push_str("</w:pPr>");
         if block.kind == "scene_break" && block.runs.iter().all(|r| r.text.trim().is_empty()) {
-            body.push_str("<w:r><w:t>* * *</w:t></w:r>");
+            p.push_str("<w:r><w:t>* * *</w:t></w:r>");
         }
         for run in &block.runs {
             if let Some(id) = &run.note {
                 if let Some(n) = note_numbers.get(id.as_str()) {
                     let (tag, style) = if footnotes { ("footnoteReference", "FootnoteReference") } else { ("endnoteReference", "EndnoteReference") };
-                    body.push_str(&format!(r#"<w:r><w:rPr><w:rStyle w:val="{style}"/></w:rPr><w:{tag} w:id="{n}"/></w:r>"#));
+                    p.push_str(&format!(r#"<w:r><w:rPr><w:rStyle w:val="{style}"/></w:rPr><w:{tag} w:id="{n}"/></w:r>"#));
                 }
                 if run.text.is_empty() {
                     continue;
                 }
             }
-            body.push_str(&text_run_xml(run));
+            p.push_str(&text_run_xml(run));
         }
-        body.push_str("</w:p>");
+        p.push_str("</w:p>");
+        p
+    };
+    let mut i = 0;
+    while i < doc.blocks.len() {
+        let block = &doc.blocks[i];
+        // Simultaneous speakers: a borderless table, one cell per speaker, on one row.
+        if script && block.sim.is_some() {
+            // A row ends where the next one starts (a first cue, column 0), so two scenes' rows stay apart.
+            let mut end = i + 1;
+            while end < doc.blocks.len() && doc.blocks[end].sim.is_some() && !starts_row(&doc.blocks[end]) {
+                end += 1;
+            }
+            let row = &doc.blocks[i..end];
+            let columns = row.iter().filter_map(|b| b.sim).max().unwrap_or(0) + 1;
+            let width = 8640 / columns;
+            body.push_str(r#"<w:tbl><w:tblPr><w:tblW w:w="8640" w:type="dxa"/><w:tblLayout w:type="fixed"/><w:tblBorders><w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/><w:insideH w:val="none"/><w:insideV w:val="none"/></w:tblBorders></w:tblPr><w:tblGrid>"#);
+            for _ in 0..columns {
+                body.push_str(&format!("<w:gridCol w:w=\"{width}\"/>"));
+            }
+            body.push_str("</w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr>");
+            for column in 0..columns {
+                body.push_str(&format!("<w:tc><w:tcPr><w:tcW w:w=\"{width}\" w:type=\"dxa\"/></w:tcPr>"));
+                let mut filled = false;
+                for cell in row.iter().filter(|b| b.sim == Some(column)) {
+                    body.push_str(&para(cell, true));
+                    filled = true;
+                }
+                if !filled {
+                    body.push_str("<w:p/>");
+                }
+                body.push_str("</w:tc>");
+            }
+            body.push_str("</w:tr></w:tbl>");
+            i = end;
+            continue;
+        }
+        body.push_str(&para(block, false));
+        i += 1;
     }
 
     // Essays: Chicago leaves page 1 (the title page, or the first page) unnumbered.
@@ -652,6 +700,12 @@ p.center { text-indent: 0; text-align: center; }
 p.bubble { display: table; max-width: 68%; text-indent: 0; padding: 0.35em 0.8em; border-radius: 1em; margin: 0.35em 0; }
 p.bubble.left { background: #e9e9eb; color: #000; }
 p.bubble.right { background: #2f7cf6; color: #fff; margin-left: auto; }
+.sim { display: table; width: 100%; table-layout: fixed; margin: 0.6em 0; }
+.sim-col { display: table-cell; vertical-align: top; padding: 0 0.35em; }
+.sim p { text-indent: 0; margin: 0; }
+.sim p.character { text-align: center; text-transform: uppercase; }
+.sim p.parenthetical { text-align: center; font-style: italic; }
+.sim p.lyric { font-style: italic; }
 .poem p { text-indent: -2em; margin-left: 2em; white-space: pre-wrap; }
 .poem .stanza-break { height: 1em; }
 .part { text-align: center; margin-top: 30%; font-variant: small-caps; }
@@ -744,7 +798,7 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let mut current: Option<(String, String)> = None;
     let mut prev_kind = String::new();
     let mut note_links = NoteLinks::new(doc);
-    for b in &doc.blocks {
+    for (bi, b) in doc.blocks.iter().enumerate() {
         let starts_chapter = matches!(b.kind.as_str(), "chapter" | "folder_heading" | "matter_title")
             || (poem && b.kind == "title");
         if starts_chapter || current.is_none() {
@@ -764,6 +818,37 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
         // A matter page whose title is left off the page: it only starts a new chapter.
         if b.kind == "matter_title" && plain(&b.runs).trim().is_empty() {
             prev_kind = "chapter".to_string();
+            continue;
+        }
+        // Simultaneous speakers: one column per speaker, side by side.
+        if b.sim.is_some() {
+            // A column past the first is printed with its row's opening cue.
+            if bi > 0 && doc.blocks[bi - 1].sim.is_some() && !starts_row(b) {
+                continue;
+            }
+            // A row ends where the next one starts (a first cue, column 0), so two scenes' rows stay apart.
+            let mut end = bi + 1;
+            while end < doc.blocks.len() && doc.blocks[end].sim.is_some() && !starts_row(&doc.blocks[end]) {
+                end += 1;
+            }
+            let row = &doc.blocks[bi..end];
+            let columns = row.iter().filter_map(|x| x.sim).max().unwrap_or(0) + 1;
+            html.push_str(&format!("<div class=\"sim cols-{columns}\">"));
+            for column in 0..columns {
+                html.push_str("<div class=\"sim-col\">");
+                for cell in row.iter().filter(|x| x.sim == Some(column)) {
+                    let text = epub_inline(&cell.runs, poem, Some(&mut note_links), chapter_index);
+                    match cell.kind.as_str() {
+                        "character" => html.push_str(&format!("<p class=\"character\">{}</p>\n", text.to_uppercase())),
+                        "parenthetical" => html.push_str(&format!("<p class=\"parenthetical\"><em>{text}</em></p>\n")),
+                        "lyric" => html.push_str(&format!("<p class=\"lyric\"><em>{text}</em></p>\n")),
+                        _ => html.push_str(&format!("<p class=\"dialogue\">{text}</p>\n")),
+                    }
+                }
+                html.push_str("</div>");
+            }
+            html.push_str("</div>\n");
+            prev_kind = row.last().map(|x| x.kind.clone()).unwrap_or_default();
             continue;
         }
         match b.kind.as_str() {
@@ -922,6 +1007,7 @@ mod tests {
                 ],
                 label: None,
                 indent: 0,
+                sim: None,
             }],
         }
     }
@@ -955,6 +1041,48 @@ mod tests {
         assert!(!zip.contains("First note."));
     }
 
+    fn script_doc() -> ExportDoc {
+        let line = |kind: &str, text: &str, sim: Option<u32>| Block { kind: kind.into(), runs: vec![run(text)], label: None, indent: 0, sim };
+        ExportDoc {
+            title: "Play".into(),
+            author: "A".into(),
+            template: "stage-play".into(),
+            lang: "en".into(),
+            id: "urn:uuid:x".into(),
+            style: "chicago-notes".into(),
+            running_head: String::new(),
+            note_placement: "endnotes".into(),
+            notes: vec![],
+            blocks: vec![
+                line("character", "ANNA", Some(0)),
+                line("dialogue", "Left.", Some(0)),
+                line("character", "BEN", Some(1)),
+                line("dialogue", "Right.", Some(1)),
+                line("character", "MARA", None),
+                line("dialogue", "Alone.", None),
+            ],
+        }
+    }
+
+    #[test]
+    fn docx_sets_simultaneous_speakers_in_one_row() {
+        let zip = text(&docx(&script_doc()).unwrap());
+        assert!(zip.contains("<w:tbl>"));
+        assert_eq!(zip.matches("<w:gridCol ").count(), 2);
+        assert!(zip.contains("ANNA"));
+        assert!(zip.contains("Right."));
+        assert!(zip.contains("Alone."));
+    }
+
+    #[test]
+    fn epub_sets_simultaneous_speakers_in_columns() {
+        let zip = text(&epub(&script_doc()).unwrap());
+        assert!(zip.contains(r#"<div class="sim cols-2">"#));
+        assert_eq!(zip.matches(r#"<div class="sim-col">"#).count(), 2);
+        assert!(zip.contains(r#"<p class="character">ANNA</p>"#));
+        assert!(zip.contains("Alone."));
+    }
+
     #[test]
     fn epub_links_references_to_an_endnotes_page() {
         let zip = text(&epub(&doc("footnotes")).unwrap());
@@ -964,3 +1092,4 @@ mod tests {
         assert!(zip.contains(r#"href="ch001.xhtml#fnref-1""#));
     }
 }
+

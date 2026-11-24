@@ -136,6 +136,8 @@ export interface ExportBlock {
   label?: string;
   /** List items: how many levels deep the item is nested. */
   indent?: number;
+  /** Scripts: the speaker's column when two to six characters speak at once (0 = leftmost). */
+  sim?: number;
 }
 
 export interface ExportDoc {
@@ -273,7 +275,7 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
       }
       if (empty && b.type !== "scene_break" && b.type !== "divider") continue;
       if (contd?.has(i)) {
-        blocks.push({ kind: b.type, runs: [{ text: `${blockText(b).toUpperCase()} (CONT'D)` }] });
+        blocks.push({ kind: b.type, runs: [{ text: `${blockText(b).toUpperCase()} (CONT'D)` }], ...(script && b.sim !== undefined ? { sim: b.sim } : {}) });
         continue;
       }
       if (template.mode === "notes") {
@@ -286,7 +288,7 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
         blocks.push({ kind: b.type, runs: [{ text: sceneBreakText(meta.sceneBreak.style) }] });
         continue;
       }
-      blocks.push({ kind: b.type, runs: exportRuns(normalizeRuns(b), item) });
+      blocks.push({ kind: b.type, runs: exportRuns(normalizeRuns(b), item), ...(script && b.sim !== undefined ? { sim: b.sim } : {}) });
     }
   }
   const doc: ExportDoc = { title: meta.title || "Untitled", author: meta.author, template: template.id, lang: "en", id: `urn:uuid:${projectId}`, blocks };

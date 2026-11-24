@@ -93,6 +93,14 @@ To bring in an existing script, hover over a play and press the import button: i
 
 In a stage play or screenplay, type **/song** to start a song anywhere in a scene. Type its title, then Enter: a character cue, and after it a **lyric** line instead of dialogue. Enter goes on to the next sung line; Enter on an empty lyric starts the next singer's cue. Inside a song, cues keep getting lyrics (stage directions and parentheticals in between are fine) until someone speaks: Tab or Shift-Tab switches a line between lyric and dialogue. On the page the title is centred, bold and underlined, and lyrics are in italics, one line each. Files write a song as `~~ Title` and lyrics as `~line`, Fountain's lyric mark.
 
+## Characters speaking at once
+
+Two to six characters can speak together, each in their own column, left to right, in a stage play, a screenplay, or a play in a collection. Write a cue and its lines, then start the next speaker under it and press **/simultaneous** (or type `^` at the end of the cue): the two names move side by side, each with its own dialogue underneath. Repeat for a third, up to six.
+
+To move a name that is already written, hover it and drag the grip beside it to the right of another name; drop above or below a name to move the whole speech instead. Drag a name that is already in a row and its dialogue goes with it.
+
+On the page, and in DOCX and EPUB exports, the speakers sit in a shared row, one column each, and their dialogue wraps inside its column. Files write the second and later cues with a trailing `^`, Fountain's dual-dialogue mark, so a script read elsewhere keeps the pairing.
+
 ## Open and import
 
 - **Open document…** edits a single `.md`, `.txt` or `.fountain` file in place, with the preview and exports, without creating a project. Plain files open in the **Document** format: headings, paragraphs, lists, to-dos, quotes and callouts, typeset as a clean page.

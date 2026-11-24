@@ -30,6 +30,70 @@ describe("(CONT'D)", () => {
   });
 });
 
+describe("simultaneous dialogue", () => {
+  const together = (type: Block["type"], text: string, sim: number): Block => ({ ...b(type, text), sim });
+
+  it("sets speakers beside one another in a grid", () => {
+    const items = [
+      {
+        kind: "doc" as const,
+        id: "s",
+        title: "Scene 1",
+        blocks: [together("character", "ANNA", 0), together("dialogue", "I told you.", 0), together("character", "BEN", 1), together("dialogue", "And I warned you.", 1)],
+      },
+    ];
+    const src = generateTypst(TEMPLATES["stage-play"], meta, items).source;
+    expect(src).toContain("#sim(2, [");
+    expect(src).toContain('#el("character", none, sim: true)[#"ANNA"]');
+    expect(src).toContain('#el("character", none, sim: true)[#"BEN"]');
+    expect(src).toContain('#el("dialogue", "character", sim: true)[#"And I warned you."]');
+    expect(src).not.toContain('#el("character", none)[#"ANNA"]');
+  });
+
+  it("works in a play of a collection, and keeps ordinary lines ordinary", () => {
+    const items = [
+      { kind: "play" as const, id: "p", title: "The Crossing" },
+      { kind: "doc" as const, id: "s", title: "Scene 1", blocks: [together("character", "MARA", 0), together("dialogue", "Wait.", 0), together("character", "JON", 1), together("dialogue", "No.", 1)] },
+      { kind: "doc" as const, id: "t", title: "Scene 2", blocks: [b("character", "MARA"), b("dialogue", "Alone.")] },
+    ];
+    const src = generateTypst(TEMPLATES["stage-play"], { ...meta, sceneNewPage: true }, items).source;
+    expect(src).toContain("#sim(2, [");
+    expect(src).toContain('#el("dialogue", "character")[#"Alone."]');
+  });
+
+  it("prints the same lines one under the other in a format without columns", () => {
+    // Only the two script formats have the `sim` grid: a line that carries a column anywhere else is not a row.
+    const items = [{ kind: "doc" as const, id: "d", title: "D", blocks: [together("paragraph", "One", 0), together("paragraph", "Two", 1)] }];
+    const src = generateTypst(TEMPLATES.document, meta, items).source;
+    expect(src).not.toContain("#sim(");
+    expect(src).toContain('#el("paragraph", none)[#"One"]');
+    expect(src).toContain('#el("paragraph", "paragraph")[#"Two"]');
+  });
+});
+
+describe("songs in plays and play collections", () => {
+  it("offers the song and lyric lines in both script formats", () => {
+    for (const id of ["stage-play", "screenplay"] as const) {
+      const t = TEMPLATES[id];
+      expect(t.elements.some((e) => e.type === "song")).toBe(true);
+      expect(t.elements.some((e) => e.type === "lyric")).toBe(true);
+    }
+  });
+
+  it("typesets a song inside a play of a collection", () => {
+    const items = [
+      { kind: "play" as const, id: "p", title: "The Crossing" },
+      {
+        kind: "doc" as const,
+        id: "s",
+        title: "Scene 1",
+        blocks: [b("song", "The Long Way Home"), b("character", "MARA"), b("lyric", "I walked alone"), b("character", "JON"), b("lyric", "I walked beside you")],
+      },
+    ];
+    expect(generateTypst(TEMPLATES["stage-play"], meta, items).source).toContain('#el("song", none)[#"The Long Way Home"]');
+  });
+});
+
 describe("generated Typst", () => {
   it("links web addresses", () => {
     expect(runsToTypst([{ text: "See www.example.com." }])).toBe('#"See "#link("https://www.example.com")[#"www.example.com"]#"."');
@@ -214,5 +278,19 @@ describe("export documents", () => {
   it("does not choose a placement for the legacy author–date style", () => {
     const legacy = { ...meta, essay: { style: "chicago" as const, instructor: "", course: "", date: "" } };
     expect(toExportDoc(TEMPLATES.essay, legacy, items, "x").notePlacement).toBeUndefined();
+  });
+
+  it("passes each speaker's column on to DOCX and EPUB", () => {
+    const together = (type: Block["type"], text: string, sim: number): Block => ({ ...b(type, text), sim });
+    const play = [
+      {
+        kind: "doc" as const,
+        id: "s",
+        title: "Scene 1",
+        blocks: [together("character", "ANNA", 0), together("dialogue", "Left.", 0), together("character", "BEN", 1), together("dialogue", "Right.", 1), b("character", "MARA")],
+      },
+    ];
+    const blocks = toExportDoc(TEMPLATES["stage-play"], meta, play, "x").blocks;
+    expect(blocks.map((x) => x.sim ?? -1)).toEqual([0, 0, 1, 1, -1]);
   });
 });

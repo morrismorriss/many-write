@@ -69,6 +69,7 @@ function extensions(
       getNames: opts.names,
       getSearch: opts.search,
       getHint: opts.hint ?? (() => null),
+      notify: (message) => store.toast(message),
       getCitations: () => (opts.citations?.() ? { sources: store.sources, style: store.citationStyle } : null),
       requestCitation: opts.requestCitation,
       getNotePlacement: () => (opts.citations?.() ? store.notePlacement : null),

@@ -8,6 +8,7 @@ import { parseDoc, serializeDoc, adaptScriptTypes, noteNumbers, type Block, type
 import { linkTarget, URL_RE } from "../formats/typst";
 import { openUrl } from "../lib/backend";
 import { inTextCitation, noteEntry, sourceLabel, sourceMatches, type CitationStyle, type ReferenceStyle, type Source } from "../formats/citations";
+import { appendColumn, gridCells, gridStyle, isSpeechType, joinColumn, MAX_TOGETHER, normalizeSim, simRowAt, speakerGroupAt, type SimLine } from "../formats/simultaneous";
 import { newId } from "../project/model";
 
 // --------------------------------------------------------------- schema
@@ -83,6 +84,12 @@ export const ElementNode = Node.create({
         default: 0,
         parseHTML: (el) => Math.min(MAX_INDENT, Math.max(0, parseInt(el.getAttribute("data-indent") ?? "0", 10) || 0)),
         renderHTML: (attrs) => (attrs.indent ? { "data-indent": String(attrs.indent) } : {}),
+      },
+      /** Scripts: the speaker's column in a simultaneous row (0 = leftmost); -1 for a normal line. */
+      sim: {
+        default: -1,
+        parseHTML: (el) => Math.max(-1, parseInt(el.getAttribute("data-sim") ?? "-1", 10) || 0),
+        renderHTML: (attrs) => (attrs.sim >= 0 ? { "data-sim": String(attrs.sim) } : {}),
       },
     };
   },
@@ -164,7 +171,7 @@ export function blocksToContent(blocks: Block[], template: Template): JSONConten
     content: list.map((b) =>
       b.type === "image"
         ? { type: "image", attrs: { src: b.src ?? "", alt: b.runs.map((r) => r.text).join("") } }
-        : { type: "element", attrs: { type: b.type, indent: isListType(b.type) ? Math.min(b.indent ?? 0, MAX_INDENT) : 0 }, content: runsToInline(b.runs, numbers) },
+        : { type: "element", attrs: { type: b.type, indent: isListType(b.type) ? Math.min(b.indent ?? 0, MAX_INDENT) : 0, sim: b.sim ?? -1 }, content: runsToInline(b.runs, numbers) },
     ),
   };
 }
@@ -200,7 +207,8 @@ export function docToBlocks(doc: PMNode): Block[] {
       else runs.push(run);
     });
     const indent = isListType(node.attrs.type) ? (node.attrs.indent as number) : 0;
-    blocks.push(indent ? { type: node.attrs.type as ElementType, runs, indent } : { type: node.attrs.type as ElementType, runs });
+    const sim = (node.attrs.sim as number) ?? -1;
+    blocks.push({ type: node.attrs.type as ElementType, runs, ...(sim >= 0 ? { sim } : {}), ...(indent ? { indent } : {}) });
   });
   return blocks;
 }
@@ -208,6 +216,192 @@ export function docToBlocks(doc: PMNode): Block[] {
 /** A line's text with hard breaks as "\n" — the same offsets search results use. */
 export function lineText(node: PMNode): string {
   return node.textBetween(0, node.content.size, undefined, "\n");
+}
+
+// ---------------------------------------------------- simultaneous rows
+
+interface TopLine extends SimLine {
+  pos: number;
+  size: number;
+  node: PMNode;
+}
+
+/** Every top-level line with the position it starts at. */
+function topLines(doc: PMNode): TopLine[] {
+  const out: TopLine[] = [];
+  doc.forEach((node, pos) =>
+    out.push({
+      pos,
+      size: node.nodeSize,
+      node,
+      type: node.type.name === "element" ? (node.attrs.type as string) : node.type.name,
+      sim: node.type.name === "element" ? ((node.attrs.sim as number) ?? -1) : -1,
+    }),
+  );
+  return out;
+}
+
+function setSim(tr: Transaction, line: TopLine, sim: number) {
+  tr.setNodeMarkup(line.pos, undefined, { ...line.node.attrs, sim });
+}
+
+/**
+ * Make the cue at `cuePos` (with the lines under it) a new speaker beside the
+ * one above. Returns false when there is no speaker above or the row is full.
+ */
+function joinCue(view: EditorView, cuePos: number, notify?: (message: string) => void): boolean {
+  const lines = topLines(view.state.doc);
+  const group = speakerGroupAt(lines, lines.findIndex((l) => l.pos === cuePos));
+  if (!group) return false;
+  const join = joinColumn(lines, group.start);
+  if (!join) {
+    if (speakerGroupAt(lines, group.start - 1)) notify?.(`${MAX_TOGETHER} characters is the most who can speak at once.`);
+    else notify?.("Put the cue directly under the speaker it speaks with.");
+    return false;
+  }
+  const tr = view.state.tr;
+  if (join.first) for (let k = join.first.start; k < join.first.end; k++) setSim(tr, lines[k], 0);
+  for (let k = group.start; k < group.end; k++) setSim(tr, lines[k], join.column);
+  const cue = lines[group.start];
+  tr.setSelection(TextSelection.create(tr.doc, cue.pos + 1 + lineText(cue.node).length));
+  view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+/** "/simultaneous": put the current cue (or an empty line) beside the speaker above. */
+function startTogether(view: EditorView, notify?: (message: string) => void): boolean {
+  const { state } = view;
+  const { $from } = state.selection;
+  if ($from.parent.type.name !== "element") return false;
+  const type = $from.parent.attrs.type as ElementType;
+  const pos = $from.before();
+  if (type === "character") return joinCue(view, pos, notify);
+  if (isSpeechType(type)) {
+    const lines = topLines(state.doc);
+    const group = speakerGroupAt(lines, lines.findIndex((l) => l.pos === pos));
+    if (group) return joinCue(view, lines[group.start].pos, notify);
+  }
+  if ($from.parent.content.size) {
+    notify?.("Put the cursor on a character line, or on an empty line, to start speaking together.");
+    return false;
+  }
+  // An empty line of any type becomes the next speaker's cue, beside the one above.
+  view.dispatch(state.tr.setNodeMarkup(pos, undefined, { ...$from.parent.attrs, type: "character", sim: -1 }));
+  return joinCue(view, pos, notify);
+}
+
+/** Drag a cue (with its lines) beside another cue's row, or above/below it. */
+function moveCue(view: EditorView, srcPos: number, targetPos: number, after: boolean, notify?: (message: string) => void) {
+  const lines = topLines(view.state.doc);
+  const src = speakerGroupAt(lines, lines.findIndex((l) => l.pos === srcPos));
+  const tgt = speakerGroupAt(lines, lines.findIndex((l) => l.pos === targetPos));
+  if (!src || !tgt) return;
+  if (tgt.start >= src.start && tgt.start < src.end) return;
+  const nodes: PMNode[] = [];
+  for (let k = src.start; k < src.end; k++) nodes.push(lines[k].node.type.create({ ...lines[k].node.attrs, sim: -1 }, lines[k].node.content, lines[k].node.marks));
+  const tr = view.state.tr;
+  tr.delete(lines[src.start].pos, lines[src.end - 1].pos + lines[src.end - 1].size);
+  const at = tr.mapping.map(after ? lines[tgt.end - 1].pos + lines[tgt.end - 1].size : lines[tgt.start].pos, after ? -1 : 1);
+  tr.insert(at, Fragment.fromArray(nodes));
+  tr.setSelection(TextSelection.near(tr.doc.resolve(at + 2)));
+  fixRows(tr);
+  view.dispatch(tr.scrollIntoView());
+  void notify;
+}
+
+/** Drop a cue's speaker group beside a target cue: a new column in its row. */
+function joinRow(view: EditorView, srcPos: number, targetPos: number, notify?: (message: string) => void) {
+  const lines = topLines(view.state.doc);
+  const src = speakerGroupAt(lines, lines.findIndex((l) => l.pos === srcPos));
+  const tgt = speakerGroupAt(lines, lines.findIndex((l) => l.pos === targetPos));
+  if (!src || !tgt) return;
+  const srcRow = simRowAt(lines, src.start);
+  const tgtRow = simRowAt(lines, tgt.start);
+  if (srcRow && tgtRow && srcRow.start === tgtRow.start) return;
+  const join = appendColumn(lines, tgt.start);
+  if (!join) {
+    notify?.(`${MAX_TOGETHER} characters is the most who can speak at once.`);
+    return;
+  }
+  const nodes: PMNode[] = [];
+  for (let k = src.start; k < src.end; k++) nodes.push(lines[k].node.type.create({ ...lines[k].node.attrs, sim: join.column }, lines[k].node.content, lines[k].node.marks));
+  const tr = view.state.tr;
+  if (join.first) for (let k = join.first.start; k < join.first.end; k++) setSim(tr, lines[k], 0);
+  tr.delete(lines[src.start].pos, lines[src.end - 1].pos + lines[src.end - 1].size);
+  const rowEnd = tgtRow ? tgtRow.end : tgt.end;
+  const at = tr.mapping.map(lines[rowEnd - 1].pos + lines[rowEnd - 1].size, 1);
+  tr.insert(at, Fragment.fromArray(nodes));
+  tr.setSelection(TextSelection.near(tr.doc.resolve(at + 2)));
+  fixRows(tr);
+  view.dispatch(tr.scrollIntoView());
+}
+
+/** Put a row's columns back in order after lines are moved, and dissolve a row left with one speaker. */
+function fixRows(tr: Transaction) {
+  const lines = topLines(tr.doc);
+  const want = normalizeSim(lines);
+  lines.forEach((l, i) => {
+    if (l.sim !== want[i]) tr.setNodeMarkup(l.pos, undefined, { ...l.node.attrs, sim: want[i] });
+  });
+}
+
+/** The little grip shown beside a character name, for dragging it to the side. */
+function gripFor(pos: number): HTMLElement {
+  const grip = document.createElement("span");
+  grip.className = "mw-grip";
+  grip.contentEditable = "false";
+  grip.dataset.pos = String(pos);
+  grip.title = "Drag the name up or to the side to share the line";
+  grip.textContent = "⠿";
+  return grip;
+}
+
+/** Follow a drag from a cue's grip: drop to the side to speak together, above/below to move it. */
+function beginCueDrag(view: EditorView, cuePos: number, notify?: (message: string) => void) {
+  let target: DropTarget | null = null;
+  let marked: string | null = null;
+  // The highlight is a node decoration, not a class on the line: ProseMirror owns that DOM and
+  // would throw the class away on its next redraw.
+  const mark = (next: DropTarget | null) => {
+    const key = next ? `${next.pos}:${next.mode}` : null;
+    if (key === marked) return;
+    marked = key;
+    view.dispatch(view.state.tr.setMeta(dropKey, next));
+  };
+  const find = (event: MouseEvent) => {
+    const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+    if (!hit) return null;
+    const $hit = view.state.doc.resolve(hit.pos);
+    if ($hit.depth < 1) return null;
+    const lines = topLines(view.state.doc);
+    const group = speakerGroupAt(lines, lines.findIndex((l) => l.pos === $hit.before(1)));
+    if (!group) return null;
+    const cue = lines[group.start];
+    if (cue.pos === cuePos) return null;
+    const dom = view.nodeDOM(cue.pos) as HTMLElement | null;
+    if (!dom || !dom.getBoundingClientRect) return null;
+    const r = dom.getBoundingClientRect();
+    const mode = event.clientX > r.left + r.width * 0.62 ? "side" : event.clientY < r.top + r.height / 2 ? "before" : "after";
+    return { pos: cue.pos, mode, dom } as DropTarget & { dom: HTMLElement };
+  };
+  const move = (event: MouseEvent) => {
+    const found = find(event);
+    target = found ? { pos: found.pos, mode: found.mode } : null;
+    mark(target);
+  };
+  const end = () => {
+    window.removeEventListener("mousemove", move, true);
+    window.removeEventListener("mouseup", end, true);
+    view.dom.classList.remove("mw-dragging");
+    mark(null);
+    const drop = target;
+    if (!drop) return;
+    if (drop.mode === "side") joinRow(view, cuePos, drop.pos, notify);
+    else moveCue(view, cuePos, drop.pos, drop.mode === "after", notify);
+  };
+  view.dom.classList.add("mw-dragging");
+  window.addEventListener("mousemove", move, true);
+  window.addEventListener("mouseup", end, true);
 }
 
 // ------------------------------------------------------------- commands
@@ -218,7 +412,8 @@ function retype(tr: Transaction, type: ElementType): Transaction {
   const node = $from.parent;
   if (node.type.name !== "element") return tr;
   const pos = $from.before();
-  tr.setNodeMarkup(pos, undefined, { ...node.attrs, type, indent: isListType(type) ? node.attrs.indent : 0 });
+  const keepsColumn = type === "character" || isSpeechType(type);
+  tr.setNodeMarkup(pos, undefined, { ...node.attrs, type, indent: isListType(type) ? node.attrs.indent : 0, sim: keepsColumn ? node.attrs.sim : -1 });
   const text = node.textContent;
   if (type === "parenthetical" && text === "") {
     // Final Draft habit: a new parenthetical opens with the cursor inside "()".
@@ -311,6 +506,10 @@ interface PopupState {
 
 const popupKey = new PluginKey<PopupState>("mw-popup");
 
+/** The line a dragged cue would join, marked while the mouse is over it. */
+const dropKey = new PluginKey<DropTarget | null>("mw-drop");
+type DropTarget = { pos: number; mode: "side" | "before" | "after" };
+
 export interface ScriptKeysOptions {
   getTemplate: () => Template;
   getNames: () => string[];
@@ -331,9 +530,14 @@ export interface ScriptKeysOptions {
   requestNote?: () => void;
   /** A remembered source was cited as a note: its text is ready to store. */
   addNote?: (id: string, runs: Run[]) => void;
+  /** A word about what just happened, e.g. that six is the most who can speak at once. */
+  notify?: (message: string) => void;
 }
 
 const CITE_WORDS = ["citation", "cite", "source", "reference", "mla", "chicago", "works cited", "bibliography", "footnote", "endnote", "note"];
+
+/** "/simultaneous": scripts only. */
+const TOGETHER_WORDS = ["simultaneous", "together", "dual", "duet", "unison", "speak at once", "at once", "sim"];
 
 export interface SearchHighlight {
   re: RegExp;
@@ -352,6 +556,12 @@ function slashItems(
     .filter((e) => e.type !== "todo_done")
     .filter((e) => !q || e.label.toLowerCase().includes(q) || e.type.includes(q) || (e.aliases ?? []).some((a) => a.startsWith(q)))
     .map((e) => ({ label: e.label, value: e.type, hint: e.aliases?.[0] }));
+  // Scripts: put two (or more) characters on one line.
+  if (t.mode === "script") {
+    const together: MenuItem = { label: "Simultaneous dialogue", value: "sim", hint: "Together" };
+    if (!q) items.push(together);
+    else if (TOGETHER_WORDS.some((w) => w.startsWith(q))) items.unshift(together);
+  }
   if (!cite) return items;
   // "/cite" offers a new citation first, then every source cited before, newest first.
   const citeWord = !!q && CITE_WORDS.some((w) => w.startsWith(q));
@@ -500,6 +710,11 @@ function choose(view: EditorView, info: PopupInfo, i: number, opts: ScriptKeysOp
       void pickImageFor(view);
       return true;
     }
+    if (item.value === "sim") {
+      view.dispatch(tr);
+      startTogether(view, opts.notify);
+      return true;
+    }
     if (item.value === "song" && tr.selection.$from.parent.textContent.trim()) {
       // "/song" typed after some words: the song starts on its own line below them.
       const end = tr.selection.$from.after();
@@ -627,6 +842,13 @@ function handleEnter(view: EditorView, template: Template): boolean {
   }
 
   const blank = !text.trim() || (type === "parenthetical" && text.trim() === "()");
+  const sim = (node.attrs.sim as number) ?? -1;
+  // Enter on an empty line of a simultaneous row leaves the row (and moves on as usual).
+  if (blank && sim >= 0 && state.selection.empty) {
+    const next = template.emptyCycle.length ? cycleNext(template.emptyCycle, type) : type;
+    view.dispatch(state.tr.setNodeMarkup(blockStart, undefined, { ...node.attrs, type: next, sim: -1 }).scrollIntoView());
+    return true;
+  }
   // Enter on an empty list item nests it one level deeper (Backspace brings it back out);
   // at the deepest level it leaves the list.
   const indent = (node.attrs.indent as number) ?? 0;
@@ -649,14 +871,26 @@ function handleEnter(view: EditorView, template: Template): boolean {
 
   if (offset === 0 && size > 0) {
     // Cursor at the start: open an empty line of the same type above.
-    tr = tr.insert(blockStart, state.schema.nodes.element.create({ type, indent }));
+    tr = tr.insert(blockStart, state.schema.nodes.element.create({ type, indent, sim }));
     view.dispatch(tr.scrollIntoView());
     return true;
   }
   let nextType = atEnd ? (template.afterEnter[type] ?? type) : type;
   if (nextType === "todo_done") nextType = "todo";
   if (atEnd) nextType = songAware(tr.doc, $at.index(0) + 1, nextType, template);
-  tr = tr.split(at, 1, [{ type: state.schema.nodes.element, attrs: { type: nextType, indent: isListType(nextType) ? indent : 0 } }]);
+  // A simultaneous row carries the column through a cue and its speech. After the last
+  // speech of the column, Enter moves on below the row, ready for an ordinary cue.
+  if (sim >= 0 && atEnd && type !== "character" && nextType === "character") {
+    const lines = topLines(tr.doc);
+    const row = simRowAt(lines, $at.index(0));
+    if (row) {
+      const end = lines[row.end - 1].pos + lines[row.end - 1].size;
+      tr.insert(end, state.schema.nodes.element.create({ type: "character" }));
+      view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end + 1)).scrollIntoView());
+      return true;
+    }
+  }
+  tr = tr.split(at, 1, [{ type: state.schema.nodes.element, attrs: { type: nextType, indent: isListType(nextType) ? indent : 0, sim } }]);
   // The new line's content starts two positions after the split point.
   tr = tr.setSelection(TextSelection.create(tr.doc, at + 2));
   if (nextType === "parenthetical" && atEnd) {
@@ -765,6 +999,16 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
   addProseMirrorPlugins() {
     const options = this.options;
     return [
+      new Plugin<DropTarget | null>({
+        key: dropKey,
+        state: {
+          init: () => null,
+          apply: (tr, value) => {
+            const meta = tr.getMeta(dropKey) as DropTarget | null | undefined;
+            return meta === undefined ? (tr.docChanged ? null : value) : meta;
+          },
+        },
+      }),
       new Plugin<PopupState>({
         key: popupKey,
         state: {
@@ -801,6 +1045,14 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               return true;
             },
             mousedown: (view, event) => {
+              // A cue's grip starts a drag: drop to the side of another name to speak together.
+              const grip = (event.target as HTMLElement).closest?.(".mw-grip") as HTMLElement | null;
+              if (grip && event.button === 0) {
+                event.preventDefault();
+                const pos = Number(grip.dataset.pos);
+                if (Number.isFinite(pos)) beginCueDrag(view, pos, options.notify);
+                return true;
+              }
               // Clicking a to-do's box ticks it.
               const p = (event.target as HTMLElement).closest?.("p.el-todo, p.el-todo_done") as HTMLElement | null;
               if (!p || event.clientX > p.getBoundingClientRect().left + 26) return false;
@@ -836,6 +1088,20 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
             listNumbers(lines).forEach((n, i) => {
               if (n) decos.push(Decoration.node(lines[i].pos, lines[i].pos + lines[i].size, { "data-num": `${n}.` }));
             });
+            // Scripts: simultaneous speakers share a line, split across a grid; a grip on each
+            // character name lets it be dragged up, or to the side of another speaker.
+            if (tmpl.mode === "script") {
+              const drop = dropKey.getState(state);
+              const dropped = drop && state.doc.nodeAt(drop.pos);
+              if (drop && dropped) decos.push(Decoration.node(drop.pos, drop.pos + dropped.nodeSize, { class: `mw-drop-${drop.mode}` }));
+              const simLines = topLines(state.doc);
+              gridCells(simLines).forEach((cell, i) =>
+                decos.push(Decoration.node(simLines[i].pos, simLines[i].pos + simLines[i].size, { style: gridStyle(cell) })),
+              );
+              simLines.forEach((l) => {
+                if (l.type === "character") decos.push(Decoration.widget(l.pos + 1, gripFor(l.pos), { side: -1 }));
+              });
+            }
             // Web addresses: underlined and clickable.
             state.doc.descendants((node, pos) => {
               if (!node.isText || !node.text) return;
@@ -879,6 +1145,15 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               const tr = state.tr.insert(end, state.schema.nodes.element.create({ type: "paragraph" }, state.schema.text(text)));
               view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end + 1 + text.length)));
               return true;
+            }
+            // "^" at the end of a cue speaks together with the speaker above (Fountain's dual dialogue).
+            if (text === "^" && type === "character" && $from.pos === $from.end()) {
+              const lines = topLines(state.doc);
+              const idx = lines.findIndex((l) => l.pos === $from.before());
+              if (idx >= 0 && joinColumn(lines, idx)) {
+                joinCue(view, $from.before(), options.notify);
+                return true;
+              }
             }
             // "/" opens the block menu at the start of a line or after a space.
             if (text === "/" && (before === "" || /\s$/.test(before))) {
@@ -950,7 +1225,18 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               tr.setNodeMarkup(pos, undefined, { ...node.attrs, type, indent: isListType(type) ? node.attrs.indent : 0 });
             }
           });
-          return tr;
+          // Keep simultaneous rows whole and numbered from the left after lines come and go.
+          const fixSim = (tx: Transaction | null): Transaction | null => {
+            const lines = topLines(tx ? tx.doc : state.doc);
+            const want = normalizeSim(lines);
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].sim === want[i]) continue;
+              tx ??= state.tr;
+              tx.setNodeMarkup(lines[i].pos, undefined, { ...lines[i].node.attrs, sim: want[i] });
+            }
+            return tx;
+          };
+          return fixSim(tr);
         },
       }),
     ];

@@ -230,6 +230,29 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
 .mw-editor .el-song.is-empty::after { content: none; }
 .mw-editor .el-lyric + .el-parenthetical, .mw-editor .el-lyric + .el-lyric { margin-top: 0; }
 
+/* Scripts: every line sits on a 60-column grid, so simultaneous speakers share a row.
+   Two speakers take 30 columns each, three take 20, four 15, five 12 and six 10. */
+.mw-editor.tmpl-stage-play, .mw-editor.tmpl-screenplay {
+  display: grid; grid-template-columns: repeat(60, minmax(0, 1fr)); align-items: start;
+}
+.mw-editor.tmpl-stage-play > *, .mw-editor.tmpl-screenplay > * { grid-column: 1 / -1; }
+/* A speaker's column is its measure: the page-wide indents step aside so the text fits. */
+.mw-editor.tmpl-stage-play > p[data-sim], .mw-editor.tmpl-screenplay > p[data-sim] { margin-left: 0; margin-right: 0; padding-left: 4%; padding-right: 4%; }
+
+/* The grip beside a character name: drag it up, or to the side of another name. */
+.mw-editor .mw-grip {
+  position: absolute; left: -25px; top: 0.25em; width: 17px; height: 18px; display: none; place-items: center;
+  color: var(--faint); font-size: 12px; line-height: 1; cursor: grab; user-select: none; border-radius: 4px;
+}
+.mw-editor p.el-character:hover > .mw-grip { display: grid; }
+.mw-editor .mw-grip:hover { color: var(--accent); background: var(--hover); }
+.mw-editor p[data-sim] > .mw-grip { left: 1px; }
+.mw-editor.mw-dragging { user-select: none; }
+.mw-editor.mw-dragging .mw-grip { cursor: grabbing; }
+.mw-editor p.mw-drop-side { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; background: var(--accent-soft); }
+.mw-editor p.mw-drop-before { box-shadow: 0 -2px 0 var(--accent); }
+.mw-editor p.mw-drop-after { box-shadow: 0 2px 0 var(--accent); }
+
 /* Screenplay */
 .tmpl-screenplay .el-scene_heading { text-transform: uppercase; font-weight: 700; margin-top: 2em; }
 .tmpl-screenplay .el-scene_heading:first-child { margin-top: 0; }

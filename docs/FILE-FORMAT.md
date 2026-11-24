@@ -57,6 +57,7 @@ with a blank line.
 | Forced direction | `!` before a paragraph that would otherwise look like a cue | `!NOBODY MOVES.` |
 | Song title (musicals) | A line starting with `~~` | `~~ The Long Way Home` |
 | Lyric (musicals) | A line starting with `~` (Fountain's lyric mark), under a cue or on its own | `~I walked the road alone` |
+| Speaker beside the one above | The cue, then `^` (Fountain's dual-dialogue mark); its parentheticals, dialogue and lyrics stay under it | `BEN ^` |
 
 Rules for lines that could be either a character cue or a direction:
 
@@ -74,6 +75,22 @@ ANNA
 ~I walked the road alone
 (to BEN)
 ~Until you
+```
+
+Two to six characters can speak at once, one column each from the left: the
+first cue is written plainly and each cue beside it carries the caret. The
+speech under a cue belongs to that cue's column, and a direction, heading or
+transition ends the row.
+
+```
+ANNA
+I told you.
+
+BEN ^
+And I warned you.
+
+CY ^
+You never listen.
 ```
 
 Emphasis uses markdown: `*italic*`, `**bold**`, `_underline_`.

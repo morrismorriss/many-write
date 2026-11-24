@@ -280,6 +280,55 @@ describe("works cited and bibliography entries", () => {
   });
 });
 
+describe("simultaneous dialogue", () => {
+  const two = `ANNA
+I told you.
+
+BEN ^
+And I warned you.
+`;
+
+  it("reads a caret cue as a speaker beside the one above", () => {
+    const { blocks } = parseScript(two);
+    expect(types(blocks)).toEqual(["character:ANNA", "dialogue:I told you.", "character:BEN", "dialogue:And I warned you."]);
+    expect(blocks.map((b) => b.sim ?? -1)).toEqual([0, 0, 1, 1]);
+  });
+
+  it("round-trips byte for byte", () => {
+    const md = serializeScript(parseScript(two));
+    expect(md).toBe(two);
+    expect(parseScript(md).blocks.map((b) => b.sim ?? -1)).toEqual([0, 0, 1, 1]);
+  });
+
+  it("takes up to six speakers in a row", () => {
+    const names = ["ANNA", "BEN", "CY", "DEE", "EVE", "FLO"];
+    const md = names.map((n, i) => `${n}${i ? " ^" : ""}\nLine ${i + 1}.`).join("\n\n") + "\n";
+    const { blocks } = parseScript(md);
+    expect(blocks.filter((b) => b.type === "character").map((b) => b.sim)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(serializeScript({ blocks, frontMatter: null })).toBe(md);
+  });
+
+  it("seventh speaker stays a normal cue", () => {
+    const names = ["ANNA", "BEN", "CY", "DEE", "EVE", "FLO", "GUS"];
+    const md = names.map((n, i) => `${n}${i ? " ^" : ""}\nLine ${i + 1}.`).join("\n\n") + "\n";
+    const { blocks } = parseScript(md);
+    const cues = blocks.filter((b) => b.type === "character");
+    expect(cues.map((b) => b.sim ?? -1)).toEqual([0, 1, 2, 3, 4, 5, -1]);
+    // The caret that could not be used is kept as text, so nothing is lost.
+    expect(blockText(cues[6])).toBe("GUS ^");
+  });
+
+  it("leaves a caret alone when no speaker is directly above", () => {
+    const md = `A kitchen.
+
+BEN ^
+Hello.
+`;
+    expect(parseScript(md).blocks.map((b) => b.sim ?? -1)).toEqual([-1, -1, -1]);
+    expect(serializeScript(parseScript(md))).toBe(md);
+  });
+});
+
 describe("text-message bubbles", () => {
   it("round-trips left and right bubbles in prose and in documents", () => {
     const md = "Before.\n\n> [!text-left] Are you up?\n\n> [!text-right] Yes\\\n> why?\n";
