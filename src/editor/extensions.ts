@@ -8,7 +8,7 @@ import { parseDoc, serializeDoc, adaptScriptTypes, noteNumbers, type Block, type
 import { linkTarget, URL_RE } from "../formats/typst";
 import { openUrl } from "../lib/backend";
 import { inTextCitation, noteEntry, sourceLabel, sourceMatches, type CitationStyle, type ReferenceStyle, type Source } from "../formats/citations";
-import { appendColumn, gridCells, gridStyle, isSpeechType, joinColumn, MAX_TOGETHER, normalizeSim, simRowAt, speakerGroupAt, type SimLine } from "../formats/simultaneous";
+import { appendColumn, gridCells, gridStyle, isSpeechType, joinColumn, MAX_TOGETHER, normalizeSim, simRowAt, speakerGroupAt, type Group, type SimLine } from "../formats/simultaneous";
 import { newId } from "../project/model";
 
 // --------------------------------------------------------------- schema
@@ -291,23 +291,33 @@ function startTogether(view: EditorView, notify?: (message: string) => void): bo
   return joinCue(view, pos, notify);
 }
 
-/** Drag a cue (with its lines) beside another cue's row, or above/below it. */
-function moveCue(view: EditorView, srcPos: number, targetPos: number, after: boolean, notify?: (message: string) => void) {
+/** The lines a grip drag carries: a cue takes its speech along, anything else goes alone. */
+function dragUnit(lines: SimLine[], index: number): Group {
+  if (index < 0 || index >= lines.length) return { start: -1, end: -1 };
+  return speakerGroupAt(lines, index) ?? { start: index, end: index + 1 };
+}
+
+/** Move a block — or a cue with its speech — above or below another line. */
+function moveBlock(view: EditorView, srcPos: number, targetPos: number, after: boolean) {
   const lines = topLines(view.state.doc);
-  const src = speakerGroupAt(lines, lines.findIndex((l) => l.pos === srcPos));
-  const tgt = speakerGroupAt(lines, lines.findIndex((l) => l.pos === targetPos));
-  if (!src || !tgt) return;
-  if (tgt.start >= src.start && tgt.start < src.end) return;
+  const src = dragUnit(lines, lines.findIndex((l) => l.pos === srcPos));
+  const at = lines.findIndex((l) => l.pos === targetPos);
+  if (src.start < 0 || at < 0) return;
+  // Dropping into the block itself, or right back where it was, changes nothing.
+  if (at >= src.start && at < src.end) return;
+  if ((after && at === src.start - 1) || (!after && at === src.end)) return;
   const nodes: PMNode[] = [];
-  for (let k = src.start; k < src.end; k++) nodes.push(lines[k].node.type.create({ ...lines[k].node.attrs, sim: -1 }, lines[k].node.content, lines[k].node.marks));
+  for (let k = src.start; k < src.end; k++) {
+    nodes.push(lines[k].node.type.create({ ...lines[k].node.attrs, sim: -1 }, lines[k].node.content, lines[k].node.marks));
+  }
   const tr = view.state.tr;
   tr.delete(lines[src.start].pos, lines[src.end - 1].pos + lines[src.end - 1].size);
-  const at = tr.mapping.map(after ? lines[tgt.end - 1].pos + lines[tgt.end - 1].size : lines[tgt.start].pos, after ? -1 : 1);
-  tr.insert(at, Fragment.fromArray(nodes));
-  tr.setSelection(TextSelection.near(tr.doc.resolve(at + 2)));
+  const target = lines[at];
+  const insertAt = tr.mapping.map(after ? target.pos + target.size : target.pos, after ? -1 : 1);
+  tr.insert(insertAt, Fragment.fromArray(nodes));
+  tr.setSelection(TextSelection.near(tr.doc.resolve(insertAt + 2)));
   fixRows(tr);
   view.dispatch(tr.scrollIntoView());
-  void notify;
 }
 
 /** Drop a cue's speaker group beside a target cue: a new column in its row. */
@@ -346,19 +356,24 @@ function fixRows(tr: Transaction) {
   });
 }
 
-/** The little grip shown beside a character name, for dragging it to the side. */
-function gripFor(pos: number): HTMLElement {
+/** The little grip shown beside a line, for dragging the block about. */
+function gripFor(pos: number, canJoin: boolean): HTMLElement {
   const grip = document.createElement("span");
   grip.className = "mw-grip";
   grip.contentEditable = "false";
   grip.dataset.pos = String(pos);
-  grip.title = "Drag the name up or to the side to share the line";
+  grip.title = canJoin ? "Drag to move this line, or onto a name to share the line" : "Drag to move this line";
   grip.textContent = "⠿";
   return grip;
 }
 
-/** Follow a drag from a cue's grip: drop to the side to speak together, above/below to move it. */
-function beginCueDrag(view: EditorView, cuePos: number, notify?: (message: string) => void) {
+/** Follow a drag from a line's grip: up or down to move the block, to the side to speak together. */
+function beginBlockDrag(view: EditorView, pos: number, canJoin: boolean, notify?: (message: string) => void) {
+  const lines = topLines(view.state.doc);
+  const from = lines.findIndex((l) => l.pos === pos);
+  if (from < 0) return;
+  const unit = dragUnit(lines, from);
+  const scroller = view.dom.closest(".editor-scroll") as HTMLElement | null;
   let target: DropTarget | null = null;
   let marked: string | null = null;
   // The highlight is a node decoration, not a class on the line: ProseMirror owns that DOM and
@@ -374,46 +389,76 @@ function beginCueDrag(view: EditorView, cuePos: number, notify?: (message: strin
     if (!hit) return null;
     const $hit = view.state.doc.resolve(hit.pos);
     if ($hit.depth < 1) return null;
-    const lines = topLines(view.state.doc);
-    const over = lines.findIndex((l) => l.pos === $hit.before(1));
-    const group = speakerGroupAt(lines, over);
-    if (!group) return null;
-    const cue = lines[group.start];
-    if (cue.pos === cuePos) return null;
-    const dom = view.nodeDOM(cue.pos) as HTMLElement | null;
+    const now = topLines(view.state.doc);
+    const over = now.findIndex((l) => l.pos === $hit.before(1));
+    if (over < 0) return null;
+    const group = dragUnit(now, over);
+    if (group.start >= unit.start && group.start < unit.end) return null;
+    const side = canJoin && now[group.start].type === "character";
+    const dom = view.nodeDOM(now[group.start].pos) as HTMLElement | null;
     if (!dom || !dom.getBoundingClientRect) return null;
     const r = dom.getBoundingClientRect();
-    const edge = Math.min(r.height * 0.25, 9);
-    // Aim at the middle of a name to stand beside that speaker; at its top or bottom edge to
-    // move the cue up or down. A move that would change nothing means the same thing.
-    let mode: DropTarget["mode"] =
-      event.clientY < r.top + edge ? "before" : event.clientY > r.bottom - edge ? "after" : "side";
-    const src = speakerGroupAt(lines, lines.findIndex((l) => l.pos === cuePos));
-    if (src && ((mode === "before" && group.start === src.end) || (mode === "after" && group.end === src.start))) mode = "side";
-    return { pos: cue.pos, mode, dom } as DropTarget & { dom: HTMLElement };
+    let mode: DropTarget["mode"];
+    if (side) {
+      const band = Math.min(r.height * 0.25, 9);
+      mode = event.clientY < r.top + band ? "before" : event.clientY > r.bottom - band ? "after" : "side";
+    } else {
+      mode = event.clientY < r.top + r.height / 2 ? "before" : "after";
+    }
+    const last = now[group.end - 1];
+    const line = mode === "after" ? last.pos : now[group.start].pos;
+    return { pos: line, mode } as DropTarget;
   };
   const move = (event: Event) => {
     const found = find(event as MouseEvent);
-    target = found ? { pos: found.pos, mode: found.mode } : null;
+    target = found;
     mark(target);
+    // Nudge the page along when the pointer rests near the top or bottom edge.
+    if (scroller) {
+      const r = scroller.getBoundingClientRect();
+      const y = (event as MouseEvent).clientY;
+      scrollBy(y < r.top + 40 ? -1 : y > r.bottom - 40 ? 1 : 0);
+    }
+  };
+  let raf = 0;
+  let direction = 0;
+  const tick = () => {
+    if (!scroller || !direction) {
+      raf = 0;
+      return;
+    }
+    scroller.scrollTop += direction * 12;
+    raf = requestAnimationFrame(tick);
+  };
+  const scrollBy = (dir: number) => {
+    if (dir === direction) return;
+    direction = dir;
+    if (dir && !raf) raf = requestAnimationFrame(tick);
   };
   let done = false;
   const end = () => {
     if (done) return;
     done = true;
-    for (const [name, fn] of [["pointermove", move], ["mousemove", move], ["pointerup", end], ["mouseup", end]] as const) {
+    for (const [name, fn] of [["pointermove", move], ["mousemove", move], ["pointerup", end], ["mouseup", end], ["keydown", escape]] as const) {
       window.removeEventListener(name, fn as EventListener, true);
     }
+    scrollBy(0);
+    cancelAnimationFrame(raf);
     view.dom.classList.remove("mw-dragging");
     mark(null);
     const drop = target;
     if (!drop) return;
-    if (drop.mode === "side") joinRow(view, cuePos, drop.pos, notify);
-    else moveCue(view, cuePos, drop.pos, drop.mode === "after", notify);
+    if (drop.mode === "side") joinRow(view, pos, drop.pos, notify);
+    else moveBlock(view, pos, drop.pos, drop.mode === "after");
+  };
+  const escape = (event: Event) => {
+    if ((event as KeyboardEvent).key !== "Escape") return;
+    target = null;
+    end();
   };
   view.dom.classList.add("mw-dragging");
   // Pointer events cover mouse, pen and touch; the mouse pair is there for engines without them.
-  for (const [name, fn] of [["pointermove", move], ["mousemove", move], ["pointerup", end], ["mouseup", end]] as const) {
+  for (const [name, fn] of [["pointermove", move], ["mousemove", move], ["pointerup", end], ["mouseup", end], ["keydown", escape]] as const) {
     window.addEventListener(name, fn as EventListener, true);
   }
 }
@@ -1059,12 +1104,13 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
               return true;
             },
             mousedown: (view, event) => {
-              // A cue's grip starts a drag: drop to the side of another name to speak together.
+              // A line's grip starts a drag: up or down to move the block, to the side of
+              // another name to speak together.
               const grip = (event.target as HTMLElement).closest?.(".mw-grip") as HTMLElement | null;
               if (grip && event.button === 0) {
                 event.preventDefault();
                 const pos = Number(grip.dataset.pos);
-                if (Number.isFinite(pos)) beginCueDrag(view, pos, options.notify);
+                if (Number.isFinite(pos)) beginBlockDrag(view, pos, options.getTemplate().mode === "script", options.notify);
                 return true;
               }
               // Clicking a to-do's box ticks it.
@@ -1105,17 +1151,21 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
             // Scripts: simultaneous speakers share a line, split across a grid; a grip on each
             // character name lets it be dragged up, or to the side of another speaker.
             if (tmpl.mode === "script") {
-              const drop = dropKey.getState(state);
-              const dropped = drop && state.doc.nodeAt(drop.pos);
-              if (drop && dropped) decos.push(Decoration.node(drop.pos, drop.pos + dropped.nodeSize, { class: `mw-drop-${drop.mode}` }));
               const simLines = topLines(state.doc);
               gridCells(simLines).forEach((cell, i) =>
                 decos.push(Decoration.node(simLines[i].pos, simLines[i].pos + simLines[i].size, { style: gridStyle(cell) })),
               );
-              simLines.forEach((l) => {
-                if (l.type === "character") decos.push(Decoration.widget(l.pos + 1, gripFor(l.pos), { side: -1 }));
-              });
             }
+            // Where a dragged line would land.
+            const drop = dropKey.getState(state);
+            const dropped = drop && state.doc.nodeAt(drop.pos);
+            if (drop && dropped) decos.push(Decoration.node(drop.pos, drop.pos + dropped.nodeSize, { class: `mw-drop-${drop.mode}` }));
+            // Every line carries a grip in the margin: drag it up or down to move the block, or
+            // onto another name (in a script) to have the two speak at once.
+            const canJoin = tmpl.mode === "script";
+            state.doc.forEach((node, pos) => {
+              if (node.type.name === "element") decos.push(Decoration.widget(pos + 1, gripFor(pos, canJoin), { side: -1 }));
+            });
             // Web addresses: underlined and clickable.
             state.doc.descendants((node, pos) => {
               if (!node.isText || !node.text) return;

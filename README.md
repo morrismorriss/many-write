@@ -55,6 +55,7 @@ Each scene starts on a new page, and a character who speaks again after a stage 
 - **New pages start empty**: a new scene, chapter, character or front matter page has no text in it, just grey hint text (its name, “For …” on a dedication, an example source on a Works Cited page) that disappears as you type.
 - **Nested lists**: in a bulleted, numbered or to-do list, press **Enter** on an empty item to indent it a level, and **Backspace** at the start of an item to bring it back out (on a top-level item, Backspace leaves the list). **Tab** and **Shift-Tab** do the same. Each level is numbered on its own, and nesting is kept in PDF, Word and EPUB exports.
 - **Blank lines are kept**: press Enter twice for an empty line, and it stays an empty line on the page and in Word, EPUB and PDF exports.
+- **Drag lines about**: hover a line and drag the ⠿ grip in the margin to move it, in any format. A line is shown where it will land as you go, and Escape drops nothing. A character cue takes its dialogue with it, and in a play dropping a name on another name's middle puts the two side by side.
 - **Links**: web addresses are clickable in the editor (Alt-click to edit one) and in exported PDFs.
 - **Several windows**: File › New window, or the window button next to a recent project, opens another project side by side.
 
@@ -97,7 +98,7 @@ In a stage play or screenplay, type **/song** to start a song anywhere in a scen
 
 Two to six characters can speak together, each in their own column, left to right, in a stage play, a screenplay, or a play in a collection. Write a cue and its lines, then start the next speaker under it and press **/simultaneous** (or type `^` at the end of the cue): the two names move side by side, each with its own dialogue underneath. Repeat for a third, up to six.
 
-To move a name that is already written, hover it and drag the grip beside it to the right of another name; drop above or below a name to move the whole speech instead. Drag a name that is already in a row and its dialogue goes with it.
+To move a name that is already written, hover it and drag the ⠿ grip beside it onto the middle of another name; drop on a name's top or bottom edge to move the whole speech above or below it instead. Drag a name that is already in a row and its dialogue goes with it.
 
 On the page, and in DOCX and EPUB exports, the speakers sit in a shared row, one column each, and their dialogue wraps inside its column. Files write the second and later cues with a trailing `^`, Fountain's dual-dialogue mark, so a script read elsewhere keeps the pairing.
 
