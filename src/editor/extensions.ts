@@ -374,24 +374,35 @@ function beginCueDrag(view: EditorView, cuePos: number, notify?: (message: strin
     const $hit = view.state.doc.resolve(hit.pos);
     if ($hit.depth < 1) return null;
     const lines = topLines(view.state.doc);
-    const group = speakerGroupAt(lines, lines.findIndex((l) => l.pos === $hit.before(1)));
+    const over = lines.findIndex((l) => l.pos === $hit.before(1));
+    const group = speakerGroupAt(lines, over);
     if (!group) return null;
     const cue = lines[group.start];
     if (cue.pos === cuePos) return null;
     const dom = view.nodeDOM(cue.pos) as HTMLElement | null;
     if (!dom || !dom.getBoundingClientRect) return null;
     const r = dom.getBoundingClientRect();
-    const mode = event.clientX > r.left + r.width * 0.62 ? "side" : event.clientY < r.top + r.height / 2 ? "before" : "after";
+    const edge = Math.min(r.height * 0.25, 9);
+    // Aim at the middle of a name to stand beside that speaker; at its top or bottom edge to
+    // move the cue up or down. A move that would change nothing means the same thing.
+    let mode: DropTarget["mode"] =
+      event.clientY < r.top + edge ? "before" : event.clientY > r.bottom - edge ? "after" : "side";
+    const src = speakerGroupAt(lines, lines.findIndex((l) => l.pos === cuePos));
+    if (src && ((mode === "before" && group.start === src.end) || (mode === "after" && group.end === src.start))) mode = "side";
     return { pos: cue.pos, mode, dom } as DropTarget & { dom: HTMLElement };
   };
-  const move = (event: MouseEvent) => {
-    const found = find(event);
+  const move = (event: Event) => {
+    const found = find(event as MouseEvent);
     target = found ? { pos: found.pos, mode: found.mode } : null;
     mark(target);
   };
+  let done = false;
   const end = () => {
-    window.removeEventListener("mousemove", move, true);
-    window.removeEventListener("mouseup", end, true);
+    if (done) return;
+    done = true;
+    for (const [name, fn] of [["pointermove", move], ["mousemove", move], ["pointerup", end], ["mouseup", end]] as const) {
+      window.removeEventListener(name, fn as EventListener, true);
+    }
     view.dom.classList.remove("mw-dragging");
     mark(null);
     const drop = target;
@@ -400,8 +411,10 @@ function beginCueDrag(view: EditorView, cuePos: number, notify?: (message: strin
     else moveCue(view, cuePos, drop.pos, drop.mode === "after", notify);
   };
   view.dom.classList.add("mw-dragging");
-  window.addEventListener("mousemove", move, true);
-  window.addEventListener("mouseup", end, true);
+  // Pointer events cover mouse, pen and touch; the mouse pair is there for engines without them.
+  for (const [name, fn] of [["pointermove", move], ["mousemove", move], ["pointerup", end], ["mouseup", end]] as const) {
+    window.addEventListener(name, fn as EventListener, true);
+  }
 }
 
 // ------------------------------------------------------------- commands

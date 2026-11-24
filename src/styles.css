@@ -241,10 +241,11 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
 
 /* The grip beside a character name: drag it up, or to the side of another name. */
 .mw-editor .mw-grip {
-  position: absolute; left: -25px; top: 0.25em; width: 17px; height: 18px; display: none; place-items: center;
+  position: absolute; left: -27px; top: 0.2em; width: 20px; height: 20px; display: none; place-items: center;
   color: var(--faint); font-size: 12px; line-height: 1; cursor: grab; user-select: none; border-radius: 4px;
+  touch-action: none;
 }
-.mw-editor p.el-character:hover > .mw-grip { display: grid; }
+.mw-editor p.el-character:hover > .mw-grip, .mw-editor.mw-dragging .mw-grip { display: grid; }
 .mw-editor .mw-grip:hover { color: var(--accent); background: var(--hover); }
 .mw-editor p[data-sim] > .mw-grip { left: 1px; }
 .mw-editor.mw-dragging { user-select: none; }
