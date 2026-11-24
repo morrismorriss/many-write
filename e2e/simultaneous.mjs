@@ -16,8 +16,6 @@ const DIR = process.env.MW_E2E_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "mw-
 const SHOTS = process.env.MW_SHOTS ?? "e2e/out";
 fs.mkdirSync(SHOTS, { recursive: true });
 fs.rmSync(path.join(DIR, "Test Duet"), { recursive: true, force: true });
-fs.rmSync(path.join(DIR, "Test Drag"), { recursive: true, force: true });
-fs.rmSync(path.join(DIR, "Test Move"), { recursive: true, force: true });
 fs.rmSync(path.join(DIR, "Test Drop"), { recursive: true, force: true });
 fs.rmSync(path.join(DIR, "Test Cut"), { recursive: true, force: true });
 
@@ -42,7 +40,7 @@ const columns = () =>
 const layout = () =>
   page.$$eval(".mw-editor > p", (ps) => {
     const rows = ps
-      .map((p) => ({ text: p.textContent.replace("⠿", "").trim(), box: p.getBoundingClientRect() }))
+      .map((p) => ({ text: p.textContent.trim(), box: p.getBoundingClientRect() }))
       .filter((r) => r.text);
     const overlapping = [];
     for (let i = 0; i < rows.length; i++) {
@@ -125,68 +123,6 @@ const duet = fs.readFileSync(path.join(DIR, "Test Duet", "manuscript", "01-act-o
 ok(/^ANNA\nLeft\.$/m.test(duet), "the first speaker stays plain in the file");
 ok(/^BEN \^\nRight\.$/m.test(duet), "the second speaker is marked with a caret");
 ok(/^DEE \^\nFourth\.$/m.test(duet), "and so is the third");
-
-// ---- dragging a name to the side of another name
-await newProject("Test Drag");
-await type("Scene 1");
-await page.keyboard.press("Enter");
-await type("A quay at dawn.");
-await page.keyboard.press("Enter");
-await type("Anna");
-await page.keyboard.press("Enter");
-await type("Left.");
-await page.keyboard.press("Enter");
-await type("Ben");
-await page.keyboard.press("Enter");
-await type("Right.");
-const anna = page.locator(".ProseMirror p.el-character", { hasText: /ANNA/i }).first();
-const ben = page.locator(".ProseMirror p.el-character", { hasText: /BEN/i }).first();
-const target = await anna.boundingBox();
-await ben.hover();
-const grip = await ben.locator(".mw-grip").boundingBox();
-ok(!!grip, "a grip appears beside the character name");
-await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
-await page.mouse.down();
-// Dropping on the name itself is the gesture people try first.
-await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 });
-ok((await page.locator(".mw-drop-side").count()) === 1, "the line it would join is highlighted while dragging");
-await page.screenshot({ path: path.join(SHOTS, "simultaneous-drag.png") });
-await page.mouse.up();
-cols = await columns();
-ok(cols.join() === "1,1,31,31", `dropping onto the name shares the line (${cols.join(", ")})`);
-laid = await layout();
-ok(laid.overlapping.length === 0, `and nothing overlaps after the drag (${laid.overlapping.join(", ") || "clean"})`);
-
-await page.waitForTimeout(1200);
-const drag = fs.readFileSync(path.join(DIR, "Test Drag", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
-ok(/^BEN \^\nRight\.$/m.test(drag), "and the file records it");
-
-// ---- the edge of a name moves the cue instead of pairing it
-await newProject("Test Move");
-await type("Scene 1");
-await page.keyboard.press("Enter");
-await type("A quay at dawn.");
-await page.keyboard.press("Enter");
-await type("Anna");
-await page.keyboard.press("Enter");
-await type("Left.");
-await page.keyboard.press("Enter");
-await type("Ben");
-await page.keyboard.press("Enter");
-await type("Right.");
-const annaAgain = page.locator(".mw-editor > p.el-character", { hasText: /ANNA/i }).first();
-const benAgain = page.locator(".mw-editor > p.el-character", { hasText: /BEN/i }).first();
-const top = await annaAgain.boundingBox();
-await benAgain.hover();
-const gripAgain = await benAgain.locator(".mw-grip").boundingBox();
-await page.mouse.move(gripAgain.x + gripAgain.width / 2, gripAgain.y + gripAgain.height / 2);
-await page.mouse.down();
-await page.mouse.move(top.x + top.width / 2, top.y + 2, { steps: 8 });
-ok((await page.locator(".mw-drop-before").count()) === 1, "the top edge of a name offers a move, not a column");
-await page.mouse.up();
-await page.waitForTimeout(1200);
-const moved = fs.readFileSync(path.join(DIR, "Test Move", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
-ok(/^BEN\nRight\.\n\nANNA$/m.test(moved), "the cue moves above the other speaker");
 
 // ---- taking a speaker out closes the row up
 const selectLines = async (first, last) => {

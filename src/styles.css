@@ -239,21 +239,6 @@ kbd { font: 11px var(--ui-font); color: var(--muted); }
 /* A speaker's column is its measure: the page-wide indents step aside so the text fits. */
 .mw-editor.tmpl-stage-play > p[data-sim], .mw-editor.tmpl-screenplay > p[data-sim] { margin-left: 0; margin-right: 0; padding-left: 4%; padding-right: 4%; }
 
-/* The grip beside a character name: drag it up, or to the side of another name. */
-.mw-editor .mw-grip {
-  position: absolute; left: -27px; top: 0.2em; width: 20px; height: 20px; display: none; place-items: center;
-  color: var(--faint); font-size: 12px; line-height: 1; cursor: grab; user-select: none; border-radius: 4px;
-  touch-action: none;
-}
-.mw-editor p:hover > .mw-grip, .mw-editor.mw-dragging .mw-grip { display: grid; }
-.mw-editor .mw-grip:hover { color: var(--accent); background: var(--hover); }
-.mw-editor p[data-sim] > .mw-grip { left: 1px; }
-.mw-editor.mw-dragging { user-select: none; }
-.mw-editor.mw-dragging .mw-grip { cursor: grabbing; }
-.mw-editor p.mw-drop-side { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; background: var(--accent-soft); }
-.mw-editor p.mw-drop-before { box-shadow: 0 -2px 0 var(--accent); }
-.mw-editor p.mw-drop-after { box-shadow: 0 2px 0 var(--accent); }
-
 /* Screenplay */
 .tmpl-screenplay .el-scene_heading { text-transform: uppercase; font-weight: 700; margin-top: 2em; }
 .tmpl-screenplay .el-scene_heading:first-child { margin-top: 0; }
