@@ -58,13 +58,19 @@ export interface Row extends Group {
   columns: number;
 }
 
+/**
+ * The line that opens a row: a cue in the leftmost column. Two rows can sit one under the
+ * other, so a row ends where the next first cue begins.
+ */
+export const opensRow = (line: SimLine) => line.type === "character" && simOf(line) === 0;
+
 /** The simultaneous row holding line `i`, if it is in one. */
 export function simRowAt(lines: SimLine[], i: number): Row | null {
   if (i < 0 || i >= lines.length || simOf(lines[i]) < 0) return null;
   let start = i;
-  while (start > 0 && simOf(lines[start - 1]) >= 0) start--;
+  while (start > 0 && simOf(lines[start - 1]) >= 0 && !opensRow(lines[start])) start--;
   let end = i + 1;
-  while (end < lines.length && simOf(lines[end]) >= 0) end++;
+  while (end < lines.length && simOf(lines[end]) >= 0 && !opensRow(lines[end])) end++;
   let columns = 0;
   for (let k = start; k < end; k++) columns = Math.max(columns, simOf(lines[k]) + 1);
   return { start, end, columns };
@@ -122,7 +128,7 @@ export function normalizeSim(lines: SimLine[]): number[] {
 }
 
 export interface Cell {
-  /** Grid row, from 1: every line gets its own unless it shares a row with other speakers. */
+  /** Grid row, from 1: every line gets its own, so a speaker's lines stack down its column. */
   row: number;
   /** Speaker column, or -1 for a line that spans the whole width. */
   col: number;
@@ -142,8 +148,16 @@ export function gridCells(lines: SimLine[]): Cell[] {
       i++;
       continue;
     }
-    for (let k = r.start; k < r.end; k++) cells[k] = { row, col: simOf(lines[k]), cols: r.columns };
-    row++;
+    // Each speaker starts at the top of the row and runs down its own column, so the row is as
+    // tall as its longest speaker.
+    let height = 1;
+    for (let k = r.start; k < r.end; ) {
+      const end = Math.min(speakerGroupAt(lines, k)?.end ?? k + 1, r.end);
+      for (let j = k; j < end; j++) cells[j] = { row: row + (j - k), col: simOf(lines[j]), cols: r.columns };
+      height = Math.max(height, end - k);
+      k = end;
+    }
+    row += height;
     i = r.end;
   }
   return cells;

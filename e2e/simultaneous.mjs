@@ -31,7 +31,27 @@ page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
 const type = async (text) => page.keyboard.type(text, { delay: 5 });
 const pill = async () => (await page.getByTestId("type-pill").innerText()).trim();
 // Every line of a row carries a column: the two halves of the page start at grid lines 1 and 31.
-const columns = () => page.$$eval(".ProseMirror p[data-sim]", (ps) => ps.map((p) => getComputedStyle(p).gridColumnStart));
+const columns = () => page.$$eval(".mw-editor > p[data-sim]", (ps) => ps.map((p) => getComputedStyle(p).gridColumnStart));
+// No two lines may sit on top of each other, and a cue must stand above its own dialogue.
+const layout = () =>
+  page.$$eval(".mw-editor > p", (ps) => {
+    const rows = ps
+      .map((p) => ({ text: p.textContent.replace("⠿", "").trim(), box: p.getBoundingClientRect() }))
+      .filter((r) => r.text);
+    const overlapping = [];
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = i + 1; j < rows.length; j++) {
+        const a = rows[i].box;
+        const b = rows[j].box;
+        if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) {
+          overlapping.push(`${rows[i].text}/${rows[j].text}`);
+        }
+      }
+    }
+    const at = (text) => rows.find((r) => r.text === text)?.box;
+    const order = [["ANNA", "Left."], ["BEN", "Right."]].every(([cue, line]) => (at(cue) && at(line) ? at(cue).top < at(line).top : true));
+    return { overlapping, order };
+  });
 
 const newProject = async (title) => {
   await page.goto(URL);
@@ -65,6 +85,9 @@ ok((await pill()) === "Dialogue", "Enter under a joined cue writes its dialogue"
 await type("Right.");
 cols = await columns();
 ok(cols.join() === "1,1,31,31", `its dialogue stays in the right column (${cols.join(", ")})`);
+let laid = await layout();
+ok(laid.overlapping.length === 0, `no line is printed over another (${laid.overlapping.join(", ") || "clean"})`);
+ok(laid.order, "each cue stands above its own dialogue");
 await page.keyboard.press("Enter");
 ok((await pill()) === "Character", "the next cue is a line of its own again");
 
@@ -80,8 +103,15 @@ await page.keyboard.press("Enter");
 ok((await pill()) === "Character", "/simultaneous keeps the line a cue");
 await page.keyboard.press("Enter");
 await type("Fourth.");
+await page.keyboard.press("Enter");
+await type("Eve");
+await type("^");
+await page.keyboard.press("Enter");
+await type("Fifth.");
 cols = await columns();
-ok(cols.join() === "1,1,31,31,1,1,31,31", `the second pair makes a row of its own (${cols.join(", ")})`);
+ok(cols.join() === "1,1,31,31,1,1,21,21,41,41", `a third speaker makes a row of three, evenly spread, under the pair above (${cols.join(", ")})`);
+laid = await layout();
+ok(laid.overlapping.length === 0, `the row of three does not overlap (${laid.overlapping.join(", ") || "clean"})`);
 await page.screenshot({ path: path.join(SHOTS, "simultaneous-rows.png") });
 
 await page.waitForTimeout(1200);
@@ -111,16 +141,46 @@ const grip = await ben.locator(".mw-grip").boundingBox();
 ok(!!grip, "a grip appears beside the character name");
 await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
 await page.mouse.down();
-await page.mouse.move(target.x + target.width * 0.9, target.y + target.height / 2, { steps: 8 });
+// Dropping on the name itself is the gesture people try first.
+await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 8 });
 ok((await page.locator(".mw-drop-side").count()) === 1, "the line it would join is highlighted while dragging");
 await page.screenshot({ path: path.join(SHOTS, "simultaneous-drag.png") });
 await page.mouse.up();
 cols = await columns();
-ok(cols.join() === "1,1,31,31", `dropping to the side shares the line (${cols.join(", ")})`);
+ok(cols.join() === "1,1,31,31", `dropping onto the name shares the line (${cols.join(", ")})`);
+laid = await layout();
+ok(laid.overlapping.length === 0, `and nothing overlaps after the drag (${laid.overlapping.join(", ") || "clean"})`);
 
 await page.waitForTimeout(1200);
 const drag = fs.readFileSync(path.join(DIR, "Test Drag", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
 ok(/^BEN \^\nRight\.$/m.test(drag), "and the file records it");
+
+// ---- the edge of a name moves the cue instead of pairing it
+await newProject("Test Move");
+await type("Scene 1");
+await page.keyboard.press("Enter");
+await type("A quay at dawn.");
+await page.keyboard.press("Enter");
+await type("Anna");
+await page.keyboard.press("Enter");
+await type("Left.");
+await page.keyboard.press("Enter");
+await type("Ben");
+await page.keyboard.press("Enter");
+await type("Right.");
+const annaAgain = page.locator(".mw-editor > p.el-character", { hasText: /ANNA/i }).first();
+const benAgain = page.locator(".mw-editor > p.el-character", { hasText: /BEN/i }).first();
+const top = await annaAgain.boundingBox();
+await benAgain.hover();
+const gripAgain = await benAgain.locator(".mw-grip").boundingBox();
+await page.mouse.move(gripAgain.x + gripAgain.width / 2, gripAgain.y + gripAgain.height / 2);
+await page.mouse.down();
+await page.mouse.move(top.x + top.width / 2, top.y + 2, { steps: 8 });
+ok((await page.locator(".mw-drop-before").count()) === 1, "the top edge of a name offers a move, not a column");
+await page.mouse.up();
+await page.waitForTimeout(1200);
+const moved = fs.readFileSync(path.join(DIR, "Test Move", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
+ok(/^BEN\nRight\.\n\nANNA$/m.test(moved), "the cue moves above the other speaker");
 
 await browser.close();
 console.log(failures ? `${failures} check(s) failed` : "All simultaneous checks passed");

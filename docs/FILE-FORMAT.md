@@ -80,7 +80,8 @@ ANNA
 Two to six characters can speak at once, one column each from the left: the
 first cue is written plainly and each cue beside it carries the caret. The
 speech under a cue belongs to that cue's column, and a direction, heading or
-transition ends the row.
+transition ends the row. A plain cue also starts a new row, so two rows can sit
+one under the other.
 
 ```
 ANNA

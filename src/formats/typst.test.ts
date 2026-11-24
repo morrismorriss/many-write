@@ -50,6 +50,35 @@ describe("simultaneous dialogue", () => {
     expect(src).not.toContain('#el("character", none)[#"ANNA"]');
   });
 
+  it("sets two rows that follow one another as two grids", () => {
+    const items = [
+      {
+        kind: "doc" as const,
+        id: "s",
+        title: "Scene 1",
+        blocks: [
+          together("character", "ANNA", 0),
+          together("dialogue", "I told you.", 0),
+          together("character", "BEN", 1),
+          together("dialogue", "And I warned you.", 1),
+          together("character", "CY", 0),
+          together("dialogue", "You never listen.", 0),
+          together("character", "DEE", 1),
+          together("dialogue", "Not once.", 1),
+          together("character", "EVE", 2),
+          together("dialogue", "Never.", 2),
+        ],
+      },
+    ];
+    const src = generateTypst(TEMPLATES["stage-play"], meta, items).source;
+    expect(src.match(/#sim\(/g)).toHaveLength(2);
+    expect(src).toContain("#sim(2, [");
+    expect(src).toContain("#sim(3, [");
+    // Each row starts with its own first cue, so no cell holds two speakers.
+    expect(src.match(/#\"ANNA\"/g)).toHaveLength(1);
+    expect(src.match(/#\"CY\"/g)).toHaveLength(1);
+  });
+
   it("works in a play of a collection, and keeps ordinary lines ordinary", () => {
     const items = [
       { kind: "play" as const, id: "p", title: "The Crossing" },

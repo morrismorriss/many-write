@@ -21,6 +21,24 @@ describe("simultaneous rows", () => {
     expect(simRowAt(doc, 4)).toBeNull();
   });
 
+  it("keeps two rows that follow one another apart", () => {
+    const doc = [...cue("ANNA", 0), ...cue("BEN", 1), ...cue("CY", 0), ...cue("DEE", 1), ...cue("EVE", 2)];
+    expect(simRowAt(doc, 0)).toEqual({ start: 0, end: 4, columns: 2 });
+    expect(simRowAt(doc, 5)).toEqual({ start: 4, end: 10, columns: 3 });
+    expect(gridCells(doc).map((c) => [c.row, c.col, c.cols])).toEqual([
+      [1, 0, 2],
+      [2, 0, 2],
+      [1, 1, 2],
+      [2, 1, 2],
+      [3, 0, 3],
+      [4, 0, 3],
+      [3, 1, 3],
+      [4, 1, 3],
+      [3, 2, 3],
+      [4, 2, 3],
+    ]);
+  });
+
   it("does not treat a lone column as simultaneous", () => {
     const doc = lines(["character", 0], ["dialogue", 0]);
     expect(gridCells(doc)).toEqual([
@@ -33,11 +51,11 @@ describe("simultaneous rows", () => {
     const doc = [...cue("ANNA", 0), ...cue("BEN", 1), ...cue("CY", 2)];
     expect(gridCells(doc).map((c) => [c.row, c.col, c.cols])).toEqual([
       [1, 0, 3],
-      [1, 0, 3],
+      [2, 0, 3],
       [1, 1, 3],
-      [1, 1, 3],
+      [2, 1, 3],
       [1, 2, 3],
-      [1, 2, 3],
+      [2, 2, 3],
     ]);
     // Three speakers: two grid columns of thirty, side by side.
     expect(gridStyle({ row: 1, col: 1, cols: 3 })).toBe("grid-column: 21 / span 20; grid-row: 1;");

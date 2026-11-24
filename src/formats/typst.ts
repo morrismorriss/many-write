@@ -3,6 +3,7 @@
 
 import type { Block, Note, Run } from "./markdown";
 import { blockText } from "./markdown";
+import { opensRow } from "./simultaneous";
 import { isListType, listNumbers, MAX_INDENT, type EssayStyle, type NotePlacement, type Template } from "./templates";
 
 export type ManuscriptItem =
@@ -444,9 +445,10 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       }
       if (beside(b)) {
         // Speakers one beside another: a grid, one cell per speaker (see `sim` in the template).
-        if (index > 0 && beside(item.blocks[index - 1])) continue;
-        let end = index;
-        while (end < item.blocks.length && beside(item.blocks[end])) end++;
+        // A row ends where the next one starts, so two rows in a row stay apart.
+        if (index > 0 && beside(item.blocks[index - 1]) && !opensRow(b)) continue;
+        let end = index + 1;
+        while (end < item.blocks.length && beside(item.blocks[end]) && !opensRow(item.blocks[end])) end++;
         const row = item.blocks.slice(index, end);
         const columns = Math.max(...row.map((x) => x.sim ?? 0)) + 1;
         emit(`#sim(${columns}, `);
