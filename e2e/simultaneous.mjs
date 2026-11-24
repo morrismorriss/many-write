@@ -17,6 +17,9 @@ const SHOTS = process.env.MW_SHOTS ?? "e2e/out";
 fs.mkdirSync(SHOTS, { recursive: true });
 fs.rmSync(path.join(DIR, "Test Duet"), { recursive: true, force: true });
 fs.rmSync(path.join(DIR, "Test Drag"), { recursive: true, force: true });
+fs.rmSync(path.join(DIR, "Test Move"), { recursive: true, force: true });
+fs.rmSync(path.join(DIR, "Test Drop"), { recursive: true, force: true });
+fs.rmSync(path.join(DIR, "Test Cut"), { recursive: true, force: true });
 
 let failures = 0;
 const ok = (cond, msg) => {
@@ -31,7 +34,10 @@ page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
 const type = async (text) => page.keyboard.type(text, { delay: 5 });
 const pill = async () => (await page.getByTestId("type-pill").innerText()).trim();
 // Every line of a row carries a column: the two halves of the page start at grid lines 1 and 31.
-const columns = () => page.$$eval(".mw-editor > p[data-sim]", (ps) => ps.map((p) => getComputedStyle(p).gridColumnStart));
+const columns = () =>
+  page.$$eval(".mw-editor > p[data-sim]", (ps) =>
+    ps.filter((p) => !p.className.includes("is-empty")).map((p) => getComputedStyle(p).gridColumnStart),
+  );
 // No two lines may sit on top of each other, and a cue must stand above its own dialogue.
 const layout = () =>
   page.$$eval(".mw-editor > p", (ps) => {
@@ -181,6 +187,43 @@ await page.mouse.up();
 await page.waitForTimeout(1200);
 const moved = fs.readFileSync(path.join(DIR, "Test Move", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
 ok(/^BEN\nRight\.\n\nANNA$/m.test(moved), "the cue moves above the other speaker");
+
+// ---- taking a speaker out closes the row up
+const selectLines = async (first, last) => {
+  const a = await page.locator(".mw-editor > p", { hasText: first }).first().boundingBox();
+  const b = await page.locator(".mw-editor > p", { hasText: last }).first().boundingBox();
+  await page.mouse.move(a.x + 60, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width - 6, b.y + b.height / 2, { steps: 12 });
+  await page.mouse.up();
+};
+const sims = () => page.$$eval(".mw-editor > p.el", (ps) => ps.filter((p) => !p.className.includes("is-empty")).map((p) => p.dataset.sim ?? "-"));
+
+await newProject("Test Drop");
+for (const step of ["Scene 1", "ENTER", "A quay at dawn.", "ENTER", "Anna", "ENTER", "Left.", "ENTER", "Ben", "^", "ENTER", "Right."]) {
+  if (step === "ENTER") await page.keyboard.press("Enter");
+  else await type(step);
+}
+await selectLines(/BEN/i, /Right\./);
+await page.keyboard.press("Delete");
+await page.waitForTimeout(1200);
+ok((await sims()).every((s) => s === "-"), `the singer left behind goes back to a plain, full-width cue (${(await sims()).join(", ")})`);
+ok((await columns()).length === 0, "no line keeps a column");
+const cut = fs.readFileSync(path.join(DIR, "Test Drop", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
+ok(/^ANNA\nLeft\.$/m.test(cut) && !cut.includes("^"), "and the file has no caret left");
+
+await newProject("Test Cut");
+for (const step of ["Scene 1", "ENTER", "A quay at dawn.", "ENTER", "Anna", "ENTER", "Left.", "ENTER", "Ben", "^", "ENTER", "Right.", "ENTER", "Cy", "^", "ENTER", "Middle."]) {
+  if (step === "ENTER") await page.keyboard.press("Enter");
+  else await type(step);
+}
+ok((await columns()).join() === "1,1,21,21,41,41", "three singers stand in three columns");
+await selectLines(/BEN/i, /Right\./);
+await page.keyboard.press("Delete");
+await page.waitForTimeout(1200);
+ok((await columns()).join() === "1,1,31,31", `the two who are left share the row evenly (${(await columns()).join(", ")})`);
+const reflowed = fs.readFileSync(path.join(DIR, "Test Cut", "manuscript", "01-act-one", "01-scene-1.md"), "utf8");
+ok(/^ANNA\nLeft\.\n\nCY \^$/m.test(reflowed), "the third singer is marked with the caret it now needs");
 
 await browser.close();
 console.log(failures ? `${failures} check(s) failed` : "All simultaneous checks passed");

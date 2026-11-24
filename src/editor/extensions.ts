@@ -236,6 +236,7 @@ function topLines(doc: PMNode): TopLine[] {
       node,
       type: node.type.name === "element" ? (node.attrs.type as string) : node.type.name,
       sim: node.type.name === "element" ? ((node.attrs.sim as number) ?? -1) : -1,
+      text: lineText(node),
     }),
   );
   return out;

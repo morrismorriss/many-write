@@ -26,9 +26,14 @@ export const GRID_COLUMNS = 60;
 export interface SimLine {
   type: string;
   sim?: number;
+  /** The line's text, when the caller knows it: a name with nothing in it is not a speaker. */
+  text?: string;
 }
 
 export const simOf = (line: SimLine) => Math.max(-1, line.sim ?? -1);
+
+/** A cue with no name in it yet — a line left behind by a deletion, say. */
+export const isBlankCue = (line: SimLine) => line.type === "character" && line.text !== undefined && line.text.trim() === "";
 
 /** A cue's own lines: parentheticals, dialogue and lyrics. */
 export function isSpeechType(type: string): boolean {
@@ -62,7 +67,7 @@ export interface Row extends Group {
  * The line that opens a row: a cue in the leftmost column. Two rows can sit one under the
  * other, so a row ends where the next first cue begins.
  */
-export const opensRow = (line: SimLine) => line.type === "character" && simOf(line) === 0;
+export const opensRow = (line: SimLine) => line.type === "character" && simOf(line) === 0 && !isBlankCue(line);
 
 /** The simultaneous row holding line `i`, if it is in one. */
 export function simRowAt(lines: SimLine[], i: number): Row | null {
@@ -102,8 +107,9 @@ export function joinColumn(lines: SimLine[], cueIndex: number): { column: number
 }
 
 /**
- * The column numbers a document should have: rows with one speaker, or with a
- * gap in the numbering (after a line is deleted), are put right.
+ * The column numbers a document should have. Columns are counted from the left in the order
+ * the cues stand, so a speaker taken out of a row closes up: three speakers become two, and a
+ * pair left with one speaker goes back to plain, full-width lines.
  */
 export function normalizeSim(lines: SimLine[]): number[] {
   // Only a cue or a speaker's own lines can stand in a row; anything else ends it.
@@ -116,12 +122,23 @@ export function normalizeSim(lines: SimLine[]): number[] {
       continue;
     }
     const row = simRowAt(rows, i)!;
-    const used = [...new Set(out.slice(row.start, row.end))].sort((a, b) => a - b);
-    const even = used.length >= 2 && used.every((v, k) => v === k);
-    if (!even) {
-      const remap = new Map(used.map((v, k) => [v, k]));
-      for (let k = row.start; k < row.end; k++) out[k] = used.length >= 2 ? remap.get(out[k])! : -1;
+    // A named cue opens a column. Anything else — its speech, or a blank line left by a
+    // deletion — belongs to the column above, so taking a name out closes the row up.
+    const columns: Group[] = [];
+    for (let k = row.start; k < row.end; ) {
+      if (rows[k].type !== "character" || isBlankCue(lines[k])) {
+        k++;
+        continue;
+      }
+      let end = k + 1;
+      while (end < row.end && (isSpeechType(rows[end].type) || isBlankCue(lines[end]))) end++;
+      columns.push({ start: k, end });
+      k = end;
     }
+    for (let k = row.start; k < row.end; k++) out[k] = -1;
+    if (columns.length >= 2) columns.forEach((column, index) => {
+      for (let k = column.start; k < column.end; k++) out[k] = index;
+    });
     i = row.end;
   }
   return out;
@@ -149,13 +166,15 @@ export function gridCells(lines: SimLine[]): Cell[] {
       continue;
     }
     // Each speaker starts at the top of the row and runs down its own column, so the row is as
-    // tall as its longest speaker.
+    // tall as its longest column.
+    const placed = new Map<number, number>();
     let height = 1;
-    for (let k = r.start; k < r.end; ) {
-      const end = Math.min(speakerGroupAt(lines, k)?.end ?? k + 1, r.end);
-      for (let j = k; j < end; j++) cells[j] = { row: row + (j - k), col: simOf(lines[j]), cols: r.columns };
-      height = Math.max(height, end - k);
-      k = end;
+    for (let k = r.start; k < r.end; k++) {
+      const col = simOf(lines[k]);
+      const down = placed.get(col) ?? 0;
+      cells[k] = { row: row + down, col, cols: r.columns };
+      placed.set(col, down + 1);
+      height = Math.max(height, down + 1);
     }
     row += height;
     i = r.end;

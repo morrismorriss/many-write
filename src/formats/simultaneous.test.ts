@@ -91,6 +91,23 @@ describe("normalising rows", () => {
     expect(normalizeSim([...cue("ANNA", 0)])).toEqual([-1, -1]);
   });
 
+  it("reflows three speakers to two when the middle name is deleted", () => {
+    // The middle cue is gone but its line is still there, so it reads as the speech of the
+    // speaker above; the row closes up to two columns.
+    const doc = [...cue("ANNA", 0), { type: "dialogue" as const, sim: 1 }, ...cue("EVE", 2)];
+    expect(normalizeSim(doc)).toEqual([0, 0, 0, 1, 1]);
+  });
+
+  it("returns a pair to plain lines when the second name is deleted", () => {
+    const doc = [...cue("ANNA", 0), { type: "dialogue", sim: 1 }];
+    expect(normalizeSim(doc)).toEqual([-1, -1, -1]);
+  });
+
+  it("takes speech with no cue above it out of the row", () => {
+    const doc = [{ type: "dialogue", sim: 0 }, ...cue("EVE", 2)];
+    expect(normalizeSim(doc)).toEqual([-1, -1, -1]);
+  });
+
   it("leaves a well-formed row and normal lines alone", () => {
     const doc = [...cue("ANNA", 0), ...cue("BEN", 1), { type: "direction" }, ...cue("CY")];
     expect(normalizeSim(doc)).toEqual([0, 0, 1, 1, -1, -1, -1]);
