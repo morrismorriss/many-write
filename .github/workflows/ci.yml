@@ -27,4 +27,4 @@ jobs:
           cargo build -p manywrite-devserver
           ./target/debug/manywrite-devserver & npx vite --port 1420 &
           npx wait-on http://localhost:1420
-          node e2e/smoke.mjs && node e2e/templates.mjs && node e2e/features.mjs && node e2e/imports.mjs && node e2e/writing-extras.mjs && node e2e/updates.mjs && node e2e/binder.mjs && node e2e/sections-citations.mjs
+          node e2e/smoke.mjs && node e2e/templates.mjs && node e2e/features.mjs && node e2e/imports.mjs && node e2e/writing-extras.mjs && node e2e/updates.mjs && node e2e/binder.mjs && node e2e/sections-citations.mjs && node e2e/songs.mjs && node e2e/simultaneous.mjs
