@@ -4,6 +4,7 @@
 import type { Block, Note, Run } from "./markdown";
 import { blockText } from "./markdown";
 import { opensRow } from "./simultaneous";
+import { linesOf } from "./tableread";
 import { isListType, listNumbers, MAX_INDENT, type EssayStyle, type NotePlacement, type Template } from "./templates";
 
 export type ManuscriptItem =
@@ -58,6 +59,8 @@ export interface GenOptions {
     /** Printed at the top left of every page, e.g. "Blue Rev. 16/11/2026". */
     label: string;
   };
+  /** Table reads (scripts): highlight one character's cues and lines, and name them in the header. */
+  highlight?: { name: string; fill: string };
 }
 
 /** The pseudo-element standing for a folder's or matter page's heading. */
@@ -217,7 +220,9 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
   if (opts.pageFill) confArgs.push(`page-fill: rgb(${str(opts.pageFill)})`);
   if (opts.textFill) confArgs.push(`text-fill: rgb(${str(opts.textFill)})`);
   const prod = template.mode === "script" ? opts.production : undefined;
-  if (prod) confArgs.push(`revision: ${str(prod.label)}`);
+  const hl = template.mode === "script" ? opts.highlight : undefined;
+  const headerLabel = [prod?.label, hl && `${hl.name}: table read`].filter(Boolean).join("   ·   ");
+  if (headerLabel) confArgs.push(`revision: ${str(headerLabel)}`);
   const lockFor = (id: string) => {
     const l = prod?.locks.get(id);
     if (l) emit(`#mw-lock(${l.page}, hard: ${l.hard}${l.letter ? `, start: ${l.letter}` : ""})\n`);
@@ -412,6 +417,7 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
     }
 
     const contd = template.mode === "script" && meta.autoContd ? contdLines(item.blocks) : null;
+    const mine = hl ? linesOf(item.blocks, hl.name) : null;
     const last = lastFilled(item.blocks);
     const nums = template.mode === "notes" ? listNumbers(item.blocks) : [];
     /** One line; returns the kind the next line in its column follows, or "" for a skipped line. */
@@ -422,7 +428,8 @@ export function generateTypst(template: Template, meta: ProjectMeta, items: Manu
       if (empty && b.type !== "scene_break" && b.type !== "divider" && !blankLine) return "";
       lockFor(elementId(item.id, index));
       const start = bytes;
-      const body = blankLine ? blank : runsToTypst(contd?.has(index) ? [...b.runs, { text: " (CONT'D)" }] : b.runs, false, notesFor(item));
+      let body = blankLine ? blank : runsToTypst(contd?.has(index) ? [...b.runs, { text: " (CONT'D)" }] : b.runs, false, notesFor(item));
+      if (mine?.has(index)) body = `#highlight(fill: rgb(${str(hl!.fill)}), extent: 1.5pt)[${body}]`;
       // Document lists: how deep each item is nested, and the number it shows.
       let listArgs = "";
       if (template.mode === "notes" && isListType(b.type)) {

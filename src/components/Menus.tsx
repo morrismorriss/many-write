@@ -11,6 +11,7 @@ import type { ProjectStore } from "../project/store";
 import type { Theme } from "../themes/themes";
 import type { CompileReport } from "./Preview";
 import { Close, Download, Palette, Plus, Trash } from "./icons";
+import { exportTableRead } from "./TableRead";
 
 export const FORMAT_INFO: Record<ExportFormat, { label: string; ext: string; note: string }> = {
   pdf: { label: "PDF", ext: "pdf", note: "Exactly as the preview; all pages or the ones you choose" },
@@ -163,6 +164,12 @@ export function ExportMenu({ store }: { store: ProjectStore }) {
               <small>{FORMAT_INFO[f].note}</small>
             </button>
           ))}
+          {store.template.mode === "script" && (
+            <button className="menu-item two-line" data-testid="export-table-read" onClick={() => { setOpen(false); void exportTableRead(store); }}>
+              <span>Table read PDFs</span>
+              <small>One copy per character, with their lines highlighted</small>
+            </button>
+          )}
         </Popover>
       )}
     </div>

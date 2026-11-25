@@ -58,6 +58,8 @@ interface FileMenuProps {
   single?: boolean;
   exports: ExportFormat[];
   onExport: (f: ExportFormat) => void;
+  /** Scripts only: one PDF per character with their lines highlighted. */
+  onTableRead?: () => void;
 }
 
 export function FileMenu(p: FileMenuProps) {
@@ -131,6 +133,11 @@ export function FileMenu(p: FileMenuProps) {
               {FORMAT_INFO[f].label}
             </button>
           ))}
+          {p.onTableRead && (
+            <button className="menu-item" onClick={run(p.onTableRead)} data-testid="file-export-table-read">
+              Table read PDFs…
+            </button>
+          )}
           <div className="menu-sep" />
           <button className="menu-item" onClick={run(p.onDonate)} data-testid="file-donate">
             <span>Support Many Write…</span>
