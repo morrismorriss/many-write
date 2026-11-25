@@ -16,7 +16,7 @@
   v(1fr)
   align(center, middle)
   v(1.4fr)
-  if bottom != none { block(width: 60%, bottom) }
+  if bottom != none { block(width: 100%, bottom) }
   if verso { pagebreak() }
   if reset and not play { counter(page).update(0) }
   pagebreak()
@@ -24,3 +24,16 @@
 
 // One line of a typed title page.
 #let mw-tp-line(body) = block(above: 0pt, below: 0pt, width: 100%, body)
+
+// A line split into columns with tabs. In the middle of the page each column is
+// centred in an equal share of the width ("Book by" beside "Music by"); at the
+// bottom the first is on the left and the last on the right (contact, agent).
+#let mw-tp-cols(..cells, bottom: false) = {
+  let cells = cells.pos()
+  let n = cells.len()
+  let aligns = if not bottom { (center,) * n }
+    else if n == 2 { (left, right) }
+    else { (left,) + (center,) * (n - 2) + (right,) }
+  block(above: 0pt, below: 0pt, width: 100%,
+    grid(columns: (1fr,) * n, column-gutter: 1em, align: (x, y) => aligns.at(x), ..cells))
+}

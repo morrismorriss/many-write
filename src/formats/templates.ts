@@ -59,7 +59,7 @@ export const ESSAY_STYLES: { id: EssayStyle; name: string; description: string; 
   },
 ];
 /** Templates used outside the manuscript. */
-export type AuxTemplateId = "notes" | "matter";
+export type AuxTemplateId = "notes" | "matter" | "title-page";
 
 /** How a template's files are written to and read from markdown. */
 export type FileMode = "script" | "prose" | "poem" | "notes";
@@ -86,6 +86,8 @@ export interface Template {
   emptyCycle: ElementType[];
   /** Tab / Shift-Tab cycle. Empty = Tab inserts indentation (poems). */
   tabCycle: ElementType[];
+  /** What Tab types instead, when set (a title page's column break). */
+  tabText?: string;
   /** Enter on an empty line of these types turns it into the given type (leaving a list). */
   emptyExit?: Partial<Record<ElementType, ElementType>>;
   /** Backspace at the start of a line of these types turns it into the given type. */
@@ -391,6 +393,19 @@ export const MATTER_TEMPLATE: Template = {
   starter: () => "",
   exports: [],
   titlePageDefault: false,
+};
+
+/**
+ * A title page the writer types (front matter called "Title page"): matter
+ * pages' lines, but Tab types a tab, which splits a line into columns
+ * ("Book by⇥Music by"), or at the bottom puts what follows on the right.
+ */
+export const TITLE_PAGE_TEMPLATE: Template = {
+  ...MATTER_TEMPLATE,
+  id: "title-page",
+  name: "Title page",
+  tabCycle: [],
+  tabText: "\t",
 };
 
 /**

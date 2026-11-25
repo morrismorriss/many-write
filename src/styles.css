@@ -563,6 +563,9 @@ mark, .search-hit { background: rgba(255, 196, 0, 0.35); color: inherit; border-
 .el-divider::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid var(--border); }
 .el-divider.is-empty::before { content: none !important; }
 .mode-prose .el-centered { text-align: center; margin-top: 0.85em; }
+/* A typed title page: a tab splits a line into columns, so show it as a wide gap. */
+.tmpl-title-page p { white-space: pre-wrap; tab-size: 8; }
+.tmpl-title-page .el-centered, .tmpl-title-page .el-paragraph { margin-top: 0; }
 .mode-prose .el-paragraph:first-child { margin-top: 0; }
 
 /* Notes panel editor */

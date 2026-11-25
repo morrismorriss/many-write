@@ -111,9 +111,15 @@ fn text_run_xml(run: &Run) -> String {
     if run.underline { rpr.push_str("<w:u w:val=\"single\"/>"); }
     let mut out = String::from("<w:r>");
     if !rpr.is_empty() { out.push_str(&format!("<w:rPr>{rpr}</w:rPr>")); }
-    for (i, part) in run.text.split('\n').enumerate() {
+    for (i, line) in run.text.split('\n').enumerate() {
         if i > 0 { out.push_str("<w:br/>"); }
-        out.push_str(&format!("<w:t xml:space=\"preserve\">{}</w:t>", xml_escape(part)));
+        // A tab is its own element in Word (a typed title page's column break).
+        for (j, part) in line.split('\t').enumerate() {
+            if j > 0 { out.push_str("<w:tab/>"); }
+            if !part.is_empty() || j == 0 {
+                out.push_str(&format!("<w:t xml:space=\"preserve\">{}</w:t>", xml_escape(part)));
+            }
+        }
     }
     out.push_str("</w:r>");
     out
@@ -474,6 +480,13 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let known: Vec<&str> = styles.iter().map(|s| s.id).collect();
     let mut body = String::new();
     // One paragraph; `in_cell` drops the page-style indents so a speaker fits its column.
+    // The width of the text on the page, in twips (as the section's margins below).
+    let text_width: u32 = match doc.template.as_str() {
+        "essay" => 9360,
+        "book" => 6480,
+        "stage-play" | "screenplay" => 8640,
+        _ => 8784,
+    };
     let para = |block: &Block, in_cell: bool| -> String {
         if block.kind == "page_break" {
             return "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>".to_string();
@@ -486,11 +499,27 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             "paragraph"
         };
         let mut p = format!("<w:p><w:pPr><w:pStyle w:val=\"{style}\"/>");
-        // Consecutive paragraphs with the same frame share it.
+        // Consecutive paragraphs with the same frame share it. The frames are as wide as
+        // the text, so tab stops can put a line's columns where the PDF has them.
+        let tp_columns = plain(&block.runs).matches('\t').count() + 1;
         if style == "title_page_middle" {
-            p.push_str(r#"<w:keepNext/><w:framePr w:wrap="around" w:vAnchor="margin" w:hAnchor="margin" w:xAlign="center" w:yAlign="center"/>"#);
+            p.push_str(&format!(r#"<w:keepNext/><w:framePr w:w="{text_width}" w:wrap="around" w:vAnchor="margin" w:hAnchor="margin" w:xAlign="center" w:yAlign="center"/>"#));
         } else if style == "title_page_bottom" {
-            p.push_str(r#"<w:keepNext/><w:framePr w:wrap="around" w:vAnchor="margin" w:hAnchor="margin" w:xAlign="left" w:yAlign="bottom"/>"#);
+            p.push_str(&format!(r#"<w:keepNext/><w:framePr w:w="{text_width}" w:wrap="around" w:vAnchor="margin" w:hAnchor="margin" w:xAlign="left" w:yAlign="bottom"/>"#));
+        }
+        if tp_columns > 1 && (style == "title_page_middle" || style == "title_page_bottom") {
+            // Middle: a centre stop in the middle of each equal column (the line starts with a tab).
+            // Bottom: the first column on the left, the last at a right stop, any between centred.
+            let n = tp_columns as u32;
+            let stops: Vec<String> = if style == "title_page_middle" {
+                (0..n).map(|i| format!(r#"<w:tab w:val="center" w:pos="{}"/>"#, text_width * (2 * i + 1) / (2 * n))).collect()
+            } else {
+                (1..n).map(|i| {
+                    let kind = if i == n - 1 { "right" } else { "center" };
+                    format!(r#"<w:tab w:val="{kind}" w:pos="{}"/>"#, text_width * i / (n - 1))
+                }).collect()
+            };
+            p.push_str(&format!("<w:tabs>{}</w:tabs><w:jc w:val=\"left\"/>", stops.join("")));
         }
         if style == "paragraph" || style == "dialogue" || style == "line" {
             p.push_str("<w:widowControl/>");
@@ -503,6 +532,9 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             p.push_str(&format!("<w:ind w:left=\"{left}\" w:hanging=\"360\"/>"));
         }
         p.push_str("</w:pPr>");
+        if tp_columns > 1 && style == "title_page_middle" {
+            p.push_str("<w:r><w:tab/></w:r>");
+        }
         if block.kind == "scene_break" && block.runs.iter().all(|r| r.text.trim().is_empty()) {
             p.push_str("<w:r><w:t>* * *</w:t></w:r>");
         }
@@ -717,6 +749,8 @@ hr.scene-break { border: none; text-align: center; margin: 1em 0; }
 hr.scene-break::after { content: "* * *"; }
 p.citation { text-indent: -2em; margin: 0 0 0.6em 2em; }
 p.center { text-indent: 0; text-align: center; }
+table.title-cols { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.title-cols td { padding: 0 0.5em; vertical-align: top; }
 p.bubble { display: table; max-width: 68%; text-indent: 0; padding: 0.35em 0.8em; border-radius: 1em; margin: 0.35em 0; }
 p.bubble.left { background: #e9e9eb; color: #000; }
 p.bubble.right { background: #2f7cf6; color: #fff; margin-left: auto; }
@@ -891,6 +925,17 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             "page_break" => {}
             "centered" => html.push_str(&format!("<p class=\"first\" style=\"text-align:center\">{inline}</p>\n")),
             "matter_paragraph" => html.push_str(&format!("<p class=\"article\">{inline}</p>\n")),
+            // A line split into columns with tabs: a row of cells, centred in the middle, or left and right at the bottom.
+            "title_page_middle" | "title_page_bottom" if inline.contains('\t') => {
+                let cells: Vec<&str> = inline.split('\t').collect();
+                let n = cells.len();
+                html.push_str("<table class=\"title-cols\"><tr>");
+                for (i, cell) in cells.iter().enumerate() {
+                    let align = if b.kind == "title_page_middle" { "center" } else if i == 0 { "left" } else if i == n - 1 { "right" } else { "center" };
+                    html.push_str(&format!("<td style=\"text-align:{align}\">{cell}</td>"));
+                }
+                html.push_str("</tr></table>\n");
+            }
             "title_page_middle" => html.push_str(&format!("<p class=\"center\">{inline}</p>\n")),
             "title_page_bottom" => html.push_str(&format!("<p class=\"first\">{inline}</p>\n")),
             "folder_heading" => html.push_str(&format!("<h1 class=\"part\">{inline}</h1>\n")),

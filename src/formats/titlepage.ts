@@ -3,7 +3,7 @@
 // Centred lines sit in the middle of the page; the left-aligned lines after the
 // last centred one sit at the bottom left, for contact details.
 
-import type { Block } from "./markdown";
+import type { Block, Run } from "./markdown";
 import { blockText, BLANK_LINE } from "./markdown";
 import { essayDate, type ManuscriptItem, type ProjectMeta } from "./typst";
 import type { TemplateId } from "./templates";
@@ -52,6 +52,52 @@ export function titlePageParts(blocks: Block[]): { middle: { block: Block; index
   // No centred lines at all: everything is the middle, centred.
   if (lastCentered < 0) return { middle: trim(all), bottom: [] };
   return { middle: trim(all.slice(0, lastCentered + 1)), bottom: trim(all.slice(lastCentered + 1)) };
+}
+
+/** A line's columns: its runs split at each tab ("Book by⇥Music by" is two). */
+export function columnsOf(runs: Run[]): Run[][] {
+  const cols: Run[][] = [[]];
+  for (const r of runs) {
+    if (r.note) {
+      cols[cols.length - 1].push(r);
+      continue;
+    }
+    r.text.split("\t").forEach((piece, i) => {
+      if (i > 0) cols.push([]);
+      if (piece) cols[cols.length - 1].push({ ...r, text: piece });
+    });
+  }
+  return cols;
+}
+
+const runsText = (runs: Run[]) => runs.map((r) => r.text).join("").trim();
+
+/**
+ * For formats without columns (Fountain, Final Draft): the lines one after
+ * another, a run of lines with columns read down each column in turn, so
+ * "Book by⇥Music by" over "Ann⇥Ben" becomes Book by, Ann, then Music by, Ben.
+ * `gap` puts an empty line between columns.
+ */
+export function stackColumns(lines: Run[][], gap: boolean): Run[][] {
+  const out: Run[][] = [];
+  for (let i = 0; i < lines.length; ) {
+    if (columnsOf(lines[i]).length < 2) {
+      out.push(lines[i++]);
+      continue;
+    }
+    let end = i;
+    while (end < lines.length && columnsOf(lines[end]).length > 1) end++;
+    const rows = lines.slice(i, end).map(columnsOf);
+    const width = Math.max(...rows.map((r) => r.length));
+    for (let c = 0; c < width; c++) {
+      const cells = rows.map((r) => r[c] ?? []).filter((cell) => runsText(cell));
+      if (!cells.length) continue;
+      if (gap && c > 0 && out.length) out.push([]);
+      out.push(...cells);
+    }
+    i = end;
+  }
+  return out;
 }
 
 const md = (s: string) => s.replace(/([\\*_])/g, "\\$1");

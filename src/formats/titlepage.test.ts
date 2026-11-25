@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc, plainBlock, type Block } from "./markdown";
-import { findTitlePages, titlePageParts, titlePageStarter } from "./titlepage";
+import { parseDoc, plainBlock, serializeDoc, type Block, type Run } from "./markdown";
+import { columnsOf, findTitlePages, stackColumns, titlePageParts, titlePageStarter } from "./titlepage";
 import { generateTypst, type ManuscriptItem, type ProjectMeta } from "./typst";
 import { fountainTitlePage, toExportDoc, toFdx, toFountain } from "./exporters";
 import { TEMPLATES } from "./templates";
@@ -97,5 +97,41 @@ describe("typed title pages", () => {
       "    555",
     ]);
     expect(toFountain(TEMPLATES.screenplay, meta, [page("tp", [b("centered", "MINE")]), scene])).toMatch(/^Title: MINE\n\n/);
+  });
+
+  describe("columns", () => {
+    const credits = [b("centered", "Book by\tMusic by\tLyrics by"), b("centered", "Ann\tBen\tCy"), b("centered", "Directed by Dee")];
+
+    it("splits a line at its tabs, keeping bold and italics", () => {
+      const runs: Run[] = [{ text: "Book by\t", italic: true }, { text: "Music", bold: true }, { text: " by" }];
+      expect(columnsOf(runs)).toEqual([[{ text: "Book by", italic: true }], [{ text: "Music", bold: true }, { text: " by" }]]);
+    });
+
+    it("keeps tabs when the page is saved and opened again", () => {
+      const doc = { blocks: [...credits, b("paragraph", "ann@x.com\tAgent: Dee Rep")] };
+      const again = parseDoc(serializeDoc(doc as never, "prose"), "prose", false, true).blocks;
+      expect(again.map((x) => x.runs.map((r) => r.text).join(""))).toEqual(["Book by\tMusic by\tLyrics by", "Ann\tBen\tCy", "Directed by Dee", "ann@x.com\tAgent: Dee Rep"]);
+      expect(again.map((x) => x.type)).toEqual(["centered", "centered", "centered", "paragraph"]);
+    });
+
+    it("typesets columns side by side, and left and right at the bottom", () => {
+      const g = generateTypst(TEMPLATES["stage-play"], meta, [page("tp", [...credits, b("paragraph", "ann@x.com\tAgent")]), scene]);
+      expect(g.source).toContain('#mw-tp-cols([#"Book by"], [#"Music by"], [#"Lyrics by"])');
+      expect(g.source).toContain('#mw-tp-cols([#"ann@x.com"], [#"Agent"], bottom: true)');
+    });
+
+    it("reads down each column where a format has none", () => {
+      const lines = stackColumns(credits.map((x) => x.runs), false).map((r) => r.map((x) => x.text).join(""));
+      expect(lines).toEqual(["Book by", "Ann", "Music by", "Ben", "Lyrics by", "Cy", "Directed by Dee"]);
+      const fdx = toFdx(meta, [page("tp", [...credits, b("paragraph", "ann@x.com\tAgent")]), scene]);
+      expect(fdx.indexOf("<Text>Book by</Text>")).toBeLessThan(fdx.indexOf("<Text>Ann</Text>"));
+      expect(fdx.indexOf("<Text>Ann</Text>")).toBeLessThan(fdx.indexOf("<Text>Music by</Text>"));
+      expect(fountainTitlePage([...credits, b("paragraph", "ann@x.com\tAgent")])).toContain("    Agent");
+    });
+
+    it("goes to Word and EPUB with its tabs", () => {
+      const doc = toExportDoc(TEMPLATES["stage-play"], meta, [page("tp", credits), scene], "x");
+      expect(doc.blocks[0]).toEqual({ kind: "title_page_middle", runs: [{ text: "Book by\tMusic by\tLyrics by" }] });
+    });
   });
 });

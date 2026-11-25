@@ -836,6 +836,10 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
         const info = popup();
         // Tab picks from a list of names; with a whole name typed it still changes the line type.
         if (info && (info.kind !== "ext" || info.index >= 0)) return choose(view, info, Math.max(0, info.index), this.options);
+        if (tmpl.tabText) {
+          view.dispatch(state.tr.insertText(tmpl.tabText).scrollIntoView());
+          return true;
+        }
         if (!tmpl.tabCycle.length) {
           // List items nest one level deeper; elsewhere Tab inserts spaces.
           if (isListType(state.selection.$from.parent.attrs.type)) return shiftIndent(state, view.dispatch, 1) || true;
@@ -848,6 +852,12 @@ export const ScriptKeys = Extension.create<ScriptKeysOptions>({
       "Shift-Tab": () => {
         const tmpl = t();
         const { state, view } = this.editor;
+        if (tmpl.tabText) {
+          // Take back the column break just before the cursor.
+          const { $from, empty } = state.selection;
+          if (empty && $from.parent.textBetween(0, $from.parentOffset).endsWith(tmpl.tabText)) view.dispatch(state.tr.delete($from.pos - tmpl.tabText.length, $from.pos));
+          return true;
+        }
         if (!tmpl.tabCycle.length) {
           if (isListType(state.selection.$from.parent.attrs.type)) return shiftIndent(state, view.dispatch, -1) || true;
           // Poems and notes: remove up to four spaces of indentation.

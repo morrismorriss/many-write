@@ -9,6 +9,7 @@ import {
   getTemplate,
   hasType,
   MATTER_TEMPLATE,
+  TITLE_PAGE_TEMPLATE,
   NOTES_TEMPLATE,
   TEMPLATES,
   presetFor,
@@ -712,6 +713,8 @@ export class ProjectStore {
    */
   templateFor(id: string): Template {
     const role = roleOf(this.data, id);
+    const node = this.node(id);
+    if (node?.kind === "doc" && isTitlePageName(node.title) && (role === "front" || inMatterFolder(this.data, id))) return TITLE_PAGE_TEMPLATE;
     if (inMatterFolder(this.data, id)) return MATTER_TEMPLATE;
     if (role === "manuscript" || role === "archive") return this.template;
     if (role === "front" || role === "back") return MATTER_TEMPLATE;

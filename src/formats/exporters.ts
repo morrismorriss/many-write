@@ -4,7 +4,7 @@
 import { blockText, serializeRuns, serializeScript, type Block, type Note, type Run } from "./markdown";
 import { contdLines, essayDate, sceneBreakText, type ManuscriptItem, type ProjectMeta } from "./typst";
 import { isListType, listNumbers, MAX_INDENT, type Template } from "./templates";
-import { findTitlePages, titlePageParts, type MatterItem } from "./titlepage";
+import { findTitlePages, stackColumns, titlePageParts, type MatterItem } from "./titlepage";
 
 const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
 
@@ -16,8 +16,9 @@ const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
  */
 export function fountainTitlePage(blocks: Block[]): string[] {
   const { middle, bottom } = titlePageParts(blocks);
-  const text = (b: Block) => serializeRuns(b.runs.filter((r) => !r.note)).trim();
-  const lines = middle.map((x) => text(x.block)).filter(Boolean);
+  // Fountain has no columns: each column's lines in turn.
+  const text = (runs: Run[]) => serializeRuns(runs.filter((r) => !r.note)).replace(/\t/g, " ").trim();
+  const lines = stackColumns(middle.map((x) => x.block.runs), false).map(text).filter(Boolean);
   const credit = lines.findIndex((l, i) => i > 0 && /^(written |a play |a screenplay )?by$/i.test(l.replace(/[*_]/g, "")));
   const title = credit > 0 ? lines.slice(0, credit) : lines.slice(0, 1);
   const author = credit > 0 ? lines.slice(credit + 1, credit + 2) : [];
@@ -28,7 +29,7 @@ export function fountainTitlePage(blocks: Block[]): string[] {
     ...(credit > 0 ? [`Credit: ${lines[credit]}`] : []),
     ...key("Author", author),
     ...key("Source", source),
-    ...key("Contact", bottom.map((x) => text(x.block)).filter(Boolean)),
+    ...key("Contact", stackColumns(bottom.map((x) => x.block.runs), false).map(text).filter(Boolean)),
   ];
 }
 
@@ -136,9 +137,18 @@ export function toFdx(meta: ProjectMeta, items: ManuscriptItem[]): string {
     }
   }
   const typedPage = meta.titlePage ? findTitlePages(items).project : undefined;
-  const tpLine = (align: string, b: Block) => `      <Paragraph Alignment="${align}" Type="Title Page">${blockText(b).trim() ? fdxText(b.runs.filter((r) => !r.note)) : "<Text></Text>"}</Paragraph>`;
+  const tpLine = (align: string, runs: Run[]) => {
+    const kept = runs.filter((r) => !r.note).map((r) => ({ ...r, text: r.text.replace(/\t/g, " ") }));
+    return `      <Paragraph Alignment="${align}" Type="Title Page">${kept.some((r) => r.text.trim()) ? fdxText(kept) : "<Text></Text>"}</Paragraph>`;
+  };
   const typedTp = typedPage && titlePageParts(typedPage.blocks);
-  const tp = typedTp ? [...typedTp.middle.map(({ block }) => tpLine("Center", block)), ...typedTp.bottom.map(({ block }) => tpLine("Left", block))] : [
+  // Final Draft's title page has no columns: each column's lines in turn.
+  const tp = typedTp
+    ? [
+        ...stackColumns(typedTp.middle.map((x) => x.block.runs), true).map((r) => tpLine("Center", r)),
+        ...stackColumns(typedTp.bottom.map((x) => x.block.runs), false).map((r) => tpLine("Left", r)),
+      ]
+    : [
     `      <Paragraph Alignment="Center" Type="Title Page"><Text>${xml((meta.title || "Untitled").toUpperCase())}</Text></Paragraph>`,
     ...(meta.subtitle?.trim() ? [`      <Paragraph Alignment="Center" Type="Title Page"><Text>${xml(meta.subtitle.trim())}</Text></Paragraph>`] : []),
     `      <Paragraph Alignment="Center" Type="Title Page"><Text></Text></Paragraph>`,
