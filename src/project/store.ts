@@ -55,6 +55,7 @@ import {
   type Role,
 } from "./model";
 import { projectReadme } from "./readme";
+import { pageLabels, type LayoutInfo } from "../formats/report";
 import { computeAnchors, contextKey, editedPages, flatten, hashKey, letterFor, letterName, pageRegions, PRODUCTION_FILE, resolveAnchors, revisedLines, snapshotOf, type Entry, type ProductionState } from "./production";
 import { emptyGoals, GOALS_FILE, observe, resetToday, type Goals } from "./goals";
 import { wordCount } from "../formats/exporters";
@@ -199,6 +200,8 @@ export class ProjectStore {
   conflict: ConflictState | null = null;
   toasts: Toast[] = [];
   production: ProductionState | null = null;
+  /** The preview's last successful typeset: where every line landed (for the production report). */
+  lastTypeset: { report: { ok: boolean; pageCount: number; pageHeight: number; elementPages: number[]; elementLastPages: number[]; elementTops?: number[]; elementBottoms?: number[] }; ids: string[] } | null = null;
   /** A single document opened on its own (File > Open document): no project.json, no binder. */
   single = false;
   goals: Goals = emptyGoals();
@@ -448,6 +451,18 @@ export class ProjectStore {
     const revised = new Map<string, Set<number>>();
     for (const n of this.typesetDocs()) revised.set(n.id, revisedLines(p.snapshot[n.id], this.docs.get(n.id)?.blocks ?? []));
     return { locks, revised, label: `${p.revision} Rev. ${p.revisionDate}` };
+  }
+
+  /**
+   * Where the script's lines landed in a typeset report, with the number
+   * printed on each page (locked production numbers included), for the
+   * production report.
+   */
+  reportLayout(report: { ok: boolean; pageCount: number; pageHeight: number; elementPages: number[]; elementLastPages: number[]; elementTops?: number[]; elementBottoms?: number[] }, ids: string[]): LayoutInfo | undefined {
+    if (!report.ok || !report.elementTops || report.elementTops.length !== ids.length) return undefined;
+    const front = new Set(this.manuscriptItems().flatMap((i) => (i.kind === "play" || (i.kind === "matter" && i.where === "front") ? [i.id] : [])));
+    const labels = pageLabels(report.pageCount, ids, report.elementPages, (d) => front.has(d), this.productionOptions()?.locks);
+    return { ids, first: report.elementPages, last: report.elementLastPages, tops: report.elementTops, bottoms: report.elementBottoms ?? report.elementTops, pageHeight: report.pageHeight, labels };
   }
 
   private async writeProduction() {

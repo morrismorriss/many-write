@@ -7,6 +7,7 @@ import { EditorPane } from "../editor/EditorPane";
 import type { SearchHighlight } from "../editor/extensions";
 import { exportProject, ProjectSettingsDialog, ThemeMenu } from "./Menus";
 import { exportTableRead } from "./TableRead";
+import { openProductionReport } from "./ProductionReport";
 import { FileMenu, FindBar, GoalsWidget, Pomodoro, ProductionMenu, type FindScope } from "./Widgets";
 import { ChevronLeft, ChevronRight, FileIcon, FolderIcon, Search, Warning } from "./icons";
 import type { AppSettings, Theme } from "../themes/themes";
@@ -159,6 +160,7 @@ export function Workspace(p: Props) {
               exports={store.template.exports}
               onExport={(f) => void exportProject(store, f)}
               onTableRead={store.template.mode === "script" ? () => void exportTableRead(store) : undefined}
+              onProductionReport={store.template.mode === "script" ? () => void openProductionReport(store, jump) : undefined}
               onOpenFolder={p.onOpenFolder}
               onOpen={p.onOpenProject}
               onClose={p.onClose}
@@ -167,7 +169,7 @@ export function Workspace(p: Props) {
               onToggleSpellcheck={() => setSettings({ spellcheck: !settings.spellcheck })}
               currentRoot={store.root}
             />
-            {!store.single && <ProductionMenu store={store} onLock={lock} />}
+            {!store.single && <ProductionMenu store={store} onLock={lock} onReport={() => void openProductionReport(store, jump)} />}
             <div className="crumbs">
               {sel ? (
                 breadcrumb(store, sel).map((t, i, a) => (

@@ -232,6 +232,11 @@ pub struct CompileReport {
     pub element_pages: Vec<usize>,
     /// For each element, the 1-based page its last line landed on (0 = none).
     pub element_last_pages: Vec<usize>,
+    /// For each element, the baseline of its first line on its first page, in
+    /// points from the top of the page (0 = none).
+    pub element_tops: Vec<f64>,
+    /// For each element, the baseline of its last line on its last page (0 = none).
+    pub element_bottoms: Vec<f64>,
     pub issues: Vec<LayoutIssue>,
     pub compile_ms: u64,
 }
@@ -289,10 +294,12 @@ impl Engine {
                     report.page_width = first.frame.width().to_pt();
                     report.page_height = first.frame.height().to_pt();
                 }
-                let (pages, last_pages, issues) = check_layout(&self.world, &doc, elements);
-                report.element_pages = pages;
-                report.element_last_pages = last_pages;
-                report.issues = issues;
+                let layout = check_layout(&self.world, &doc, elements);
+                report.element_pages = layout.first_pages;
+                report.element_last_pages = layout.last_pages;
+                report.element_tops = layout.tops;
+                report.element_bottoms = layout.bottoms;
+                report.issues = layout.issues;
                 self.doc = Some(doc);
             }
             Err(errors) => {
@@ -384,11 +391,16 @@ impl Engine {
 /// Where the text of each element ended up: page -> set of line baselines.
 type Placement = BTreeMap<usize, BTreeSet<i64>>;
 
-fn check_layout(
-    world: &MwWorld,
-    doc: &PagedDocument,
-    elements: &[ElementSpan],
-) -> (Vec<usize>, Vec<usize>, Vec<LayoutIssue>) {
+/// Where every element landed, and the layout problems found.
+struct Layout {
+    first_pages: Vec<usize>,
+    last_pages: Vec<usize>,
+    tops: Vec<f64>,
+    bottoms: Vec<f64>,
+    issues: Vec<LayoutIssue>,
+}
+
+fn check_layout(world: &MwWorld, doc: &PagedDocument, elements: &[ElementSpan]) -> Layout {
     let mut placements: Vec<Placement> = vec![Placement::new(); elements.len()];
     let main = world.main.id();
     // Elements arrive in source order; make sure for the binary search.
@@ -428,6 +440,15 @@ fn check_layout(
         placements.iter().map(|p| p.keys().next().copied().unwrap_or(0)).collect();
     let last_pages: Vec<usize> =
         placements.iter().map(|p| p.keys().last().copied().unwrap_or(0)).collect();
+    // Baselines are kept in tenths of a point.
+    let tops: Vec<f64> = placements
+        .iter()
+        .map(|p| p.values().next().and_then(|ys| ys.first()).map_or(0.0, |&y| y as f64 / 10.0))
+        .collect();
+    let bottoms: Vec<f64> = placements
+        .iter()
+        .map(|p| p.values().last().and_then(|ys| ys.last()).map_or(0.0, |&y| y as f64 / 10.0))
+        .collect();
 
     let mut issues = Vec::new();
     for (i, el) in elements.iter().enumerate() {
@@ -477,7 +498,7 @@ fn check_layout(
             }
         }
     }
-    (first_pages, last_pages, issues)
+    Layout { first_pages, last_pages, tops, bottoms, issues }
 }
 
 fn walk(frame: &Frame, offset: Point, f: &mut impl FnMut(Point, &FrameItem)) {

@@ -18,6 +18,10 @@ export interface CompileReport {
   warnings: { message: string }[];
   elementPages: number[];
   elementLastPages: number[];
+  /** Baseline of each element's first line on its first page, in points from the top (0 = none). */
+  elementTops?: number[];
+  /** Baseline of each element's last line on its last page. */
+  elementBottoms?: number[];
   issues: { id: string; kind: string; page: number; problem: string; message: string }[];
   compileMs: number;
 }
@@ -66,11 +70,12 @@ export function Preview({ store, theme, cursor, follow, onJump, onReport }: Prop
       setReport(r);
       onReport?.(r, g.elements.map((e) => e.id));
       if (r.ok) {
+        store.lastTypeset = { report: r, ids: g.elements.map((e) => e.id) };
         setIds(g.elements.map((e) => e.id));
         setGen((x) => x + 1);
       }
     } catch (e) {
-      setReport({ ok: false, pageCount: 0, pageWidth: 0, pageHeight: 0, errors: [{ message: String(e) }], warnings: [], elementPages: [], elementLastPages: [], issues: [], compileMs: 0 });
+      setReport({ ok: false, pageCount: 0, pageWidth: 0, pageHeight: 0, errors: [{ message: String(e) }], warnings: [], elementPages: [], elementLastPages: [], elementTops: [], elementBottoms: [], issues: [], compileMs: 0 });
     } finally {
       busy.current = false;
       if (pending.current) {
@@ -148,7 +153,7 @@ export function Preview({ store, theme, cursor, follow, onJump, onReport }: Prop
             </button>
           )}
           <StatsPanel store={store} report={report} ids={ids} />
-          <ExportMenu store={store} />
+          <ExportMenu store={store} onJump={onJump} />
           {issuesOpen && issues.length > 0 && (
             <Popover anchor={statusRef} align="right" className="issues" onMouseLeave={() => setIssuesOpen(false)}>
               {issues.map((i, k) => (

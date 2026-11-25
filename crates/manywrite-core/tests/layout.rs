@@ -439,3 +439,26 @@ fn document_nested_lists_and_page_ranges() {
     assert!(err.contains("4 pages"), "{err}");
     assert!(engine.pdf_pages(Some(&[PageSpan { from: 3, to: Some(2) }])).is_err());
 }
+
+#[test]
+fn reports_where_each_element_sits_on_its_page() {
+    let header = "#import \"/mw/stage-play.typ\": *\n#show: conf.with(title: \"Test Play\", author: \"A. Writer\")\n";
+    let (src, els) = build(header, &play_items());
+    let mut engine = Engine::new();
+    let r = engine.compile(&src, &els);
+    assert!(r.ok, "errors: {:?}", r.errors);
+    assert_eq!(r.element_tops.len(), els.len());
+    assert_eq!(r.element_bottoms.len(), els.len());
+    for i in 0..els.len() {
+        let (top, bottom) = (r.element_tops[i], r.element_bottoms[i]);
+        // Every line lies inside the page, below the 1in top margin.
+        assert!(top > 72.0 && top < r.page_height, "top {top} of element {i}");
+        assert!(bottom > 72.0 && bottom < r.page_height, "bottom {bottom} of element {i}");
+        if r.element_pages[i] == r.element_last_pages[i] {
+            assert!(bottom >= top, "element {i} ends above where it starts");
+        }
+    }
+    // Lines on the same page run down it in order.
+    let same: Vec<usize> = (1..els.len()).filter(|&i| r.element_pages[i] == r.element_last_pages[i - 1]).collect();
+    assert!(same.iter().all(|&i| r.element_tops[i] > r.element_bottoms[i - 1]));
+}

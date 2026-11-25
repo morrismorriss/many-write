@@ -60,6 +60,7 @@ interface FileMenuProps {
   onExport: (f: ExportFormat) => void;
   /** Scripts only: one PDF per character with their lines highlighted. */
   onTableRead?: () => void;
+  onProductionReport?: () => void;
 }
 
 export function FileMenu(p: FileMenuProps) {
@@ -138,6 +139,11 @@ export function FileMenu(p: FileMenuProps) {
               Table read PDFs…
             </button>
           )}
+          {p.onProductionReport && (
+            <button className="menu-item" onClick={run(p.onProductionReport)} data-testid="file-production-report">
+              Production report…
+            </button>
+          )}
           <div className="menu-sep" />
           <button className="menu-item" onClick={run(p.onDonate)} data-testid="file-donate">
             <span>Support Many Write…</span>
@@ -156,11 +162,13 @@ export function FileMenu(p: FileMenuProps) {
 
 interface ProductionProps {
   store: ProjectStore;
+  /** Open the production report (scene breakdown, cast, locations, plot). */
+  onReport?: () => void;
   /** Lock the pages as currently typeset. */
   onLock: (revision: string) => void;
 }
 
-export function ProductionMenu({ store, onLock }: ProductionProps) {
+export function ProductionMenu({ store, onLock, onReport }: ProductionProps) {
   const { open, setOpen, ref, panelRef } = usePopover();
   const prod = store.production;
   const active = store.inProduction;
@@ -228,6 +236,22 @@ export function ProductionMenu({ store, onLock }: ProductionProps) {
               >
                 Leave production mode
               </button>
+            </>
+          )}
+          {script && onReport && (
+            <>
+              <div className="menu-sep" />
+              <button
+                className="btn ghost"
+                data-testid="production-report-btn"
+                onClick={() => {
+                  setOpen(false);
+                  onReport();
+                }}
+              >
+                Production report…
+              </button>
+              <p className="panel-hint">Scene breakdown with page counts in eighths, cast, {store.data.template === "screenplay" ? "locations " : ""}and a scene plot of who is in each scene.</p>
             </>
           )}
         </Popover>
