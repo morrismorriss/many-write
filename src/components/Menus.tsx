@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Popover } from "./Popover";
-import { sceneNewPageDefault, type SceneBreakStyle } from "../project/model";
+import { rootOf, sceneNewPageDefault, type SceneBreakStyle } from "../project/model";
 import { call, fsApi, imageUrl, join, pickImage, pickSavePath } from "../lib/backend";
 import { essayDate, generateTypst } from "../formats/typst";
 import { toExportDoc, toFdx, toFountain } from "../formats/exporters";
@@ -339,6 +339,19 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
               <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
               <span>Title page</span>
             </label>
+            {script && (
+              <button
+                className="btn small"
+                data-testid="edit-title-page"
+                onClick={async () => {
+                  // Save what is typed here first, so the page starts from it.
+                  await save();
+                  await store.addTitlePage(rootOf(store.data, "front").id, "front");
+                }}
+              >
+                Type the title page yourself…
+              </button>
+            )}
           </>
         )}
         {script && (

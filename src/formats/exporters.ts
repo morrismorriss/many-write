@@ -4,6 +4,7 @@
 import { blockText, serializeRuns, serializeScript, type Block, type Note, type Run } from "./markdown";
 import { contdLines, essayDate, sceneBreakText, type ManuscriptItem, type ProjectMeta } from "./typst";
 import { isListType, listNumbers, MAX_INDENT, type Template } from "./templates";
+import { findTitlePages, titlePageParts, type MatterItem } from "./titlepage";
 
 const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
 
@@ -104,7 +105,10 @@ export function toFdx(meta: ProjectMeta, items: ManuscriptItem[]): string {
       paras.push(`    <Paragraph Type="${type}">${fdxText(b.runs, upper)}</Paragraph>`);
     }
   }
-  const tp = [
+  const typedPage = meta.titlePage ? findTitlePages(items).project : undefined;
+  const tpLine = (align: string, b: Block) => `      <Paragraph Alignment="${align}" Type="Title Page">${blockText(b).trim() ? fdxText(b.runs.filter((r) => !r.note)) : "<Text></Text>"}</Paragraph>`;
+  const typedTp = typedPage && titlePageParts(typedPage.blocks);
+  const tp = typedTp ? [...typedTp.middle.map(({ block }) => tpLine("Center", block)), ...typedTp.bottom.map(({ block }) => tpLine("Left", block))] : [
     `      <Paragraph Alignment="Center" Type="Title Page"><Text>${xml((meta.title || "Untitled").toUpperCase())}</Text></Paragraph>`,
     ...(meta.subtitle?.trim() ? [`      <Paragraph Alignment="Center" Type="Title Page"><Text>${xml(meta.subtitle.trim())}</Text></Paragraph>`] : []),
     `      <Paragraph Alignment="Center" Type="Title Page"><Text></Text></Paragraph>`,
@@ -200,16 +204,30 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
       }
       return [{ ...r, note: id }];
     });
+  /** An empty paragraph keeps its place as a blank line (a no-break space, so Word and e-readers don't drop it). */
+  const blankLine: Run[] = [{ text: "\u00a0" }];
   if (essay) blocks.push(...essayOpening(meta));
-  if (meta.titlePage && (script || template.id === "book")) {
+  // Scripts: title pages the writer typed replace the automatic ones.
+  const typed = script ? findTitlePages(items) : { project: undefined, plays: new Map<string, MatterItem>() };
+  const typedPages = new Set<ManuscriptItem>([...(typed.project ? [typed.project] : []), ...typed.plays.values()]);
+  const typedTitle = (page: MatterItem) => {
+    const { middle, bottom } = titlePageParts(page.blocks);
+    middle.forEach(({ block }, i) => {
+      const filled = !!blockText(block).trim();
+      blocks.push({ kind: i === 0 ? "title" : "centered", runs: filled ? block.runs.filter((r) => !r.note) : blankLine });
+    });
+    for (const { block } of bottom) blocks.push({ kind: "matter_paragraph", runs: blockText(block).trim() ? block.runs.filter((r) => !r.note) : blankLine });
+    blocks.push({ kind: "page_break", runs: [] });
+  };
+  if (meta.titlePage && script && typed.project) {
+    typedTitle(typed.project);
+  } else if (meta.titlePage && (script || template.id === "book")) {
     blocks.push({ kind: "title", runs: [{ text: meta.title || "Untitled" }] });
     if (meta.subtitle?.trim()) blocks.push({ kind: script ? "centered" : "subheading", runs: [{ text: meta.subtitle.trim() }] });
     if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
     // A script's title page is a page of its own (a book's first chapter already starts a new page).
     if (script) blocks.push({ kind: "page_break", runs: [] });
   }
-  /** An empty paragraph keeps its place as a blank line (a no-break space, so Word and e-readers don't drop it). */
-  const blankLine: Run[] = [{ text: "\u00a0" }];
   const keptBlank = (b: Block, i: number, blocks: Block[]) =>
     (b.type === "paragraph" || b.type === "centered") && !blockText(b).trim() && blocks.slice(i + 1).some((x) => blockText(x).trim() || x.type === "image");
   let newPage = blocks.at(-1)?.kind === "page_break";
@@ -217,9 +235,16 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
   // Screenplays, essays, articles and a book's sections run on.
   const docNewPage = script ? !!meta.sceneNewPage : template.id === "document" || template.mode === "poem";
   for (const item of items) {
+    if (typedPages.has(item)) continue;
     if (item.kind === "play") {
       // A play of a collection: a new page with its title.
       if (blocks.length && !newPage) blocks.push({ kind: "page_break", runs: [] });
+      const own = typed.plays.get(item.id);
+      if (own) {
+        typedTitle(own);
+        newPage = true;
+        continue;
+      }
       blocks.push({ kind: "title", runs: [{ text: item.title }] });
       if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });
       blocks.push({ kind: "page_break", runs: [] });

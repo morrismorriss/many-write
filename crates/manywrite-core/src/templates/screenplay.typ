@@ -1,6 +1,6 @@
 // Screenplay: scene heading, action, character, parenthetical, dialogue, transition.
 // Industry layout: Courier 12pt, 1.5in left margin, dialogue 2.5in from the page edge.
-#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play
+#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play, mw-title-page, mw-tp-line
 
 #let line-h = 12pt
 

@@ -26,6 +26,7 @@ import {
   Trash,
   Warning,
 } from "./icons";
+import { TITLE_PAGE } from "../formats/titlepage";
 import { COPYRIGHT_CLAUSES, copyrightPage, MATTER_PRESETS, NOTES_TEMPLATE } from "../formats/templates";
 import { NotesEditor } from "../editor/EditorPane";
 
@@ -160,6 +161,7 @@ export function Binder({ store }: { store: ProjectStore }) {
             onClick={() => {
               setPresetsFor(null);
               if (pr.title === "Copyright") setCopyrightFor({ parentId, role });
+              else if (pr.title === TITLE_PAGE) void store.addTitlePage(parentId, role);
               else void store.addDoc(parentId, undefined, role, pr);
             }}
           >

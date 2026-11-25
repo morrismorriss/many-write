@@ -2,6 +2,7 @@
 // detection. All file operations run through one queue so a save can never
 // interleave with a rename or a reload.
 
+import { isTitlePageName, TITLE_PAGE, titlePageStarter } from "../formats/titlepage";
 import { BackendError, call, configApi, fsApi, join } from "../lib/backend";
 import { blockText, parseDoc, serializeDoc, adaptScriptTypes, type Block, type Note, type Run } from "../formats/markdown";
 import {
@@ -1217,7 +1218,7 @@ export class ProjectStore {
     return { parentId: parentOf(this.data, sel.id)!.id, afterId: sel.id };
   }
 
-  async addDoc(parentId?: string, afterId?: string, role: Role = "manuscript", preset?: { title: string; content: string }, opts: { select?: boolean } = {}) {
+  async addDoc(parentId?: string, afterId?: string, role: Role = "manuscript", preset?: { title: string; content: string }, opts: { select?: boolean; atStart?: boolean } = {}) {
     return this.enqueue(async () => {
       const parent = (parentId && this.node(parentId)) || rootOf(this.data, role);
       const r = roleOf(this.data, parent.id) ?? role;
@@ -1244,8 +1245,8 @@ export class ProjectStore {
                 : "Page";
       const node: BinderNode = { id: newId(), kind: "doc", title: preset?.title ?? `${noun} ${count + 1}`, file: `~new-${newId()}.md` };
       const kids = (parent.children ??= []);
-      const at = afterId ? kids.findIndex((k) => k.id === afterId) + 1 : kids.length;
-      kids.splice(at > 0 ? at : kids.length, 0, node);
+      const at = afterId ? kids.findIndex((k) => k.id === afterId) + 1 : opts.atStart ? 0 : kids.length;
+      kids.splice(at >= 0 ? at : kids.length, 0, node);
       // New pages start empty; the editor shows grey hint text until the writer types (hintFor).
       const content = preset?.content ?? (r === "manuscript" || r === "archive" ? this.template.starter(count + 1) : "");
       await fsApi.write(join(this.pathOf(parent.id)!, node.file), content, null);
@@ -1256,6 +1257,21 @@ export class ProjectStore {
       this.emit();
       return node.id;
     });
+  }
+
+  /**
+   * Scripts: a title page to type in, first in the project's front matter or a
+   * play's. It starts as the automatic title page written out, and replaces it.
+   * If there is one already, it is opened instead.
+   */
+  async addTitlePage(parentId: string, role: Role) {
+    const parent = this.node(parentId) ?? rootOf(this.data, role);
+    const existing = (parent.children ?? []).find((n) => n.kind === "doc" && isTitlePageName(n.title));
+    if (existing) return this.select(existing.id);
+    const play = parent.matter ? playOf(this.data, parent.id) : undefined;
+    const content = titlePageStarter(this.meta(), play?.title);
+    if (!play && !this.data.settings.titlePage) await this.updateMeta({ settings: { titlePage: true } });
+    return this.addDoc(parent.id, undefined, role, { title: TITLE_PAGE, content }, { atStart: true });
   }
 
   /**

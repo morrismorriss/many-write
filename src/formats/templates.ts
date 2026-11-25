@@ -466,6 +466,8 @@ export interface MatterPreset {
 }
 
 export const MATTER_PRESETS: MatterPreset[] = [
+  // Content comes from the project (titlePageStarter); it replaces the automatic title page.
+  { title: "Title page", where: "front", forTemplates: ["stage-play", "screenplay"], content: "", firstType: "centered", hint: "TITLE" },
   { title: "Dedication", where: "front", content: "", firstType: "centered", hint: "For …" },
   { title: "Epigraph", where: "front", content: "", firstType: "quote", hint: "A line that sets the tone. — Its author" },
   // Content comes from the copyright dialog (copyrightPage); this is the fallback.

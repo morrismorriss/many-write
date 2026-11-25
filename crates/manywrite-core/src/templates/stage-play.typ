@@ -1,5 +1,5 @@
 // Stage play: character cue, dialogue, stage direction, scene heading, transition.
-#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play
+#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play, mw-title-page, mw-tp-line
 
 #let line-h = 12pt
 
