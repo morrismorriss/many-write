@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseDoc, plainBlock, type Block } from "./markdown";
 import { findTitlePages, titlePageParts, titlePageStarter } from "./titlepage";
 import { generateTypst, type ManuscriptItem, type ProjectMeta } from "./typst";
-import { toExportDoc, toFdx } from "./exporters";
+import { fountainTitlePage, toExportDoc, toFdx, toFountain } from "./exporters";
 import { TEMPLATES } from "./templates";
 
 const b = (type: string, text: string): Block => plainBlock(type as Block["type"], text);
@@ -35,8 +35,8 @@ describe("typed title pages", () => {
   it("replaces the automatic title page in the PDF", () => {
     const items = [page("tp", [b("centered", "MY SOUP"), b("paragraph", "Agent")]), scene];
     const g = generateTypst(TEMPLATES["stage-play"], meta, items);
-    expect(g.source).toContain("title-page: false");
-    expect(g.source).toContain('#mw-title-page([#mw-tp-line[#"MY SOUP"]], [#mw-tp-line[#"Agent"]], first: true, play: false)');
+    expect(g.source).toContain('#import "/mw/titlepage.typ"');
+    expect(g.source).toContain('cover: mw-title-page([#mw-tp-line[#"MY SOUP"]], [#mw-tp-line[#"Agent"]], first: true, play: false))');
     expect(g.source).not.toContain("matter-start");
     expect(g.elements.some((e) => e.id === "tp#0")).toBe(true);
   });
@@ -56,10 +56,46 @@ describe("typed title pages", () => {
   it("goes into Word and Final Draft exports", () => {
     const items = [page("tp", [b("centered", "MY SOUP"), b("centered", "by Ann"), b("paragraph", "Agent")]), scene];
     const doc = toExportDoc(TEMPLATES["stage-play"], meta, items, "x");
-    expect(doc.blocks.slice(0, 4).map((x) => x.kind)).toEqual(["title", "centered", "matter_paragraph", "page_break"]);
+    expect(doc.blocks.slice(0, 4).map((x) => x.kind)).toEqual(["title_page_middle", "title_page_middle", "title_page_bottom", "page_break"]);
     expect(doc.blocks.some((x) => x.kind === "matter_title")).toBe(false);
     const fdx = toFdx(meta, items);
     expect(fdx).toContain('<Paragraph Alignment="Center" Type="Title Page"><Text>MY SOUP</Text></Paragraph>');
     expect(fdx).toContain('<Paragraph Alignment="Left" Type="Title Page"><Text>Agent</Text></Paragraph>');
+  });
+
+  it("works in every format", () => {
+    for (const id of ["book", "poem", "article", "document", "essay"] as const) {
+      const items: ManuscriptItem[] = [page("tp", [b("centered", "COVER")]), { kind: "doc", id: "d", title: "D", blocks: [b(id === "poem" ? "line" : "paragraph", "Text.")] }];
+      const g = generateTypst(TEMPLATES[id], { ...meta, essay: { style: "mla", instructor: "", course: "", date: "" } }, items);
+      expect(g.source, id).toContain("cover: mw-title-page(");
+      const doc = toExportDoc(TEMPLATES[id], { ...meta, essay: { style: "mla", instructor: "", course: "", date: "" } }, items, "x");
+      expect(doc.blocks[0].kind, id).toBe("title_page_middle");
+    }
+  });
+
+  it("replaces Chicago's title page but keeps MLA's heading block", () => {
+    const items: ManuscriptItem[] = [page("tp", [b("centered", "COVER")])];
+    const chicago = toExportDoc(TEMPLATES.essay, { ...meta, essay: { style: "chicago-notes", instructor: "", course: "", date: "1 May" } }, items, "x");
+    expect(chicago.blocks.some((x) => x.kind.startsWith("essay_cover"))).toBe(false);
+    const mla = toExportDoc(TEMPLATES.essay, { ...meta, essay: { style: "mla", instructor: "", course: "", date: "1 May" } }, items, "x");
+    expect(mla.blocks.some((x) => x.kind === "essay_heading")).toBe(true);
+  });
+
+  it("starts each format with its own kind of title page", () => {
+    expect(titlePageStarter(meta, "book")).toBe("-> **Soup** <-\n\n&nbsp;\n\n-> *A comedy* <-\n\n&nbsp;\n\n&nbsp;\n\n-> Ann Writer <-\n");
+    expect(titlePageStarter({ ...meta, essay: { style: "mla", instructor: "Prof. X", course: "", date: "1 May" } }, "essay")).toContain("-> Prof. X <-");
+  });
+
+  it("maps onto Fountain's title page keys", () => {
+    expect(fountainTitlePage([b("centered", "SOUP"), b("centered", "by"), b("centered", "Ann"), b("centered", "Based on a story"), b("paragraph", "ann@x.com"), b("paragraph", "555")])).toEqual([
+      "Title: SOUP",
+      "Credit: by",
+      "Author: Ann",
+      "Source: Based on a story",
+      "Contact:",
+      "    ann@x.com",
+      "    555",
+    ]);
+    expect(toFountain(TEMPLATES.screenplay, meta, [page("tp", [b("centered", "MINE")]), scene])).toMatch(/^Title: MINE\n\n/);
   });
 });

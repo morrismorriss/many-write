@@ -1,6 +1,6 @@
 // Screenplay: scene heading, action, character, parenthetical, dialogue, transition.
 // Industry layout: Courier 12pt, 1.5in left margin, dialogue 2.5in from the page edge.
-#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play, mw-title-page, mw-tp-line
+#import "common.typ": script-title-page, script-header, rev-marks, mw-lock, mw-rev, mw-front-start, mw-body-start, mw-play
 
 #let line-h = 12pt
 
@@ -8,7 +8,7 @@
   title: none, subtitle: none, author: none, contact: none, date: none, title-page: true,
   font: "Courier Prime", paper: "us-letter",
   page-fill: white, text-fill: black,
-  revision: none,
+  revision: none, cover: none,
   body,
 ) = {
   set document(title: if title != none { title } else { "Untitled" })
@@ -20,7 +20,9 @@
     margin: (left: 1.5in, right: 1in, top: 1in, bottom: 1in),
     header: script-header(revision),
     foreground: rev-marks)
-  if title-page and title != none {
+  // A title page the writer typed (titlepage.typ) comes first, in place of the automatic one.
+  if cover != none { cover }
+  if title-page and cover == none and title != none {
     script-title-page(title, author, contact, date, subtitle: subtitle)
   }
   body

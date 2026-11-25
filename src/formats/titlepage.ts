@@ -5,7 +5,8 @@
 
 import type { Block } from "./markdown";
 import { blockText, BLANK_LINE } from "./markdown";
-import type { ManuscriptItem, ProjectMeta } from "./typst";
+import { essayDate, type ManuscriptItem, type ProjectMeta } from "./typst";
+import type { TemplateId } from "./templates";
 
 export const TITLE_PAGE = "Title page";
 
@@ -55,13 +56,32 @@ export function titlePageParts(blocks: Block[]): { middle: { block: Block; index
 
 const md = (s: string) => s.replace(/([\\*_])/g, "\\$1");
 
-/** What a new title page starts with: the automatic one, written out so it can be changed. */
-export function titlePageStarter(meta: Pick<ProjectMeta, "title" | "subtitle" | "author" | "contact">, title?: string): string {
+/**
+ * What a new title page starts with: the automatic one, written out so it can
+ * be changed. Scripts get the industry layout (title, "by", author, contact at
+ * the bottom left); a book its title, subtitle and author; an essay its title
+ * and the student's details; anything else title, subtitle and author.
+ */
+export function titlePageStarter(meta: Pick<ProjectMeta, "title" | "subtitle" | "author" | "contact" | "essay">, kind: TemplateId = "stage-play", title?: string): string {
   const centred = (s: string) => `-> ${s} <-`;
-  const lines: string[] = [centred(`**${md((title || meta.title || "Untitled").toUpperCase())}**`)];
-  if (!title && meta.subtitle?.trim()) lines.push(BLANK_LINE, centred(md(meta.subtitle.trim())));
-  if (meta.author?.trim()) lines.push(BLANK_LINE, BLANK_LINE, centred("by"), BLANK_LINE, centred(md(meta.author.trim())));
-  const contact = (meta.contact ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
-  lines.push(...contact.map(md));
+  const name = title || meta.title || "Untitled";
+  const subtitle = !title && meta.subtitle?.trim() ? md(meta.subtitle.trim()) : "";
+  const author = meta.author?.trim() ? md(meta.author.trim()) : "";
+  const lines: string[] = [];
+  if (kind === "stage-play" || kind === "screenplay") {
+    lines.push(centred(`**${md(name.toUpperCase())}**`));
+    if (subtitle) lines.push(BLANK_LINE, centred(subtitle));
+    if (author) lines.push(BLANK_LINE, BLANK_LINE, centred("by"), BLANK_LINE, centred(author));
+    lines.push(...(meta.contact ?? "").split("\n").map((l) => l.trim()).filter(Boolean).map(md));
+  } else if (kind === "essay") {
+    const e = meta.essay;
+    lines.push(centred(md(name + (subtitle ? `: ${meta.subtitle!.trim()}` : ""))));
+    const details = [author, md(e?.course ?? ""), md(e?.instructor ?? ""), md(e?.date?.trim() || (e ? essayDate(e.style) : ""))].filter((l) => l.trim());
+    if (details.length) lines.push(BLANK_LINE, BLANK_LINE, BLANK_LINE, ...details.map(centred));
+  } else {
+    lines.push(centred(`**${md(name)}**`));
+    if (subtitle) lines.push(BLANK_LINE, centred(`*${subtitle}*`));
+    if (author) lines.push(BLANK_LINE, BLANK_LINE, centred(kind === "book" ? author : `by ${author}`));
+  }
   return lines.join("\n\n") + "\n";
 }

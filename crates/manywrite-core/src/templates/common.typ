@@ -89,24 +89,6 @@
   pagebreak()
 }
 
-// A title page the writer typed (a front matter page called "Title page").
-// `middle` is centred halfway down the page; `bottom` sits at the bottom left.
-// `play`: a collection play's title page, which starts that play's front matter.
-#let mw-title-page(middle, bottom, first: false, play: false) = {
-  if not first { pagebreak(weak: true) }
-  if play { mw-front-mark(true) }
-  set page(header: none, footer: none)
-  v(1fr)
-  align(center, middle)
-  v(1.4fr)
-  if bottom != none { block(width: 60%, bottom) }
-  if not play { counter(page).update(0) }
-  pagebreak()
-}
-
-// One line of a typed title page.
-#let mw-tp-line(body) = block(above: 0pt, below: 0pt, width: 100%, body)
-
 #let extra-letters(n) = {
   let s = ""
   let k = n

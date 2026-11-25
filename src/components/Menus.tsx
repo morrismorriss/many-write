@@ -254,6 +254,20 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
   const [instructor, setInstructor] = useState(d.settings.instructor ?? "");
   const [course, setCourse] = useState(d.settings.course ?? "");
   const [date, setDate] = useState(d.settings.date ?? "");
+  // Every format: a title page typed like any other page, which replaces the automatic one.
+  const typeTitlePage = !store.single && (
+    <button
+      className="btn small"
+      data-testid="edit-title-page"
+      onClick={async () => {
+        // Save what is typed here first, so the page starts from it.
+        await save();
+        await store.addTitlePage(rootOf(store.data, "front").id, "front");
+      }}
+    >
+      Type the title page yourself…
+    </button>
+  );
   const save = async () => {
     const essaySettings = essay ? { essayStyle, notePlacement, instructor, course, date } : {};
     const bookSettings = book ? { sceneBreak: sceneBreak === "image" && !breakImage ? ("asterisks" as const) : sceneBreak, sceneBreakImage: breakImage } : {};
@@ -322,12 +336,11 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
               <span>Date</span>
               <input value={date} placeholder={`Today: ${essayDate(essayStyle)}`} onChange={(e) => setDate(e.target.value)} />
             </label>
-            {(essayStyle === "chicago" || essayStyle === "chicago-notes") && (
-              <label className="check">
-                <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
-                <span>Title page</span>
-              </label>
-            )}
+            <label className="check">
+              <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
+              <span>{essayStyle === "mla" ? "Title page (MLA has none; only a page you type yourself, before page 1)" : "Title page"}</span>
+            </label>
+            {typeTitlePage}
           </>
         ) : (
           <>
@@ -339,19 +352,7 @@ export function ProjectSettingsDialog({ store, onClose }: { store: ProjectStore;
               <input type="checkbox" checked={titlePage} onChange={(e) => setTitlePage(e.target.checked)} />
               <span>Title page</span>
             </label>
-            {script && (
-              <button
-                className="btn small"
-                data-testid="edit-title-page"
-                onClick={async () => {
-                  // Save what is typed here first, so the page starts from it.
-                  await save();
-                  await store.addTitlePage(rootOf(store.data, "front").id, "front");
-                }}
-              >
-                Type the title page yourself…
-              </button>
-            )}
+            {typeTitlePage}
           </>
         )}
         {script && (

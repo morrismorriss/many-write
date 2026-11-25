@@ -2,7 +2,7 @@
 // nothing is reflowed or justified. Long lines wrap with a hanging indent.
 
 #let conf(
-  title: none, subtitle: none, author: none, contact: none, date: none, title-page: false,
+  title: none, subtitle: none, author: none, contact: none, date: none, cover: none, title-page: false,
   font: "Libertinus Serif", paper: "us-letter",
   page-fill: white, text-fill: black,
   body,
@@ -13,7 +13,9 @@
   set par(justify: false, leading: 0.6em, spacing: 0.6em, hanging-indent: 2em)
   set page(paper: paper, fill: page-fill, margin: 1.25in,
     footer: context align(center, text(size: 10pt, counter(page).display())))
-  if title-page and title != none {
+  // A title page the writer typed (titlepage.typ) comes first, in place of the automatic one.
+  if cover != none { cover }
+  if title-page and cover == none and title != none {
     align(center, text(size: 20pt, title))
     if subtitle != none and subtitle != "" { align(center, text(size: 13pt, subtitle)) }
     if author != none and author != "" { align(center, emph(author)) }

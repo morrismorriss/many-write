@@ -19,7 +19,7 @@
 }
 
 #let conf(
-  title: none, subtitle: none, author: none, contact: none, date: none, title-page: false,
+  title: none, subtitle: none, author: none, contact: none, date: none, cover: none, title-page: false,
   style: "mla", instructor: "", course: "",
   font: "Libertinus Serif", paper: "us-letter",
   page-fill: white, text-fill: black,
@@ -49,7 +49,11 @@
     })
   mw-essay.update(style)
 
-  if chicago and title-page {
+  // A title page the writer typed (titlepage.typ) comes first, in place of the automatic one.
+  if cover != none { cover }
+  if chicago and title-page and cover != none {
+    // The writer typed the title page; the text starts straight after it.
+  } else if chicago and title-page {
     // Title page: title a third of the way down; name, course, instructor and date lower.
     set page(header: none)
     set par(first-line-indent: 0pt)

@@ -5,7 +5,7 @@
 #let mw-break = state("mw-break", (style: "asterisks", image: none))
 
 #let conf(
-  title: none, subtitle: none, author: none, contact: none, date: none, title-page: true,
+  title: none, subtitle: none, author: none, contact: none, date: none, cover: none, title-page: true,
   font: "Libertinus Serif", paper: none, trim: (6in, 9in),
   page-fill: white, text-fill: black,
   scene-break: "asterisks", scene-break-image: none,
@@ -22,7 +22,9 @@
       let n = counter(page).get().first()
       if n > 0 { align(center, text(size: 9pt, str(n))) }
     })
-  if title-page and title != none {
+  // A title page the writer typed (titlepage.typ) comes first, in place of the automatic one.
+  if cover != none { cover }
+  if title-page and cover == none and title != none {
     set page(footer: none)
     v(25%)
     align(center, text(size: 24pt, title))

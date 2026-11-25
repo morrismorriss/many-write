@@ -8,13 +8,43 @@ import { findTitlePages, titlePageParts, type MatterItem } from "./titlepage";
 
 const SCENE_RE = /^(INT|EXT|EST|INT\.?\/EXT|I\/E)[.\s]/i;
 
+/**
+ * A typed title page as Fountain's title page keys. The first centred line is
+ * the Title (with the lines up to a "by" line); "by" is the Credit and the line
+ * after it the Author; later centred lines are the Source; the bottom lines
+ * are the Contact.
+ */
+export function fountainTitlePage(blocks: Block[]): string[] {
+  const { middle, bottom } = titlePageParts(blocks);
+  const text = (b: Block) => serializeRuns(b.runs.filter((r) => !r.note)).trim();
+  const lines = middle.map((x) => text(x.block)).filter(Boolean);
+  const credit = lines.findIndex((l, i) => i > 0 && /^(written |a play |a screenplay )?by$/i.test(l.replace(/[*_]/g, "")));
+  const title = credit > 0 ? lines.slice(0, credit) : lines.slice(0, 1);
+  const author = credit > 0 ? lines.slice(credit + 1, credit + 2) : [];
+  const source = credit > 0 ? lines.slice(credit + 2) : lines.slice(1);
+  const key = (name: string, values: string[]) => (values.length === 1 ? [`${name}: ${values[0]}`] : values.length ? [`${name}:`, ...values.map((v) => `    ${v}`)] : []);
+  return [
+    ...key("Title", title.length ? title : ["Untitled"]),
+    ...(credit > 0 ? [`Credit: ${lines[credit]}`] : []),
+    ...key("Author", author),
+    ...key("Source", source),
+    ...key("Contact", bottom.map((x) => text(x.block)).filter(Boolean)),
+  ];
+}
+
 export function toFountain(template: Template, meta: ProjectMeta, items: ManuscriptItem[]): string {
   const out: string[] = [];
-  const tp = [`Title: ${meta.title || "Untitled"}`];
-  // Fountain titles may run onto indented lines; the subtitle is the second line.
-  if (meta.subtitle?.trim()) tp[0] = `Title:\n    ${meta.title || "Untitled"}\n    ${meta.subtitle.trim()}`;
-  if (meta.author) tp.push(`Author: ${meta.author}`);
-  if (meta.contact) tp.push(`Contact: ${meta.contact.replace(/\n/g, "\n    ")}`);
+  const typedPage = meta.titlePage ? findTitlePages(items).project : undefined;
+  let tp: string[];
+  if (typedPage) {
+    tp = fountainTitlePage(typedPage.blocks);
+  } else {
+    tp = [`Title: ${meta.title || "Untitled"}`];
+    // Fountain titles may run onto indented lines; the subtitle is the second line.
+    if (meta.subtitle?.trim()) tp[0] = `Title:\n    ${meta.title || "Untitled"}\n    ${meta.subtitle.trim()}`;
+    if (meta.author) tp.push(`Author: ${meta.author}`);
+    if (meta.contact) tp.push(`Contact: ${meta.contact.replace(/\n/g, "\n    ")}`);
+  }
   out.push(tp.join("\n"), "");
   for (const item of items) {
     if (item.kind === "matter") continue; // front/back matter is not part of a Fountain script
@@ -206,22 +236,24 @@ export function toExportDoc(template: Template, meta: ProjectMeta, items: Manusc
     });
   /** An empty paragraph keeps its place as a blank line (a no-break space, so Word and e-readers don't drop it). */
   const blankLine: Run[] = [{ text: "\u00a0" }];
-  if (essay) blocks.push(...essayOpening(meta));
-  // Scripts: title pages the writer typed replace the automatic ones.
-  const typed = script ? findTitlePages(items) : { project: undefined, plays: new Map<string, MatterItem>() };
+  // Title pages the writer typed replace the automatic ones (or are a cover, where a format has none).
+  const typed = findTitlePages(items);
   const typedPages = new Set<ManuscriptItem>([...(typed.project ? [typed.project] : []), ...typed.plays.values()]);
+  const clean = (b: Block) => (blockText(b).trim() ? b.runs.filter((r) => !r.note) : blankLine);
   const typedTitle = (page: MatterItem) => {
     const { middle, bottom } = titlePageParts(page.blocks);
-    middle.forEach(({ block }, i) => {
-      const filled = !!blockText(block).trim();
-      blocks.push({ kind: i === 0 ? "title" : "centered", runs: filled ? block.runs.filter((r) => !r.note) : blankLine });
-    });
-    for (const { block } of bottom) blocks.push({ kind: "matter_paragraph", runs: blockText(block).trim() ? block.runs.filter((r) => !r.note) : blankLine });
+    for (const { block } of middle) blocks.push({ kind: "title_page_middle", runs: clean(block) });
+    for (const { block } of bottom) blocks.push({ kind: "title_page_bottom", runs: clean(block) });
+    // Its own page: the frames it is laid out in are anchored to this break.
     blocks.push({ kind: "page_break", runs: [] });
   };
-  if (meta.titlePage && script && typed.project) {
-    typedTitle(typed.project);
-  } else if (meta.titlePage && (script || template.id === "book")) {
+  const typedProject = meta.titlePage ? typed.project : undefined;
+  if (typedProject) typedTitle(typedProject);
+  // Essays: MLA's heading block still opens page 1; a typed page replaces Chicago's title page.
+  const chicago = meta.essay?.style === "chicago" || meta.essay?.style === "chicago-notes";
+  if (essay && !(typedProject && chicago)) blocks.push(...essayOpening(meta));
+  // The automatic title page, unless a typed one (or an essay's own opening) stands in for it.
+  if (!typedProject && !essay && meta.titlePage && (script || template.id === "book")) {
     blocks.push({ kind: "title", runs: [{ text: meta.title || "Untitled" }] });
     if (meta.subtitle?.trim()) blocks.push({ kind: script ? "centered" : "subheading", runs: [{ text: meta.subtitle.trim() }] });
     if (meta.author) blocks.push({ kind: script ? "character" : "subheading", runs: [{ text: `by ${meta.author}` }] });

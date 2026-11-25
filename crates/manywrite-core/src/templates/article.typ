@@ -3,7 +3,7 @@
 #import "bubbles.typ": text-bubble
 
 #let conf(
-  title: none, subtitle: none, author: none, contact: none, date: none, title-page: false,
+  title: none, subtitle: none, author: none, contact: none, date: none, cover: none, title-page: false,
   font: "Libertinus Serif", paper: "us-letter",
   page-fill: white, text-fill: black,
   body,
@@ -14,6 +14,8 @@
   set par(justify: false, leading: 0.75em, spacing: 1.1em)
   set page(paper: paper, fill: page-fill, margin: (x: 1.2in, y: 1in),
     footer: context align(center, text(size: 9pt, counter(page).display())))
+  // A title page the writer typed (titlepage.typ) comes first, in place of the automatic one.
+  if cover != none { cover }
   if title != none {
     block(below: 0.6em, text(size: 22pt, weight: "bold", title))
     if subtitle != none and subtitle != "" { block(below: 0.8em, text(size: 14pt, fill: text-fill.transparentize(20%), subtitle)) }

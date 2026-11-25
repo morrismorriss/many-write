@@ -403,13 +403,26 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let script = matches!(doc.template.as_str(), "stage-play" | "screenplay");
     let essay = doc.template == "essay";
     let chicago = essay && (doc.style == "chicago" || doc.style == "chicago-notes");
-    let styles = if essay {
+    let mut styles = if essay {
         essay_styles(chicago)
     } else if script {
         script_styles(doc.template == "screenplay")
     } else {
         prose_styles(doc.template == "book")
     };
+    // A title page the writer typed: its centred lines in a frame in the middle of the
+    // page, the lines after them in a frame at the bottom left (as in the PDF). The
+    // frames are set on each paragraph (`para`), where every word processor reads them.
+    styles.push(Style {
+        id: "title_page_middle",
+        ppr: "<w:keepNext/><w:jc w:val=\"center\"/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/><w:ind w:left=\"0\" w:right=\"0\" w:firstLine=\"0\"/>",
+        rpr: "",
+    });
+    styles.push(Style {
+        id: "title_page_bottom",
+        ppr: "<w:keepNext/><w:spacing w:before=\"0\" w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/><w:ind w:left=\"0\" w:right=\"0\" w:firstLine=\"0\"/>",
+        rpr: "",
+    });
     let (font, size) = if script {
         ("Courier Prime", 24)
     } else if essay {
@@ -473,6 +486,12 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             "paragraph"
         };
         let mut p = format!("<w:p><w:pPr><w:pStyle w:val=\"{style}\"/>");
+        // Consecutive paragraphs with the same frame share it.
+        if style == "title_page_middle" {
+            p.push_str(r#"<w:keepNext/><w:framePr w:wrap="around" w:vAnchor="margin" w:hAnchor="margin" w:xAlign="center" w:yAlign="center"/>"#);
+        } else if style == "title_page_bottom" {
+            p.push_str(r#"<w:keepNext/><w:framePr w:wrap="around" w:vAnchor="margin" w:hAnchor="margin" w:xAlign="left" w:yAlign="bottom"/>"#);
+        }
         if style == "paragraph" || style == "dialogue" || style == "line" {
             p.push_str("<w:widowControl/>");
         }
@@ -555,13 +574,14 @@ pub fn docx(doc: &ExportDoc) -> Result<Vec<u8>, String> {
 
     // Page numbers for the other formats, as in the PDF. A title page (scripts, books) is
     // unnumbered and the page after it is page 1.
-    let title_page = (script || doc.template == "book") && doc.blocks.first().is_some_and(|b| b.kind == "title");
+    let title_page = doc.blocks.first().is_some_and(|b| b.kind == "title_page_middle")
+        || ((script || doc.template == "book") && doc.blocks.first().is_some_and(|b| b.kind == "title"));
     let numbering = match doc.template.as_str() {
         "essay" => None,
         // Scripts: "12." at the top right.
         "stage-play" | "screenplay" => Some(PageNumbers { footer: false, suffix: ".", title_page }),
         // Documents: top right.
-        "document" => Some(PageNumbers { footer: false, suffix: "", title_page: false }),
+        "document" => Some(PageNumbers { footer: false, suffix: "", title_page }),
         // Books, articles, poems: centred at the bottom.
         _ => Some(PageNumbers { footer: true, suffix: "", title_page }),
     };
@@ -799,8 +819,18 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
     let mut prev_kind = String::new();
     let mut note_links = NoteLinks::new(doc);
     for (bi, b) in doc.blocks.iter().enumerate() {
+        let in_title_page = prev_kind.starts_with("title_page");
+        // A typed title page is a chapter of its own; the page break after it ends it.
+        if b.kind == "page_break" && in_title_page {
+            if let Some(c) = current.take() {
+                chapters.push(c);
+            }
+            prev_kind = String::new();
+            continue;
+        }
         let starts_chapter = matches!(b.kind.as_str(), "chapter" | "folder_heading" | "matter_title")
-            || (poem && b.kind == "title");
+            || (poem && b.kind == "title")
+            || (b.kind == "title_page_middle" && !in_title_page);
         if starts_chapter || current.is_none() {
             if let Some(c) = current.take() {
                 chapters.push(c);
@@ -861,6 +891,8 @@ pub fn epub(doc: &ExportDoc) -> Result<Vec<u8>, String> {
             "page_break" => {}
             "centered" => html.push_str(&format!("<p class=\"first\" style=\"text-align:center\">{inline}</p>\n")),
             "matter_paragraph" => html.push_str(&format!("<p class=\"article\">{inline}</p>\n")),
+            "title_page_middle" => html.push_str(&format!("<p class=\"center\">{inline}</p>\n")),
+            "title_page_bottom" => html.push_str(&format!("<p class=\"first\">{inline}</p>\n")),
             "folder_heading" => html.push_str(&format!("<h1 class=\"part\">{inline}</h1>\n")),
             "heading" | "scene_heading" => html.push_str(&format!("<h2>{inline}</h2>\n")),
             "subheading" => html.push_str(&format!("<h3>{inline}</h3>\n")),

@@ -6,7 +6,7 @@
 #let mw-num = counter("mw-num")
 
 #let conf(
-  title: none, subtitle: none, author: none, contact: none, date: none, title-page: false,
+  title: none, subtitle: none, author: none, contact: none, date: none, cover: none, title-page: false,
   font: "Libertinus Serif", paper: "us-letter",
   page-fill: white, text-fill: black,
   body,
@@ -17,6 +17,8 @@
   // Page numbers: top right, from page 1.
   set page(paper: paper, fill: page-fill, margin: (x: 1in, y: 1in),
     header: context align(right, text(size: 9pt, counter(page).display())))
+  // A title page the writer typed (titlepage.typ) comes first, in place of the automatic one.
+  if cover != none { cover }
   body
 }
 

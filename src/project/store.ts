@@ -1260,8 +1260,8 @@ export class ProjectStore {
   }
 
   /**
-   * Scripts: a title page to type in, first in the project's front matter or a
-   * play's. It starts as the automatic title page written out, and replaces it.
+   * A title page to type in, first in the project's front matter or (in a
+   * collection) a play's. It starts as the automatic title page written out, and replaces it.
    * If there is one already, it is opened instead.
    */
   async addTitlePage(parentId: string, role: Role) {
@@ -1269,7 +1269,7 @@ export class ProjectStore {
     const existing = (parent.children ?? []).find((n) => n.kind === "doc" && isTitlePageName(n.title));
     if (existing) return this.select(existing.id);
     const play = parent.matter ? playOf(this.data, parent.id) : undefined;
-    const content = titlePageStarter(this.meta(), play?.title);
+    const content = titlePageStarter(this.meta(), this.template.id as TemplateId, play?.title);
     if (!play && !this.data.settings.titlePage) await this.updateMeta({ settings: { titlePage: true } });
     return this.addDoc(parent.id, undefined, role, { title: TITLE_PAGE, content }, { atStart: true });
   }
