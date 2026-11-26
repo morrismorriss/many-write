@@ -656,6 +656,9 @@ figure.mw-image.ProseMirror-selectednode img { outline: 2px solid var(--accent);
 .report-play { flex-direction: row; align-items: center; gap: 8px; }
 .report-summary { flex-wrap: wrap; margin-bottom: 14px; }
 .report-tabs { margin-bottom: 10px; }
+/* Only the table area gives up height when the dialog is short; the header, summary, tabs and footer keep theirs. */
+.modal.report-dialog > * { flex-shrink: 0; }
+.modal.report-dialog > .report-scroll { flex-shrink: 1; min-height: 120px; }
 .report-scroll { max-height: 52vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 .report-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .report-table th, .report-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
